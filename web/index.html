@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DGIST LMS AutoSaver</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="주요 메뉴">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">D</div>
+          <div>
+            <strong>DGIST LMS</strong>
+            <span>AutoSaver</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" type="button" data-view="dashboard">
+            <span class="icon" data-icon="layout"></span>
+            대시보드
+          </button>
+          <button class="nav-item" type="button" data-view="courses">
+            <span class="icon" data-icon="book"></span>
+            강의
+          </button>
+          <button class="nav-item" type="button" data-view="files">
+            <span class="icon" data-icon="file"></span>
+            자료
+          </button>
+          <button class="nav-item" type="button" data-view="automation">
+            <span class="icon" data-icon="clock"></span>
+            자동화
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <span class="icon" data-icon="settings"></span>
+            설정
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="status-dot" id="sidebarStatusDot"></span>
+          <div>
+            <strong id="sidebarStatus">상태 확인 중</strong>
+            <span id="sidebarSchedule">예약 시간 불러오는 중</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="search-wrap">
+            <span class="icon" data-icon="search"></span>
+            <input id="searchInput" type="search" placeholder="과목, 파일명, 주차 검색" autocomplete="off" />
+          </div>
+          <div class="topbar-actions">
+            <button class="button ghost" id="openDownloadsButton" type="button">
+              <span class="icon" data-icon="folder"></span>
+              다운로드
+            </button>
+            <button class="button ghost" id="verifyButton" type="button">
+              <span class="icon" data-icon="check"></span>
+              검증 실행
+            </button>
+            <button class="button primary" id="runButton" type="button">
+              <span class="icon" data-icon="sync"></span>
+              지금 동기화
+            </button>
+          </div>
+        </header>
+
+        <section class="workspace">
+          <div class="content-column">
+            <section class="hero-panel" aria-labelledby="pageTitle">
+              <div>
+                <h1 id="pageTitle">강의 자료 동기화</h1>
+                <p id="pageSubtitle">LMS의 새 자료를 확인하고 Drive 업로드와 알림 상태를 한 화면에서 관리합니다.</p>
+              </div>
+              <div class="hero-actions">
+                <button class="button compact" id="settingsButton" type="button">
+                  <span class="icon" data-icon="settings"></span>
+                  설정
+                </button>
+              </div>
+            </section>
+
+            <section class="metrics-grid" aria-label="요약 상태">
+              <article class="metric-card">
+                <div class="metric-icon red"><span class="icon" data-icon="file"></span></div>
+                <span class="metric-label">전체 자료</span>
+                <strong id="metricFiles">0</strong>
+                <small id="metricFilesNote">목록 불러오는 중</small>
+              </article>
+              <article class="metric-card">
+                <div class="metric-icon blue"><span class="icon" data-icon="book"></span></div>
+                <span class="metric-label">강의</span>
+                <strong id="metricCourses">0</strong>
+                <small>분류된 과목</small>
+              </article>
+              <article class="metric-card">
+                <div class="metric-icon green"><span class="icon" data-icon="cloud"></span></div>
+                <span class="metric-label">Drive OAuth</span>
+                <strong id="metricLocal">대기</strong>
+                <small id="metricDriveNote">Drive 준비 상태</small>
+              </article>
+              <article class="metric-card">
+                <div class="metric-icon amber"><span class="icon" data-icon="alert"></span></div>
+                <span class="metric-label">누락 확인</span>
+                <strong id="metricMissing">0</strong>
+                <small>검증 대상</small>
+              </article>
+            </section>
+
+            <section class="panel file-panel" aria-labelledby="filesTitle">
+              <div class="panel-header">
+                <div>
+                  <h2 id="filesTitle">최근 자료</h2>
+                  <p id="filesHint">강의별 파일과 동기화 상태</p>
+                </div>
+                <div class="filters">
+                  <select id="courseFilter" aria-label="강의 필터">
+                    <option value="">전체 강의</option>
+                  </select>
+                  <select id="statusFilter" aria-label="상태 필터">
+                    <option value="">전체 상태</option>
+                    <option value="local">로컬 저장</option>
+                    <option value="missing">누락</option>
+                    <option value="sample">샘플</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>파일</th>
+                      <th>강의</th>
+                      <th>위치</th>
+                      <th>형식</th>
+                      <th>상태</th>
+                    </tr>
+                  </thead>
+                  <tbody id="filesTable"></tbody>
+                </table>
+                <div class="empty-state" id="emptyState" hidden>
+                  <span class="icon" data-icon="folder"></span>
+                  <strong>표시할 자료가 없습니다.</strong>
+                  <span>검색어나 필터를 조정해 주세요.</span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="right-rail" aria-label="작업 상태">
+            <section class="panel checklist-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>설정 체크</h2>
+                  <p>실행 전 연결 상태</p>
+                </div>
+              </div>
+              <div class="checklist" id="checklist"></div>
+              <div class="drive-actions">
+                <button class="button compact" id="connectGoogleButton" type="button">
+                  <span class="icon" data-icon="cloud"></span>
+                  Google OAuth 연결
+                </button>
+                <button class="icon-button" id="googleHelpButton" type="button" aria-label="Google API 도움말">
+                  <span class="icon" data-icon="help"></span>
+                </button>
+              </div>
+              <button class="text-button" id="disconnectGoogleButton" type="button" hidden>
+                이 컴퓨터의 Google 연결 해제
+              </button>
+            </section>
+
+            <section class="panel activity-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>실행 로그</h2>
+                  <p id="taskSummary">대기 중</p>
+                </div>
+              </div>
+              <div class="log-box" id="logBox" aria-live="polite"></div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="settings-dialog" id="settingsDialog">
+      <form id="configForm" method="dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>설정</h2>
+            <p>빈 비밀번호/API 키 필드는 기존 값을 유지합니다.</p>
+          </div>
+          <button class="icon-button" id="closeSettingsButton" type="button" aria-label="닫기">
+            <span class="icon" data-icon="x"></span>
+          </button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>LMS ID</span>
+            <input name="lmsId" autocomplete="username" />
+          </label>
+          <label>
+            <span>LMS 비밀번호</span>
+            <input name="lmsPassword" type="password" autocomplete="current-password" placeholder="기존 값 유지" />
+          </label>
+          <label>
+            <span>Gemini API Key</span>
+            <input name="geminiKey" type="password" placeholder="기존 값 유지" />
+          </label>
+          <label>
+            <span>Gmail 주소</span>
+            <input name="emailAddress" type="email" autocomplete="email" />
+          </label>
+          <label>
+            <span>Gmail 앱 비밀번호</span>
+            <input name="emailPassword" type="password" placeholder="기존 값 유지" />
+          </label>
+          <label>
+            <span>받는 주소</span>
+            <input name="emailTo" type="email" />
+          </label>
+          <label>
+            <span>다운로드 경로</span>
+            <input name="downloadPath" />
+          </label>
+          <label>
+            <span>예약 시간</span>
+            <input name="scheduleTime" type="time" />
+          </label>
+          <label class="wide">
+            <span>LMS URL</span>
+            <input name="lmsUrl" />
+          </label>
+          <label class="wide">
+            <span>로그인 URL</span>
+            <input name="loginUrl" />
+          </label>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="button ghost" id="cancelSettingsButton" type="button">취소</button>
+          <button class="button primary" type="submit">설정 저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="settings-dialog help-dialog" id="googleHelpDialog">
+      <div class="dialog-header">
+        <div>
+          <h2>Google API 발급 도움말</h2>
+          <p>Drive 동기화는 Google OAuth로 권한을 받아 `token.json`을 저장한 뒤 실행됩니다.</p>
+        </div>
+        <button class="icon-button" id="closeGoogleHelpButton" type="button" aria-label="닫기">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+
+      <div class="help-body">
+        <ol class="steps-list">
+          <li><strong>Google Cloud Console</strong>에서 새 프로젝트를 만들거나 기존 프로젝트를 선택합니다.</li>
+          <li><strong>API 및 서비스</strong>에서 <strong>Google Drive API</strong>를 사용 설정합니다.</li>
+          <li><strong>Google Auth Platform</strong>에서 앱 이름, 지원 이메일, 사용자 유형을 설정합니다. 개인 테스트라면 테스트 사용자에 본인 Gmail을 추가합니다.</li>
+          <li><strong>Clients</strong>에서 OAuth 클라이언트를 만듭니다. 이 앱은 대시보드에 표시되는 redirect URI를 사용합니다.</li>
+          <li>로컬/코드스페이스에서는 <strong>credentials.json</strong>을 상태 화면의 credentialsPath 위치에 두거나, 배포 서버에서는 환경 변수로 Client ID/Secret을 넣습니다.</li>
+          <li>이 화면의 <strong>Google OAuth 연결</strong>을 누르고 브라우저에서 계정 권한을 허용합니다.</li>
+        </ol>
+
+        <div class="help-callout">
+          <strong>redirect_uri_mismatch가 보이면</strong>
+          <span>대시보드의 Google OAuth 상태에 표시되는 redirect URI와 Google Cloud Console의 Authorized redirect URIs가 같은지 확인해 주세요.</span>
+        </div>
+
+        <div class="help-callout">
+          <strong>권장 범위</strong>
+          <span>이 앱은 `drive.file` 범위를 사용합니다. 앱이 만든 파일과 사용자가 선택한 파일에 접근하는 비교적 제한적인 권한입니다.</span>
+        </div>
+
+        <div class="reference-grid">
+          <a href="https://developers.google.com/workspace/drive/api/quickstart/python" target="_blank" rel="noreferrer">
+            <strong>공식 문서</strong>
+            <span>Drive API Python quickstart</span>
+          </a>
+          <a href="https://developers.google.com/identity/protocols/oauth2" target="_blank" rel="noreferrer">
+            <strong>공식 문서</strong>
+            <span>Google OAuth 2.0 개요</span>
+          </a>
+          <a href="https://www.youtube.com/watch?v=wAPmriPR9X0" target="_blank" rel="noreferrer">
+            <strong>한국어 영상</strong>
+            <span>Google OAuth/API 설정, 조회수 약 6.7천회</span>
+          </a>
+          <a href="https://www.youtube.com/watch?v=RFiDNDaps_Q" target="_blank" rel="noreferrer">
+            <strong>한국어 영상</strong>
+            <span>생활코딩 OAuth code 절차, 조회수 약 1.6만회</span>
+          </a>
+          <a href="https://www.youtube.com/watch?v=bQfJ5iDFw0k" target="_blank" rel="noreferrer">
+            <strong>한국어 영상</strong>
+            <span>Python Google Drive 업로드, 조회수 약 970회</span>
+          </a>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js?v=multi-user-20260528" defer></script>
+  </body>
+</html>

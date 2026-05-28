@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: dgist-lms-autosaver
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python -m playwright install --with-deps chromium
+    startCommand: python web_ui.py
+    disk:
+      name: autosaver-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: AUTOSAVER_MULTI_USER
+        value: "1"
+      - key: AUTOSAVER_UI_HOST
+        value: "0.0.0.0"
+      - key: AUTOSAVER_OPEN_BROWSER
+        value: "0"
+      - key: AUTOSAVER_HEADLESS
+        value: "1"
+      - key: AUTOSAVER_USERS_ROOT
+        value: "/var/data/users"
+      - key: AUTOSAVER_GOOGLE_CLIENT_ID
+        sync: false
+      - key: AUTOSAVER_GOOGLE_CLIENT_SECRET
+        sync: false

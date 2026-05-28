@@ -1,0 +1,14 @@
+{
+  "name": "DGIST LMS AutoSaver",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "DGIST LMS AutoSaver",
+      "onAutoForward": "openBrowser",
+      "protocol": "http"
+    }
+  },
+  "postCreateCommand": "pip install -r requirements.txt && python -m playwright install --with-deps chromium",
+  "postStartCommand": "bash scripts/start-codespaces.sh"
+}
