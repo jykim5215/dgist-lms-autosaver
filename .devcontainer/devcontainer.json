@@ -15,5 +15,5 @@
     }
   },
   "postCreateCommand": "pip install -r requirements.txt && python -m playwright install --with-deps chromium",
-  "postStartCommand": "mkdir -p ~/.lms-autosaver && (pgrep -f 'python web_ui.py' >/dev/null || nohup bash scripts/start-codespaces.sh > ~/.lms-autosaver/web_ui.log 2>&1 &)"
+  "postStartCommand": "mkdir -p ~/.lms-autosaver && (pgrep -f '[p]ython.*web_ui.py' >/dev/null || nohup bash scripts/start-codespaces.sh > ~/.lms-autosaver/web_ui.log 2>&1 &)"
 }
