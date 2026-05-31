@@ -17,8 +17,8 @@
 2. Render에서 **New > Blueprint**를 선택합니다.
 3. 저장소 `jykim5215/dgist-lms-autosaver`를 연결합니다.
 4. Render가 `render.yaml`을 읽어 `dgist-lms-autosaver` 서비스를 생성하게 둡니다.
-5. 환경 변수 `AUTOSAVER_GOOGLE_CLIENT_ID`, `AUTOSAVER_GOOGLE_CLIENT_SECRET`을 Render Dashboard에서 입력합니다.
-6. 배포가 끝난 뒤 Render 서비스 URL을 엽니다.
+5. 배포가 끝난 뒤 Render 서비스 URL을 엽니다.
+6. Google Drive OAuth를 실제로 사용할 때 Render Dashboard에서 환경 변수 `AUTOSAVER_GOOGLE_CLIENT_ID`, `AUTOSAVER_GOOGLE_CLIENT_SECRET`을 추가합니다.
 
 `render.yaml`은 다음 값을 포함합니다.
 
@@ -43,6 +43,8 @@ https://dgist-lms-autosaver.onrender.com/oauth2callback
 ```
 
 앱 화면의 Google 연동 도움말에도 현재 서버 기준 Redirect URI가 표시됩니다. `redirect_uri_mismatch`가 나면 그 값을 Google Cloud Console에 그대로 추가하면 됩니다.
+
+Google OAuth 클라이언트 ID와 Secret은 민감정보이므로 GitHub에 올리지 않습니다. Render Dashboard의 Environment 탭에서만 입력하세요.
 
 ## 사용자 데이터 분리
 

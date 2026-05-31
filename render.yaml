@@ -22,7 +22,3 @@ services:
         value: "1"
       - key: AUTOSAVER_USERS_ROOT
         value: "/tmp/autosaver/users"
-      - key: AUTOSAVER_GOOGLE_CLIENT_ID
-        sync: false
-      - key: AUTOSAVER_GOOGLE_CLIENT_SECRET
-        sync: false
