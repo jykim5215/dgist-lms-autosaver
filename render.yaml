@@ -4,18 +4,14 @@ services:
     runtime: docker
     repo: https://github.com/jykim5215/dgist-lms-autosaver
     branch: main
-    plan: starter
+    plan: free
     region: singapore
     autoDeployTrigger: commit
     healthCheckPath: /healthz
     dockerfilePath: ./Dockerfile
-    disk:
-      name: autosaver-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: AUTOSAVER_ROOT
-        value: "/var/data"
+        value: "/tmp/autosaver"
       - key: AUTOSAVER_MULTI_USER
         value: "1"
       - key: AUTOSAVER_UI_HOST
@@ -25,7 +21,7 @@ services:
       - key: AUTOSAVER_HEADLESS
         value: "1"
       - key: AUTOSAVER_USERS_ROOT
-        value: "/var/data/users"
+        value: "/tmp/autosaver/users"
       - key: AUTOSAVER_GOOGLE_CLIENT_ID
         sync: false
       - key: AUTOSAVER_GOOGLE_CLIENT_SECRET
