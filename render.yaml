@@ -1,14 +1,21 @@
 services:
   - type: web
     name: dgist-lms-autosaver
-    runtime: python
-    buildCommand: pip install -r requirements.txt && python -m playwright install --with-deps chromium
-    startCommand: python web_ui.py
+    runtime: docker
+    repo: https://github.com/jykim5215/dgist-lms-autosaver
+    branch: main
+    plan: starter
+    region: singapore
+    autoDeployTrigger: commit
+    healthCheckPath: /healthz
+    dockerfilePath: ./Dockerfile
     disk:
       name: autosaver-data
       mountPath: /var/data
       sizeGB: 1
     envVars:
+      - key: AUTOSAVER_ROOT
+        value: "/var/data"
       - key: AUTOSAVER_MULTI_USER
         value: "1"
       - key: AUTOSAVER_UI_HOST

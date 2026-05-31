@@ -754,11 +754,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        workspace = self.get_workspace()
-        base_url = self.request_base_url()
         parsed = urlparse(self.path)
         route = parsed.path
         params = parse_qs(parsed.query)
+
+        if route == "/healthz":
+            self.send_json(
+                {
+                    "ok": True,
+                    "mode": "multi-user" if MULTI_USER_MODE else "single-user",
+                    "time": now_iso(),
+                }
+            )
+            return
+
+        workspace = self.get_workspace()
+        base_url = self.request_base_url()
         if route in ("/", "/oauth2callback") and ("code" in params or "error" in params):
             code = params.get("code", [""])[0]
             state = params.get("state", [""])[0]

@@ -1,87 +1,60 @@
-# DGIST LMS AutoSaver 📚
+# DGIST LMS AutoSaver
 
-DGIST LMS의 강의 자료를 자동으로 Google Drive에 정리해주는 프로그램입니다.
+DGIST LMS 강의 자료를 찾아 Google Drive에 정리하고, 새 자료 확인과 업로드 상태를 웹 인터페이스에서 관리하는 앱입니다.
 
-## 기능
-- LMS 자동 로그인 및 파일 탐색
-- 강의별, 주차별 폴더 자동 분류
-- Google Drive 자동 업로드
-- 공지사항 첨부파일 자동 저장
-- 새 파일 업로드 시 이메일 알림
-- 매일 지정한 시간에 자동 실행
+## 주요 기능
 
-## 설치 방법
+- DGIST LMS 로그인 및 강의 자료 탐색
+- 여러 과목의 파일을 강의별/주차별로 분류
+- Google OAuth 기반 Google Drive 연동
+- Gemini API를 이용한 자료 요약
+- 웹 대시보드에서 설정, 동기화, 검증 실행
+- 사용자별 작업공간 분리 모드
 
-GitHub로 서버 주소를 자동으로 받아 실행하려면 [GITHUB_DEPLOY.md](GITHUB_DEPLOY.md)를 먼저 보세요.
-각 사용자가 자기 앱을 따로 쓰는 목적이면 GitHub Codespaces 방식이 가장 간단합니다.
+## 실행
 
-### 필요 사항
-- Windows 10/11
-- Python 3.10 이상
-- Google 계정
-- DGIST LMS 계정
+로컬 실행:
 
-### 설치 순서
-
-**1. 저장소 다운로드**
-
-```
-git clone https://github.com/YOUR_USERNAME/dgist-lms-autosaver.git
-cd dgist-lms-autosaver
+```powershell
+pip install -r requirements.txt
+python -m playwright install chromium
+python web_ui.py
 ```
 
-**2. setup.py 실행**
+운영 배포:
 
-```
-python setup.py
-```
+- GitHub + Render 상시 호스팅: [DEPLOYMENT.md](DEPLOYMENT.md)
+- GitHub 기반 배포 방식 비교: [GITHUB_DEPLOY.md](GITHUB_DEPLOY.md)
 
-**3. 안내에 따라 설정**
-- DGIST LMS 아이디/비밀번호 입력
-- Gemini API 키 발급 및 입력
-- Google Drive 연동 설정
-- Gmail 앱 비밀번호 설정
-- 자동 실행 시간 설정
+## Google API 설정
 
-**4. 프로그램 실행**
+앱의 설정 화면에는 Google Drive OAuth와 Gemini API 발급을 돕는 도움말이 포함되어 있습니다.
 
-```
-python main.py
+운영 배포 후에는 Google Cloud Console의 OAuth Redirect URI에 Render 도메인을 추가해야 합니다.
+
+```text
+https://<render-domain>/oauth2callback
 ```
 
-## API 키 발급 방법
+## 민감 파일
 
-### Gemini API (무료)
-1. https://aistudio.google.com/apikey 접속
-2. Google 계정 로그인
-3. "Create API Key" 클릭
+다음 파일은 GitHub에 올리지 않습니다.
 
-### Google Drive API
-1. https://console.cloud.google.com 접속
-2. 새 프로젝트 생성 (LMS-AutoSaver)
-3. Google Drive API 활성화
-4. OAuth 클라이언트 ID 생성 (데스크톱 앱)
-5. credentials.json 다운로드 → 프로젝트 폴더에 저장
-6. Google Cloud Console → OAuth 동의 화면 → 테스트 사용자 → 본인 Gmail 추가
+- `config.py`, `config.json`
+- `credentials.json`, `token.json`, `oauth_pending.json`
+- `downloaded_files.json`, `file_metadata.json`
+- `downloads/`, `users/`
 
-### Gmail 앱 비밀번호
-1. https://myaccount.google.com/apppasswords 접속
-2. 앱 이름 입력 후 생성
-3. 16자리 비밀번호 복사 (공백 제거)
+## 구조
 
-## 파일 구조
-
-```
+```text
 dgist-lms-autosaver/
-├── setup.py          # 최초 1회 설정 마법사
-├── main.py           # 메인 실행 파일
-├── lms_crawler.py    # LMS 파일 탐색
-├── drive_uploader.py # Google Drive 업로드
-├── email_notifier.py # 이메일 알림
-└── config.example.py # 설정 파일 예시
+├── web_ui.py          # 웹 대시보드 서버
+├── main.py            # 동기화 작업 실행
+├── lms_crawler.py     # LMS 자료 탐색
+├── drive_uploader.py  # Google Drive 업로드
+├── runtime_config.py  # 사용자별 실행 설정
+├── web/               # 프론트엔드 파일
+├── Dockerfile         # Render Docker 배포
+└── render.yaml        # Render Blueprint 설정
 ```
-
-## 주의사항
-- `config.py`, `credentials.json` 은 절대 공유하지 마세요.
-- 개인정보가 포함되어 있습니다.
-- `.gitignore` 에 의해 자동으로 GitHub 업로드에서 제외됩니다.
