@@ -9,6 +9,10 @@ kakao_token.json
 # 데이터 파일
 downloaded_files.json
 file_metadata.json
+deadlines.json
+emails.json
+upload_selection.json
+last_sync.json
 users/
 
 # 다운로드 폴더
@@ -28,3 +32,17 @@ web_ui_*.log
 artifacts/ui-desktop*.png
 artifacts/ui-mobile.png
 artifacts/ui-settings.png
+
+# 로그 / 빌드 산출물
+*.log
+*.zip
+
+# 프로브/디버그 스크립트
+artifacts/
+
+# Claude Code 로컬 설정
+.claude/
+
+# 별도 하위 프로젝트 (자체 저장소)
+doc2paper/
+hw_synth/

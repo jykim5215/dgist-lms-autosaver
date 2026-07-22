@@ -80,6 +80,9 @@ class UserWorkspace:
     token_path: Path
     downloaded_files_log: Path
     file_metadata_log: Path
+    deadlines_log: Path
+    upload_selection_path: Path
+    emails_log: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -108,6 +111,9 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         token_path=root / "token.json",
         downloaded_files_log=root / "downloaded_files.json",
         file_metadata_log=root / "file_metadata.json",
+        deadlines_log=root / "deadlines.json",
+        upload_selection_path=root / "upload_selection.json",
+        emails_log=root / "emails.json",
     )
 
 
@@ -234,7 +240,39 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
         "SCHEDULE_TIME": schedule_time,
         "LMS_URL": lms_url,
         "LOGIN_URL": login_url,
+        "SCHOOL_EMAIL": field("schoolEmail", "SCHOOL_EMAIL"),
+        "SCHOOL_EMAIL_PASSWORD": field("schoolEmailPassword", "SCHOOL_EMAIL_PASSWORD", secret=True),
+        "SCHOOL_IMAP_HOST": field("schoolImapHost", "SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+        "LOCAL_SAVE_PATH": str(payload.get("localSavePath", existing.get("LOCAL_SAVE_PATH", ""))).strip(),
     }
+
+    # 관심사: 선택한 태그 + 자유 입력을 합쳐 AI 분류 기준 문자열 생성
+    interest_tags = payload.get("interestTags")
+    if not isinstance(interest_tags, list):
+        interest_tags = existing.get("EMAIL_INTEREST_TAGS", [])
+    interest_tags = [str(tag).strip() for tag in interest_tags if str(tag).strip()]
+    if "interestsCustom" in payload:
+        interests_custom = str(payload.get("interestsCustom", "")).strip()
+    else:
+        interests_custom = str(existing.get("EMAIL_INTERESTS_CUSTOM", "")).strip()
+    combined = ", ".join([part for part in [", ".join(interest_tags), interests_custom] if part])
+    values["EMAIL_INTEREST_TAGS"] = interest_tags
+    values["EMAIL_INTERESTS_CUSTOM"] = interests_custom
+    values["EMAIL_INTERESTS"] = combined or str(
+        existing.get("EMAIL_INTERESTS", "전공 탐색, 취업, 음악, 세미나")
+    )
+    if "hidePastEmails" in payload:
+        values["EMAIL_HIDE_PAST"] = bool(payload.get("hidePastEmails"))
+    else:
+        values["EMAIL_HIDE_PAST"] = bool(existing.get("EMAIL_HIDE_PAST", False))
+
+    # 명시적 삭제 요청 (저장된 비밀 값 제거)
+    if payload.get("clearGeminiKey") is True:
+        values["GEMINI_API_KEY"] = ""
+    if payload.get("clearEmailPassword") is True:
+        values["EMAIL_PASSWORD"] = ""
+    if payload.get("clearSchoolEmailPassword") is True:
+        values["SCHOOL_EMAIL_PASSWORD"] = ""
 
     workspace.root.mkdir(parents=True, exist_ok=True)
     workspace.config_path.write_text(
@@ -244,6 +282,9 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
     Path(download_path).mkdir(parents=True, exist_ok=True)
     ensure_data_files(workspace)
     return values
+
+
+BUNDLED_CREDENTIALS_PATH = PROJECT_ROOT / "credentials.json"
 
 
 def ensure_data_files(workspace: UserWorkspace | None = None) -> None:
@@ -256,6 +297,16 @@ def ensure_data_files(workspace: UserWorkspace | None = None) -> None:
     for path, value in defaults.items():
         if not path.exists():
             path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 배포판에 동봉된 Google OAuth 클라이언트를 첫 실행 시 데이터 폴더로 복사
+    if not DRIVE_CREDENTIALS_PATH.exists() and BUNDLED_CREDENTIALS_PATH.exists():
+        try:
+            import shutil
+
+            DRIVE_CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(BUNDLED_CREDENTIALS_PATH, DRIVE_CREDENTIALS_PATH)
+        except OSError:
+            pass
 
 
 def extract_course_label(value: str) -> str:
@@ -496,6 +547,186 @@ def get_files(workspace: UserWorkspace) -> list[dict[str, Any]]:
     return rows
 
 
+def get_deadlines(workspace: UserWorkspace) -> dict[str, Any]:
+    data = read_json(workspace.deadlines_log, {})
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "updatedAt": data.get("updatedAt"),
+        "items": data.get("items", []) if isinstance(data.get("items"), list) else [],
+        "events": data.get("events", []) if isinstance(data.get("events"), list) else [],
+    }
+
+
+def deadline_counts(deadlines: dict[str, Any]) -> dict[str, int]:
+    now = datetime.now().astimezone()
+    upcoming = 0
+    overdue_unsubmitted = 0
+    for item in deadlines.get("items", []):
+        due_raw = item.get("due")
+        if not due_raw:
+            continue
+        try:
+            due = datetime.fromisoformat(str(due_raw).replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            continue
+        submitted = item.get("myStatus") in ("Graded", "NeedsGrading")
+        if due >= now and (due - now).days < 7 and not submitted:
+            upcoming += 1
+        if due < now and not submitted:
+            overdue_unsubmitted += 1
+    return {"upcoming7d": upcoming, "overdueUnsubmitted": overdue_unsubmitted}
+
+
+def build_deadlines_ics(workspace: UserWorkspace) -> str:
+    """과제 마감일을 iCalendar(.ics) 텍스트로 변환."""
+
+    def ics_escape(text: str) -> str:
+        return (
+            str(text or "")
+            .replace("\\", "\\\\")
+            .replace(";", "\\;")
+            .replace(",", "\\,")
+            .replace("\n", "\\n")
+        )
+
+    deadlines = get_deadlines(workspace)
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//DGIST LMS AutoSaver//KR",
+        "CALSCALE:GREGORIAN",
+        "X-WR-CALNAME:DGIST 과제 마감",
+    ]
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    for item in deadlines.get("items", []):
+        due_raw = item.get("due")
+        if not due_raw:
+            continue
+        try:
+            due = datetime.fromisoformat(str(due_raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        uid = f"{item.get('columnId', '')}@dgist-lms-autosaver"
+        summary = f"[{item.get('courseLabel', '')}] {item.get('name', '과제')}"
+        submitted = item.get("myStatus") in ("Graded", "NeedsGrading")
+        description = "제출 완료" if submitted else "미제출"
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{stamp}",
+            f"DTSTART:{due.strftime('%Y%m%dT%H%M%SZ')}",
+            f"SUMMARY:{ics_escape(summary)}",
+            f"DESCRIPTION:{ics_escape(description)}",
+            "BEGIN:VALARM",
+            "TRIGGER:-P1D",
+            "ACTION:DISPLAY",
+            f"DESCRIPTION:{ics_escape(summary)} 마감 하루 전",
+            "END:VALARM",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
+
+
+def get_course_state(workspace: UserWorkspace) -> dict[str, Any]:
+    path = workspace.root / "courses_state.json"
+    data = read_json(path, {})
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "pending": bool(data.get("pending")),
+        "added": data.get("added", []) if isinstance(data.get("added"), list) else [],
+        "removed": data.get("removed", []) if isinstance(data.get("removed"), list) else [],
+        "current": data.get("current", []) if isinstance(data.get("current"), list) else [],
+        "updatedAt": data.get("updatedAt"),
+    }
+
+
+def acknowledge_courses(workspace: UserWorkspace) -> dict[str, Any]:
+    path = workspace.root / "courses_state.json"
+    data = read_json(path, {})
+    if not isinstance(data, dict):
+        data = {}
+    current = data.get("current", []) if isinstance(data.get("current"), list) else []
+    new_state = {
+        "acknowledged": current,
+        "current": current,
+        "added": [],
+        "removed": [],
+        "pending": False,
+        "updatedAt": now_iso(),
+    }
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(new_state, ensure_ascii=False, indent=2), encoding="utf-8")
+    return new_state
+
+
+def patch_email_local(workspace: UserWorkspace, uid: int | None, folder: str,
+                      unread: bool | None = None, remove: bool = False,
+                      all_in_folder: bool = False) -> None:
+    """IMAP 작업 후 로컬 emails.json을 즉시 반영해 UI가 새로고침 없이 갱신되게."""
+    data = read_json(workspace.emails_log, {})
+    if not isinstance(data, dict) or not isinstance(data.get("emails"), list):
+        return
+    emails = data["emails"]
+    if remove and uid is not None:
+        data["emails"] = [m for m in emails if not (m.get("uid") == uid and m.get("folder") == folder)]
+    else:
+        for m in emails:
+            if m.get("folder") != folder:
+                continue
+            if all_in_folder or m.get("uid") == uid:
+                if unread is not None:
+                    m["unread"] = unread
+    workspace.emails_log.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_emails(workspace: UserWorkspace) -> dict[str, Any]:
+    data = read_json(workspace.emails_log, {})
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "updatedAt": data.get("updatedAt"),
+        "briefing": data.get("briefing", ""),
+        "interests": data.get("interests", ""),
+        "contacts": data.get("contacts", []) if isinstance(data.get("contacts"), list) else [],
+        "emails": data.get("emails", []) if isinstance(data.get("emails"), list) else [],
+    }
+
+
+def get_local_save_dir(workspace: UserWorkspace) -> Path:
+    config = read_config(workspace)
+    custom = str(config.get("LOCAL_SAVE_PATH", "")).strip()
+    if custom:
+        try:
+            path = Path(custom)
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        except OSError:
+            pass
+    return Path.home() / "Downloads"
+
+
+def get_upload_selection(workspace: UserWorkspace) -> dict[str, Any]:
+    data = read_json(workspace.upload_selection_path, {})
+    courses = data.get("courses") if isinstance(data, dict) else None
+    return {"courses": courses if isinstance(courses, dict) else {}}
+
+
+def save_upload_selection(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    courses = payload.get("courses")
+    if not isinstance(courses, dict):
+        courses = {}
+    cleaned = {str(name): bool(enabled) for name, enabled in courses.items()}
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.upload_selection_path.write_text(
+        json.dumps({"courses": cleaned}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {"courses": cleaned}
+
+
 def get_status(workspace: UserWorkspace, base_url: str | None = None) -> dict[str, Any]:
     config = read_config(workspace)
     files = get_files(workspace)
@@ -519,7 +750,20 @@ def get_status(workspace: UserWorkspace, base_url: str | None = None) -> dict[st
         running = bool(task_state["running"])
         task_kind = task_state["kind"]
 
+    deadlines = get_deadlines(workspace)
+    course_state = get_course_state(workspace)
+
     return {
+        "deadlines": {
+            "updatedAt": deadlines.get("updatedAt"),
+            "total": len(deadlines.get("items", [])),
+            **deadline_counts(deadlines),
+        },
+        "courseChange": {
+            "pending": course_state["pending"],
+            "added": course_state["added"],
+            "removed": course_state["removed"],
+        },
         "mode": "multi-user" if MULTI_USER_MODE else "single-user",
         "workspaceId": workspace.user_id,
         "workspacePath": str(workspace.root),
@@ -561,9 +805,17 @@ def safe_public_config(workspace: UserWorkspace) -> dict[str, Any]:
             "LOGIN_URL",
             "https://saml.dgist.ac.kr/authentication/idpw/idPwLogin.html?agentId=-100000&useOauth=0",
         ),
+        "schoolEmail": config.get("SCHOOL_EMAIL", ""),
+        "schoolImapHost": config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+        "interests": config.get("EMAIL_INTERESTS", "전공 탐색, 취업, 음악, 세미나"),
+        "interestTags": config.get("EMAIL_INTEREST_TAGS", []),
+        "interestsCustom": config.get("EMAIL_INTERESTS_CUSTOM", ""),
+        "hidePastEmails": bool(config.get("EMAIL_HIDE_PAST", False)),
+        "localSavePath": config.get("LOCAL_SAVE_PATH", ""),
         "hasLmsPassword": bool(config.get("LMS_PASSWORD")),
         "hasGeminiKey": bool(config.get("GEMINI_API_KEY")),
         "hasEmailPassword": bool(config.get("EMAIL_PASSWORD")),
+        "hasSchoolEmailPassword": bool(config.get("SCHOOL_EMAIL_PASSWORD")),
     }
 
 
@@ -574,12 +826,14 @@ def append_log(user_id: str, line: str) -> None:
         task_state["logs"] = task_state["logs"][-500:]
 
 
-def run_process(workspace: UserWorkspace, kind: str, command: list[str]) -> None:
+def run_process(workspace: UserWorkspace, kind: str, command: list[str], extra_env: dict[str, str] | None = None) -> None:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["AUTOSAVER_DATA_ROOT"] = str(workspace.root)
     env["AUTOSAVER_CONFIG_PATH"] = str(workspace.config_path)
     env["AUTOSAVER_GOOGLE_CLIENT_SECRETS"] = str(DRIVE_CREDENTIALS_PATH)
+    if extra_env:
+        env.update(extra_env)
     if MULTI_USER_MODE:
         env["AUTOSAVER_DISABLE_LEGACY_CONFIG"] = "1"
 
@@ -633,11 +887,15 @@ def run_process(workspace: UserWorkspace, kind: str, command: list[str]) -> None
         )
 
 
-def start_task(workspace: UserWorkspace, kind: str) -> tuple[bool, str]:
+def start_task(workspace: UserWorkspace, kind: str, sync_mode: str = "fast") -> tuple[bool, str]:
     with task_lock:
         task_state = task_states.setdefault(workspace.user_id, default_task_state())
         if task_state["running"]:
             return False, "이미 실행 중인 작업이 있습니다."
+
+    extra_env = {}
+    if kind == "sync":
+        extra_env["AUTOSAVER_SYNC_MODE"] = "full" if sync_mode == "full" else "fast"
 
     if kind == "sync":
         command = [
@@ -648,6 +906,15 @@ def start_task(workspace: UserWorkspace, kind: str) -> tuple[bool, str]:
         ]
     elif kind == "verify":
         command = [sys.executable, "-u", "verify.py"]
+    elif kind == "deadlines":
+        command = [
+            sys.executable,
+            "-u",
+            "-c",
+            "import asyncio; import lms_crawler; asyncio.run(lms_crawler.crawl_deadlines_only())",
+        ]
+    elif kind == "emails":
+        command = [sys.executable, "-u", "email_reader.py"]
     elif kind == "google-oauth":
         command = [
             sys.executable,
@@ -659,7 +926,7 @@ def start_task(workspace: UserWorkspace, kind: str) -> tuple[bool, str]:
         return False, "알 수 없는 작업입니다."
 
     ensure_data_files(workspace)
-    thread = threading.Thread(target=run_process, args=(workspace, kind, command), daemon=True)
+    thread = threading.Thread(target=run_process, args=(workspace, kind, command, extra_env), daemon=True)
     thread.start()
     return True, "작업을 시작했습니다."
 
@@ -688,11 +955,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     server_version = "DGISTAutoSaverUI/1.0"
 
     def translate_path(self, path: str) -> str:
+        from urllib.parse import unquote
+
         parsed = urlparse(path)
-        route = parsed.path
+        route = unquote(parsed.path)
         if route == "/":
             return str(WEB_ROOT / "index.html")
-        return str(WEB_ROOT / route.lstrip("/"))
+        # 경로 탈출 차단: 정규화 후 WEB_ROOT 밖으로 나가면 차단
+        web_root = WEB_ROOT.resolve()
+        candidate = (web_root / route.lstrip("/")).resolve()
+        if candidate != web_root and web_root not in candidate.parents:
+            return str(web_root / "__forbidden__")
+        return str(candidate)
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -706,6 +980,29 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Lax{secure}",
             )
         super().end_headers()
+
+    def host_allowed(self) -> bool:
+        """DNS 리바인딩 방어: 로컬 모드에서는 Host가 루프백일 때만 허용."""
+        if MULTI_USER_MODE or PUBLIC_BASE_URL:
+            return True  # 호스팅 모드는 리버스 프록시/외부 도메인 사용
+        host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        return host in {"127.0.0.1", "localhost", "[::1]", "::1", ""}
+
+    def reject_bad_host(self) -> bool:
+        if self.host_allowed():
+            return False
+        self.send_json({"ok": False, "message": "허용되지 않은 호스트입니다."}, HTTPStatus.FORBIDDEN)
+        return True
+
+    def csrf_ok(self) -> bool:
+        """브라우저 폼/이미지 기반 CSRF 차단.
+
+        정상 프런트엔드는 fetch로 application/json을 보낸다. 브라우저가
+        교차 출처에서 자동 전송할 수 있는 요청은 JSON Content-Type을
+        붙일 수 없으므로, JSON 본문을 요구하면 CSRF가 막힌다.
+        """
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        return ctype == "application/json"
 
     def request_base_url(self) -> str:
         if PUBLIC_BASE_URL:
@@ -754,6 +1051,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        if self.reject_bad_host():
+            return
         parsed = urlparse(self.path)
         route = parsed.path
         params = parse_qs(parsed.query)
@@ -817,7 +1116,98 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/config":
             self.send_json(safe_public_config(workspace))
             return
+        if route == "/api/deadlines":
+            self.send_json(get_deadlines(workspace))
+            return
+        if route == "/api/selection":
+            self.send_json(get_upload_selection(workspace))
+            return
+        if route == "/api/emails":
+            self.send_json(get_emails(workspace))
+            return
+        if route == "/api/course-state":
+            self.send_json(get_course_state(workspace))
+            return
+        if route == "/api/update/check":
+            try:
+                import updater
+                self.send_json(updater.check_update())
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/drive/list":
+            try:
+                import drive_uploader
+                service = drive_uploader.get_drive_service()
+                results = service.files().list(
+                    pageSize=25, orderBy="modifiedTime desc",
+                    q="trashed=false and mimeType!='application/vnd.google-apps.folder'",
+                    fields="files(id,name,size,mimeType)",
+                ).execute()
+                self.send_json({"files": results.get("files", [])})
+            except Exception as exc:
+                self.send_json({"ok": False, "files": [], "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/drive/get":
+            file_id = params.get("id", [""])[0]
+            try:
+                import base64 as _b64
+                import drive_uploader
+                service = drive_uploader.get_drive_service()
+                meta = service.files().get(fileId=file_id, fields="name,size,mimeType").execute()
+                content = service.files().get_media(fileId=file_id).execute()
+                if len(content) > 20 * 1024 * 1024:
+                    raise ValueError("파일이 20MB를 넘습니다.")
+                self.send_json({
+                    "filename": meta.get("name", "file"),
+                    "size": len(content),
+                    "content": _b64.b64encode(content).decode("ascii"),
+                })
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/file":
+            self.serve_download(workspace, params.get("name", [""])[0])
+            return
+        if route == "/api/deadlines.ics":
+            body = build_deadlines_ics(workspace).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/calendar; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition", "attachment; filename=dgist-deadlines.ics")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         super().do_GET()
+
+    def serve_download(self, workspace: UserWorkspace, name: str) -> None:
+        """다운로드 폴더의 파일을 첨부파일로 전송 (브라우저 모드용)."""
+        safe_name = Path(str(name)).name
+        if not safe_name:
+            self.send_json({"ok": False, "message": "파일 이름이 필요합니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        download_path = get_download_path(workspace).resolve()
+        file_path = (download_path / safe_name).resolve()
+        if not str(file_path).startswith(str(download_path)) or not file_path.is_file():
+            self.send_json({"ok": False, "message": "파일을 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+            return
+
+        metadata = read_json(workspace.file_metadata_log, {})
+        meta = metadata.get(safe_name, {}) if isinstance(metadata, dict) else {}
+        display_name = str(meta.get("original_name", safe_name)) if isinstance(meta, dict) else safe_name
+
+        from urllib.parse import quote
+
+        body = file_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header(
+            "Content-Disposition",
+            f"attachment; filename*=UTF-8''{quote(display_name)}",
+        )
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_html(self, title: str, message: str, success: bool = True) -> None:
         safe_title = html.escape(title)
@@ -852,6 +1242,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
+        if self.reject_bad_host():
+            return
+        if not self.csrf_ok():
+            self.send_json(
+                {"ok": False, "message": "잘못된 요청입니다 (Content-Type: application/json 필요)."},
+                HTTPStatus.FORBIDDEN,
+            )
+            return
         workspace = self.get_workspace()
         base_url = self.request_base_url()
         route = urlparse(self.path).path
@@ -868,15 +1266,139 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.BAD_REQUEST,
                 )
                 return
-            ok, message = start_task(workspace, "sync")
+            sync_mode = str(payload.get("mode", "fast")).lower()
+            ok, message = start_task(workspace, "sync", sync_mode)
+            if ok:
+                message = "전체 동기화를 시작했습니다." if sync_mode == "full" else "빠른 동기화를 시작했습니다."
             self.send_json({"ok": ok, "message": message}, HTTPStatus.OK if ok else HTTPStatus.CONFLICT)
             return
         if route == "/api/verify":
             ok, message = start_task(workspace, "verify")
             self.send_json({"ok": ok, "message": message}, HTTPStatus.OK if ok else HTTPStatus.CONFLICT)
             return
+        if route == "/api/refresh-deadlines":
+            ok, message = start_task(workspace, "deadlines")
+            self.send_json({"ok": ok, "message": message}, HTTPStatus.OK if ok else HTTPStatus.CONFLICT)
+            return
+        if route == "/api/refresh-emails":
+            config = read_config(workspace)
+            if not config.get("SCHOOL_EMAIL") or not config.get("SCHOOL_EMAIL_PASSWORD"):
+                self.send_json(
+                    {"ok": False, "message": "설정 → 학교 이메일에서 계정을 먼저 입력해 주세요."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            ok, message = start_task(workspace, "emails")
+            self.send_json({"ok": ok, "message": message}, HTTPStatus.OK if ok else HTTPStatus.CONFLICT)
+            return
+        if route == "/api/acknowledge-courses":
+            state = acknowledge_courses(workspace)
+            self.send_json({"ok": True, "pending": state["pending"]})
+            return
+        if route == "/api/update/apply":
+            try:
+                import updater
+                result = updater.apply_update()
+                if result.get("ok"):
+                    result["message"] = f"{result['count']}개 파일을 업데이트했습니다. 앱을 재시작해 주세요."
+                else:
+                    result["message"] = "업데이트할 파일을 받지 못했습니다."
+                self.send_json(result)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/send-email":
+            payload = self.read_body_json()
+            config = read_config(workspace)
+            if not config.get("SCHOOL_EMAIL") or not config.get("SCHOOL_EMAIL_PASSWORD"):
+                self.send_json(
+                    {"ok": False, "message": "설정 → 학교 이메일에서 계정을 먼저 입력해 주세요."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                import email_reader
+
+                attachments = payload.get("attachments")
+                if not isinstance(attachments, list):
+                    attachments = []
+                result = email_reader.send_email(
+                    to_addr=str(payload.get("to", "")),
+                    subject=str(payload.get("subject", "")),
+                    body=str(payload.get("body", "")),
+                    cc=str(payload.get("cc", "")),
+                    bcc=str(payload.get("bcc", "")),
+                    html=bool(payload.get("html")),
+                    in_reply_to=str(payload.get("inReplyTo", "")),
+                    references=str(payload.get("references", "")),
+                    attachments=attachments,
+                    account=config.get("SCHOOL_EMAIL"),
+                    password=config.get("SCHOOL_EMAIL_PASSWORD"),
+                    host=config.get("SCHOOL_SMTP_HOST", "smtp.dgist.ac.kr"),
+                    port=int(config.get("SCHOOL_SMTP_PORT", 465) or 465),
+                )
+                self.send_json({"ok": True, "message": f"메일을 보냈습니다: {result['to']}"})
+            except Exception as exc:
+                self.send_json({"ok": False, "message": f"메일 발송 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        if route in ("/api/mark-read", "/api/mark-all-read", "/api/delete-email"):
+            payload = self.read_body_json()
+            config = read_config(workspace)
+            if not config.get("SCHOOL_EMAIL") or not config.get("SCHOOL_EMAIL_PASSWORD"):
+                self.send_json({"ok": False, "message": "학교 이메일 계정을 먼저 입력해 주세요."}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                import email_reader
+
+                uid = payload.get("uid")
+                folder = str(payload.get("folder", "inbox"))
+                if route == "/api/mark-read":
+                    email_reader.mark_read(int(uid), folder, bool(payload.get("seen", True)))
+                    patch_email_local(workspace, int(uid), folder, unread=not bool(payload.get("seen", True)))
+                    self.send_json({"ok": True})
+                elif route == "/api/mark-all-read":
+                    result = email_reader.mark_all_read(folder)
+                    patch_email_local(workspace, None, folder, unread=False, all_in_folder=True)
+                    self.send_json({"ok": True, "message": f"{result['count']}개를 읽음으로 표시했습니다."})
+                else:  # delete
+                    email_reader.delete_message(int(uid), folder)
+                    patch_email_local(workspace, int(uid), folder, remove=True)
+                    self.send_json({"ok": True, "message": "메일을 삭제했습니다."})
+            except Exception as exc:
+                self.send_json({"ok": False, "message": f"작업 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/pick-folder":
+            if MULTI_USER_MODE:
+                self.send_json(
+                    {"ok": False, "message": "공유 웹사이트 모드에서는 폴더 선택을 사용할 수 없습니다."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                import tkinter
+                from tkinter import filedialog
+
+                root_widget = tkinter.Tk()
+                root_widget.withdraw()
+                root_widget.attributes("-topmost", True)
+                selected = filedialog.askdirectory(title="로컬 저장 폴더 선택")
+                root_widget.destroy()
+            except Exception as exc:
+                self.send_json({"ok": False, "message": f"폴더 선택 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not selected:
+                self.send_json({"ok": False, "message": "폴더 선택이 취소되었습니다."})
+                return
+            self.send_json({"ok": True, "path": str(Path(selected))})
+            return
+        if route == "/api/selection":
+            payload = self.read_body_json()
+            saved = save_upload_selection(workspace, payload)
+            self.send_json({"ok": True, **saved})
+            return
         if route == "/api/google/connect":
             try:
+                payload = self.read_body_json()
                 status = get_google_oauth_status(workspace, base_url)
                 if not status["credentialsExists"]:
                     raise FileNotFoundError("Google OAuth 클라이언트를 먼저 준비해 주세요.")
@@ -885,10 +1407,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     base_url,
                     getattr(self, "_session_token", None),
                 )
+                # 데스크톱 앱(WebView)에서는 구글이 임베디드 브라우저 로그인을 막으므로
+                # 시스템 기본 브라우저를 대신 띄운다.
+                opened = False
+                if payload.get("openBrowser") and not MULTI_USER_MODE:
+                    try:
+                        opened = webbrowser.open(auth_url)
+                    except Exception:
+                        opened = False
                 self.send_json(
                     {
                         "ok": True,
                         "authUrl": auth_url,
+                        "openedInBrowser": opened,
                         "requiredRedirectUri": choose_google_redirect_uri(base_url),
                         "redirectHint": (
                             "redirect_uri_mismatch가 뜨면 Google Cloud Console에 requiredRedirectUri를 "
@@ -920,6 +1451,78 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/stop":
             ok, message = stop_task(workspace)
             self.send_json({"ok": ok, "message": message}, HTTPStatus.OK if ok else HTTPStatus.CONFLICT)
+            return
+        if route == "/api/save-local":
+            if MULTI_USER_MODE:
+                self.send_json(
+                    {"ok": False, "message": "공유 웹사이트 모드에서는 /api/file 다운로드를 사용해 주세요."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            payload = self.read_body_json()
+            names = payload.get("names")
+            if not isinstance(names, list):
+                names = [payload.get("name", "")]
+
+            download_path = get_download_path(workspace).resolve()
+            metadata = read_json(workspace.file_metadata_log, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            target_dir = get_local_save_dir(workspace)
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            import shutil
+
+            saved = []
+            failed = []
+            for raw_name in names:
+                safe_name = Path(str(raw_name)).name
+                source = (download_path / safe_name).resolve()
+                if not safe_name or not str(source).startswith(str(download_path)) or not source.is_file():
+                    failed.append(safe_name or str(raw_name))
+                    continue
+                meta = metadata.get(safe_name, {})
+                display_name = str(meta.get("original_name", safe_name)) if isinstance(meta, dict) else safe_name
+                target = target_dir / display_name
+                stem, suffix = target.stem, target.suffix
+                counter = 2
+                while target.exists():
+                    target = target_dir / f"{stem} ({counter}){suffix}"
+                    counter += 1
+                shutil.copy2(source, target)
+                saved.append(target.name)
+
+            if not saved:
+                self.send_json({"ok": False, "message": "파일을 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+                return
+            message = (
+                f"'{target_dir}'에 저장했습니다: {saved[0]}"
+                if len(saved) == 1
+                else f"'{target_dir}'에 {len(saved)}개 파일을 저장했습니다."
+            )
+            if failed:
+                message += f" (실패 {len(failed)}건)"
+            self.send_json({"ok": True, "saved": saved, "failed": failed, "message": message})
+            return
+        if route == "/api/export-ics":
+            if MULTI_USER_MODE:
+                self.send_json(
+                    {"ok": False, "message": "공유 웹사이트 모드에서는 /api/deadlines.ics 다운로드를 사용해 주세요."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            content = build_deadlines_ics(workspace)
+            target_dir = get_local_save_dir(workspace)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / "dgist-deadlines.ics"
+            counter = 2
+            while target.exists():
+                target = target_dir / f"dgist-deadlines ({counter}).ics"
+                counter += 1
+            target.write_text(content, encoding="utf-8")
+            self.send_json(
+                {"ok": True, "savedTo": str(target), "message": f"다운로드 폴더에 저장했습니다: {target.name}"}
+            )
             return
         if route == "/api/open-downloads":
             if MULTI_USER_MODE:

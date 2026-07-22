@@ -2,9 +2,9 @@
 import asyncio
 import time
 import os
-from runtime_config import SCHEDULE_TIME, DOWNLOAD_PATH
+from runtime_config import SCHEDULE_TIME, DOWNLOAD_PATH, course_upload_enabled, load_upload_selection
 from lms_crawler import crawl_lms, load_file_metadata, get_all_courses
-from drive_uploader import upload_to_drive_with_path, get_drive_service, get_or_create_folder, ROOT_FOLDER
+from drive_uploader import upload_to_drive_with_path, get_drive_service, get_or_create_folder, drive_folder_name, ROOT_FOLDER
 from email_notifier import send_kakao_message
 
 async def run_job():
@@ -18,18 +18,22 @@ async def run_job():
     # 2. 파일 메타데이터 로드
     file_metadata = load_file_metadata()
 
-    # 3. 모든 과목 폴더 생성 (파일 없어도)
+    # 3. 사용자가 선택한 과목만 Drive 폴더 생성 (파일 없어도)
+    upload_selection = load_upload_selection()
     print("\n[Drive 과목 폴더 생성]")
     all_courses = await get_all_courses()
     service = get_drive_service()
     root_id = get_or_create_folder(service, ROOT_FOLDER)
     for course_name in all_courses:
-        get_or_create_folder(service, course_name.strip()[:40], root_id)
+        if not course_upload_enabled(course_name, upload_selection):
+            continue
+        get_or_create_folder(service, drive_folder_name(course_name), root_id)
 
-    # 4. 로컬 파일 전체를 Drive에 동기화
+    # 4. 로컬 파일 전체를 Drive에 동기화 (선택된 과목만)
     print("\n[Drive 동기화 시작]")
     uploaded_count = 0
     skipped_count = 0
+    excluded_count = 0
 
     if os.path.exists(DOWNLOAD_PATH):
         for file_name in os.listdir(DOWNLOAD_PATH):
@@ -42,6 +46,10 @@ async def run_job():
             folder_path = meta.get('folder_path', [])
             drive_file_name = meta.get('original_name', file_name)
 
+            if not course_upload_enabled(course_name, upload_selection):
+                excluded_count += 1
+                continue
+
             result = upload_to_drive_with_path(
                 file_path, drive_file_name, course_name, folder_path
             )
@@ -50,7 +58,7 @@ async def run_job():
             elif result:
                 uploaded_count += 1
 
-    print(f"[Drive 동기화 완료] 신규 {uploaded_count}개 업로드, 기존 {skipped_count}개 스킵")
+    print(f"[Drive 동기화 완료] 신규 {uploaded_count}개 업로드, 기존 {skipped_count}개 스킵, 선택 제외 {excluded_count}개")
 
     # 5. 이메일 알림
     if new_files:

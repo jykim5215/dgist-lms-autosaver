@@ -7,6 +7,19 @@ from runtime_config import GEMINI_API_KEY
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# 무료 쿼터가 있는 모델 순서대로 시도
+GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash")
+
+
+def generate_with_fallback(contents):
+    last_error = None
+    for model in GEMINI_MODELS:
+        try:
+            return client.models.generate_content(model=model, contents=contents)
+        except Exception as e:
+            last_error = e
+    raise last_error
+
 def summarize_file(file_path, file_name):
     try:
         ext = os.path.splitext(file_name)[1].lower()
@@ -19,18 +32,14 @@ def summarize_file(file_path, file_name):
             time.sleep(10)
 
             if ext == '.pdf':
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=[
-                        types.Part.from_bytes(data=file_data, mime_type='application/pdf'),
-                        "이 파일의 핵심 내용을 한국어로 3줄로 요약해줘."
-                    ]
-                )
+                response = generate_with_fallback([
+                    types.Part.from_bytes(data=file_data, mime_type='application/pdf'),
+                    "이 파일의 핵심 내용을 한국어로 3줄로 요약해줘."
+                ])
             else:
                 text = file_data.decode('utf-8', errors='ignore')
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=f"이 파일의 핵심 내용을 한국어로 3줄로 요약해줘:\n\n{text[:2000]}"
+                response = generate_with_fallback(
+                    f"이 파일의 핵심 내용을 한국어로 3줄로 요약해줘:\n\n{text[:2000]}"
                 )
             return response.text
 
