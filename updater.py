@@ -5,6 +5,8 @@ credentials.json 등 개인정보 파일은 대상에서 제외한다.
 """
 from __future__ import annotations
 
+import base64
+import json
 import re
 import urllib.request
 from pathlib import Path
@@ -14,7 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # 배포자(사장님) GitHub 저장소
 REPO = "jykim5215/dgist-lms-autosaver"
 BRANCH = "main"
-RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
+# raw CDN은 ~5분 캐시가 있어, 최신을 즉시 받도록 GitHub Contents API를 사용
+API_BASE = f"https://api.github.com/repos/{REPO}/contents"
 VERSION_FILE = PROJECT_ROOT / "VERSION"
 
 # 업데이트가 교체할 수 있는 파일 (개인정보 파일은 제외)
@@ -46,14 +49,25 @@ def local_version() -> str:
         return "0.0.0"
 
 
-def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "DGIST-AutoSaver-Updater"})
+def _fetch_file(rel_path: str) -> bytes:
+    """GitHub Contents API로 파일 원본(bytes)을 즉시(캐시 없이) 받는다."""
+    url = f"{API_BASE}/{rel_path}?ref={BRANCH}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "DGIST-AutoSaver-Updater",
+            "Accept": "application/vnd.github+json",
+        },
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.read()
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("encoding") == "base64" and "content" in data:
+        return base64.b64decode(data["content"])
+    raise RuntimeError(f"파일을 받을 수 없습니다: {rel_path}")
 
 
 def remote_version() -> str:
-    return _fetch(f"{RAW_BASE}/VERSION").decode("utf-8").strip()
+    return _fetch_file("VERSION").decode("utf-8").strip()
 
 
 def _ver_tuple(v: str) -> tuple[int, ...]:
@@ -90,7 +104,7 @@ def apply_update() -> dict:
         if target != root and root not in target.parents:
             continue
         try:
-            data = _fetch(f"{RAW_BASE}/{rel}")
+            data = _fetch_file(rel)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             updated.append(rel)
