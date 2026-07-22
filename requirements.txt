@@ -1,0 +1,8 @@
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-genai
+playwright
+pywebview
+schedule
+winotify
