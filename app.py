@@ -32,10 +32,29 @@ import web_ui
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("AUTOSAVER_UI_PORT", "8765"))
 WINDOW_TITLE = "붕어빵"
+# 작업표시줄이 pythonw.exe나 옛 캐시가 아니라 이 앱을 별도 앱으로 인식하게 하는 식별자.
+# 바로가기(install.ps1)에도 같은 값을 넣어야 아이콘이 완전히 일치한다.
+APP_USER_MODEL_ID = "DGIST.Bungeoppang.App"
 APP_ICON = Path(__file__).resolve().parent / "web" / "app.png"
 
 
 APP_ICO = Path(__file__).resolve().parent / "web" / "app.ico"
+
+
+def set_app_user_model_id() -> None:
+    """창을 만들기 '전에' 호출해야 작업표시줄 아이콘이 창 아이콘을 따라온다.
+
+    이걸 지정하지 않으면 Windows가 여러 pythonw 창을 하나로 묶고,
+    실행에 쓰인 바로가기의 (옛) 캐시 아이콘을 그대로 보여 준다.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
 
 
 def apply_window_icon(timeout: float = 15.0) -> bool:
@@ -212,6 +231,7 @@ def start_server() -> ThreadingHTTPServer | None:
 
 
 def main() -> None:
+    set_app_user_model_id()  # 창을 만들기 전에 (작업표시줄 아이콘 반영의 핵심)
     import webview
 
     try:
