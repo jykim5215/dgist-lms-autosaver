@@ -458,6 +458,24 @@ body {
   cursor: pointer;
 }
 
+/* 뒤로가기: 답장 버튼과 확실히 구분되도록 라벨을 붙인 알약형 */
+.back-button {
+  width: auto;
+  min-width: 0;
+  padding: 0 12px 0 9px;
+  gap: 5px;
+  border-radius: 999px;
+  background: var(--bg-deep);
+}
+.back-button .back-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.back-button:hover {
+  background: var(--border);
+}
+
 .icon-button:hover {
   background: var(--surface-soft);
 }
@@ -1543,6 +1561,117 @@ tbody tr:hover {
   min-width: 0;
 }
 
+/* ===== 과제: 진행중 / 완료 구분 ===== */
+.deadline-section + .deadline-section {
+  margin-top: 26px;
+}
+.deadline-section-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.deadline-section-head h3 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+}
+.deadline-section-head span {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: var(--bg-deep);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.deadline-section-head .text-button {
+  margin-left: auto;
+  font-size: 12px;
+}
+/* 완료 섹션은 한 톤 낮춰서 남은 과제가 먼저 눈에 들어오게 */
+.deadline-section:last-child .deadline-row {
+  opacity: 0.72;
+}
+.deadline-section:last-child .deadline-row:hover {
+  opacity: 1;
+}
+.deadline-row {
+  position: relative;
+}
+.deadline-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.deadline-remove:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.deadline-remove .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* ===== 작업 진행 표시 ===== */
+.task-progress {
+  margin: 4px 0 12px;
+}
+.task-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-bottom: 7px;
+}
+#taskStageLabel {
+  font-weight: 600;
+  color: var(--text);
+}
+#taskStageDetail {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.task-progress-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+.task-progress-fill {
+  display: block;
+  height: 100%;
+  width: 8%;
+  border-radius: 999px;
+  background-color: var(--accent);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 진행 중임을 알리는 은은한 흐름 */
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.38) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: task-shimmer 1.6s linear infinite;
+}
+@keyframes task-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-progress-fill { animation: none; }
+}
+
 /* 실행 로그 접기/펼치기 핸들 */
 .rail-toggle {
   display: inline-flex;
@@ -1590,6 +1719,9 @@ tbody tr:hover {
   gap: 8px;
 }
 .workspace.rail-collapsed .rail-toggle-chevron {
+  /* 세로쓰기(vertical-rl)를 상속하면 글리프가 90° 돌아 위를 가리킨다.
+     가로쓰기로 되돌린 뒤 180° 돌려 '왼쪽(펼치기)'을 가리키게 한다. */
+  writing-mode: horizontal-tb;
   transform: rotate(180deg);
 }
 
@@ -2217,9 +2349,21 @@ tbody tr:hover {
 
 .list-date {
   flex: none;
+  /* 제목보다 앞에 오므로 폭을 고정해 세로로 줄이 맞게 한다 */
+  width: 74px;
   font-size: 11.5px;
   color: var(--text-faint);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.email-list-row.unread .list-date {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .list-date { width: 58px; font-size: 10.5px; }
 }
 
 /* ===== 브리핑 강화: highlights + todo ===== */

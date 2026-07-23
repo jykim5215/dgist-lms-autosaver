@@ -8,6 +8,8 @@ const icons = {
   download: '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>',
   edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   reply: '<svg viewBox="0 0 24 24"><path d="M9 17l-5-5 5-5"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></svg>',
+  // 뒤로가기: 답장 아이콘과 헷갈리지 않도록 단순 화살표를 따로 둔다
+  arrowLeft: '<svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>',
   send: '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   paperclip: '<svg viewBox="0 0 24 24"><path d="m21.4 11.1-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>',
@@ -194,9 +196,17 @@ function formatDue(date) {
   return `${month}/${day} (${weekday}) ${hours}:${minutes}`;
 }
 
-function deadlineRow(item) {
+/* 마감 항목에는 서버가 주는 id가 없어 과목+제목+기한으로 키를 만든다 */
+function deadlineKey(item) {
+  return [item.courseLabel || item.course || "", item.name || "", item.due || ""].join("|");
+}
+
+function deadlineRow(item, removable = false) {
   const due = parseDue(item);
   const dday = ddayInfo(item);
+  const remove = removable
+    ? `<button type="button" class="deadline-remove" data-remove-deadline="${escapeHtml(deadlineKey(item))}" title="목록에서 지우기" aria-label="목록에서 지우기"><span class="icon" data-icon="trash"></span></button>`
+    : "";
   return `
     <div class="deadline-row">
       <span class="dday-badge ${dday.cls}">${dday.label}</span>
@@ -208,6 +218,7 @@ function deadlineRow(item) {
         <time>${formatDue(due)}</time>
         ${submitBadge(item)}
       </div>
+      ${remove}
     </div>
   `;
 }
@@ -293,6 +304,7 @@ function renderDeadlines() {
 
   const rows = state.deadlines.items
     .filter((item) => {
+      if ((state.selection.hiddenDeadlines || []).includes(deadlineKey(item))) return false;
       if (!matchesQuery(item)) return false;
       if (state.deadlineCourse && item.courseLabel !== state.deadlineCourse) return false;
       const due = parseDue(item);
@@ -322,8 +334,52 @@ function renderDeadlines() {
     ? `마지막 갱신 ${updated.replace("T", " ")} · 상단의 '마감 새로고침'으로 다시 가져올 수 있습니다.`
     : "아직 가져온 마감 정보가 없습니다. 상단의 '마감 새로고침'을 눌러 주세요.";
 
-  list.innerHTML = rows.map(deadlineRow).join("");
+  // 완료(제출)한 과제와 남은 과제를 나눠서 보여 준다
+  const done = rows.filter(isSubmitted);
+  const active = rows.filter((item) => !isSubmitted(item));
+  const section = (title, items, removable) =>
+    items.length
+      ? `<div class="deadline-section">
+           <div class="deadline-section-head">
+             <h3>${title}</h3>
+             <span>${items.length}건</span>
+             ${removable ? `<button type="button" class="text-button" id="clearDoneDeadlines">완료 항목 모두 지우기</button>` : ""}
+           </div>
+           ${items.map((it) => deadlineRow(it, removable)).join("")}
+         </div>`
+      : "";
+
+  list.innerHTML = section("진행 중 · 예정", active, false) + section("완료", done, true);
+  installIcons(list);
   empty.hidden = rows.length > 0;
+
+  const save = async (msg) => {
+    try {
+      await api("/api/selection", { method: "POST", body: JSON.stringify(state.selection) });
+      showToast(msg);
+      renderDeadlines();
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+
+  list.querySelectorAll("[data-remove-deadline]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const key = btn.dataset.removeDeadline;
+      state.selection.hiddenDeadlines = [...new Set([...(state.selection.hiddenDeadlines || []), key])];
+      save("완료한 과제를 목록에서 지웠습니다.");
+    });
+  });
+
+  $("#clearDoneDeadlines")?.addEventListener("click", () => {
+    if (!done.length) return;
+    if (!window.confirm(`완료한 과제 ${done.length}건을 목록에서 지울까요?\n('마감 새로고침'을 하면 다시 나타납니다.)`)) return;
+    state.selection.hiddenDeadlines = [
+      ...new Set([...(state.selection.hiddenDeadlines || []), ...done.map(deadlineKey)]),
+    ];
+    save(`완료한 과제 ${done.length}건을 지웠습니다.`);
+  });
 }
 
 /* ===== 이메일 뷰 (신문식 레이아웃) ===== */
@@ -908,10 +964,11 @@ function emailListRow(mail) {
   return `
     <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
+      <time class="list-date">${formatEmailDate(mail.date)}</time>
       <span class="category-chip ${color} list-chip">${icon}</span>
       <div class="list-main">
         <strong>${escapeHtml(shortText(title, 70))}</strong>
-        <span>${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}${mail.summary && mail.summary !== mail.subject ? " · " + escapeHtml(shortText(mail.subject, 40)) : ""}</span>
+        <span>${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
       </div>
       <span class="list-actions">
         <button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
@@ -921,7 +978,6 @@ function emailListRow(mail) {
           <span class="icon" data-icon="trash"></span>
         </button>
       </span>
-      <time class="list-date">${formatEmailDate(mail.date)}</time>
     </div>
   `;
 }
@@ -1314,6 +1370,37 @@ function syncSelectAllState() {
 }
 
 /* ===== 작업/로그 ===== */
+/* ===== 작업 진행 단계 추정 =====
+   백엔드가 퍼센트를 주지 않으므로, 실행 로그의 단계 문구를 뒤에서부터 훑어
+   "지금 무엇을 하는 중인지"와 대략의 진행률을 사람 말로 보여 준다. */
+const TASK_STAGES = [
+  { re: /모든 작업 완료|작업이 종료/, label: "마무리하는 중", pct: 96 },
+  { re: /Drive 동기화 시작|Drive 과목 폴더/, label: "구글 드라이브에 올리는 중", pct: 82 },
+  { re: /Gemini 분류 완료/, label: "메일 분류를 마치는 중", pct: 78 },
+  { re: /과제 마감일/, label: "과제 마감일 정리하는 중", pct: 66 },
+  { re: /다운로드 완료/, label: "강의자료 받는 중", pct: 52 },
+  { re: /강의 확인 중/, label: "과목별 자료 확인하는 중", pct: 38 },
+  { re: /강의 목록 수집/, label: "강의 목록 불러오는 중", pct: 24 },
+  { re: /로그인 완료/, label: "로그인 완료", pct: 14 },
+];
+
+function taskProgress(task) {
+  const logs = task.logs || [];
+  const kindLabel = { emails: "메일을 읽는 중", deadlines: "마감을 확인하는 중", verify: "설정을 점검하는 중" };
+  let stage = { label: kindLabel[task.kind] || "준비하는 중", pct: 8 };
+  for (let i = logs.length - 1; i >= 0 && stage.pct === 8; i -= 1) {
+    const hit = TASK_STAGES.find((s) => s.re.test(logs[i]));
+    if (hit) stage = hit;
+  }
+  const files = logs.filter((l) => /다운로드 완료/.test(l)).length;
+  const courses = logs.filter((l) => /강의 확인 중/.test(l)).length;
+  const detail = [
+    courses ? `과목 ${courses}개` : "",
+    files ? `자료 ${files}개` : "",
+  ].filter(Boolean).join(" · ");
+  return { ...stage, detail };
+}
+
 function renderTask(task) {
   state.task = task;
   const logBox = $("#logBox");
@@ -1344,11 +1431,24 @@ function renderTask(task) {
   }
   installIcons(runButton);
 
-  $("#taskSummary").textContent = task.running
-    ? `${taskLabel} 실행 중`
-    : task.returnCode === null
-      ? "대기 중"
-      : `최근 종료 코드 ${task.returnCode}`;
+  // 진행 표시: 실행 중에는 단계 문구 + 막대, 끝나면 결과 한 줄
+  const progressWrap = $("#taskProgress");
+  if (task.running) {
+    const p = taskProgress(task);
+    $("#taskSummary").textContent = `${taskLabel} 진행 중`;
+    $("#taskStageLabel").textContent = p.label;
+    $("#taskStageDetail").textContent = p.detail;
+    $("#taskProgressFill").style.width = `${p.pct}%`;
+    progressWrap.hidden = false;
+  } else {
+    progressWrap.hidden = true;
+    $("#taskSummary").textContent =
+      task.returnCode === null
+        ? "대기 중"
+        : task.returnCode === 0
+          ? `${taskLabel} 완료`
+          : `${taskLabel} 실패 (코드 ${task.returnCode})`;
+  }
 
   if (!logs.length) {
     logBox.innerHTML = '<div class="log-line">아직 실행 로그가 없습니다.</div>';
@@ -1509,6 +1609,7 @@ async function refreshAll() {
     state.deadlines = deadlines;
     state.selection = selection.courses ? selection : { courses: {} };
     if (!Array.isArray(state.selection.hidden)) state.selection.hidden = [];
+    if (!Array.isArray(state.selection.hiddenDeadlines)) state.selection.hiddenDeadlines = [];
     state.emails = emails.emails ? emails : { emails: [], briefing: "", interests: "", updatedAt: null };
     state.config = config;
     renderAll();

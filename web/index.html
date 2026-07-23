@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DGIST LMS AutoSaver</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css?v=claude-20260723-bungeoppang" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.5" />
   </head>
   <body>
     <div class="app-shell">
@@ -324,8 +324,9 @@
                   <!-- 읽기 pane -->
                   <div class="mail-pane" id="mailReadPane" hidden>
                     <div class="mail-pane-topbar">
-                      <button class="icon-button" id="readBackButton" type="button" aria-label="목록으로">
-                        <span class="icon" data-icon="reply"></span>
+                      <button class="icon-button back-button" id="readBackButton" type="button" aria-label="목록으로" title="목록으로">
+                        <span class="icon" data-icon="arrowLeft"></span>
+                        <span class="back-label">목록</span>
                       </button>
                       <span class="category-chip" id="readCategory"></span>
                       <div class="mail-pane-actions">
@@ -346,8 +347,9 @@
                   <div class="mail-pane" id="mailComposePane" hidden>
                     <form id="composeForm">
                       <div class="mail-pane-topbar">
-                        <button class="icon-button" id="closeComposeDialog" type="button" aria-label="목록으로">
-                          <span class="icon" data-icon="reply"></span>
+                        <button class="icon-button back-button" id="closeComposeDialog" type="button" aria-label="목록으로" title="목록으로">
+                          <span class="icon" data-icon="arrowLeft"></span>
+                          <span class="back-label">목록</span>
                         </button>
                         <strong id="composeTitle">새 메일</strong>
                         <div class="mail-pane-actions compose-mode-toggle">
@@ -493,6 +495,15 @@
                     <span class="icon" data-icon="check"></span>
                     검증
                   </button>
+                </div>
+                <div class="task-progress" id="taskProgress" hidden>
+                  <div class="task-progress-head">
+                    <span id="taskStageLabel">준비 중</span>
+                    <span id="taskStageDetail"></span>
+                  </div>
+                  <div class="task-progress-track" role="progressbar" aria-labelledby="taskStageLabel">
+                    <span class="task-progress-fill" id="taskProgressFill"></span>
+                  </div>
                 </div>
                 <div class="log-box" id="logBox" aria-live="polite"></div>
               </section>
@@ -748,6 +759,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=claude-20260722g" defer></script>
+    <script src="/app.js?v=1.2.5" defer></script>
   </body>
 </html>

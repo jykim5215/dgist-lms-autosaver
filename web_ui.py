@@ -737,6 +737,9 @@ def get_upload_selection(workspace: UserWorkspace) -> dict[str, Any]:
     return {
         "courses": courses if isinstance(courses, dict) else {},
         "hidden": _clean_hidden(hidden),
+        "hiddenDeadlines": _clean_hidden(
+            data.get("hiddenDeadlines") if isinstance(data, dict) else None
+        ),
     }
 
 
@@ -746,12 +749,17 @@ def save_upload_selection(workspace: UserWorkspace, payload: dict[str, Any]) -> 
         courses = {}
     cleaned = {str(name): bool(enabled) for name, enabled in courses.items()}
     hidden = _clean_hidden(payload.get("hidden"))
+    hidden_deadlines = _clean_hidden(payload.get("hiddenDeadlines"))
     workspace.root.mkdir(parents=True, exist_ok=True)
     workspace.upload_selection_path.write_text(
-        json.dumps({"courses": cleaned, "hidden": hidden}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"courses": cleaned, "hidden": hidden, "hiddenDeadlines": hidden_deadlines},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
-    return {"courses": cleaned, "hidden": hidden}
+    return {"courses": cleaned, "hidden": hidden, "hiddenDeadlines": hidden_deadlines}
 
 
 def get_status(workspace: UserWorkspace, base_url: str | None = None) -> dict[str, Any]:
