@@ -5,9 +5,9 @@ credentials.json 등 개인정보 파일은 대상에서 제외한다.
 """
 from __future__ import annotations
 
-import base64
-import json
 import re
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -16,8 +16,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # 배포자(사장님) GitHub 저장소
 REPO = "jykim5215/dgist-lms-autosaver"
 BRANCH = "main"
-# raw CDN은 ~5분 캐시가 있어, 최신을 즉시 받도록 GitHub Contents API를 사용
-API_BASE = f"https://api.github.com/repos/{REPO}/contents"
+# Contents API(api.github.com)는 비인증 시 시간당 60회 제한이라
+# 파일 개수만큼 호출하면 금방 rate limit에 걸린다.
+# raw는 그 쿼터를 쓰지 않으므로 raw + 캐시무효화 쿼리로 최신본을 받는다.
+RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
 VERSION_FILE = PROJECT_ROOT / "VERSION"
 
 # 업데이트가 교체할 수 있는 파일 (개인정보 파일은 제외)
@@ -51,20 +53,28 @@ def local_version() -> str:
 
 
 def _fetch_file(rel_path: str) -> bytes:
-    """GitHub Contents API로 파일 원본(bytes)을 즉시(캐시 없이) 받는다."""
-    url = f"{API_BASE}/{rel_path}?ref={BRANCH}"
+    """raw.githubusercontent.com에서 파일 원본(bytes)을 캐시 없이 받는다."""
+    # CDN 캐시(~5분)를 피하려고 매 요청마다 다른 쿼리를 붙인다.
+    url = f"{RAW_BASE}/{rel_path}?nocache={int(time.time() * 1000)}"
     req = urllib.request.Request(
         url,
         headers={
             "User-Agent": "DGIST-AutoSaver-Updater",
-            "Accept": "application/vnd.github+json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    if data.get("encoding") == "base64" and "content" in data:
-        return base64.b64decode(data["content"])
-    raise RuntimeError(f"파일을 받을 수 없습니다: {rel_path}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            raise RuntimeError(
+                "GitHub 요청 한도에 걸렸습니다. 잠시 후(약 1시간) 다시 시도해 주세요."
+            ) from exc
+        if exc.code == 404:
+            raise RuntimeError(f"저장소에 파일이 없습니다: {rel_path}") from exc
+        raise
 
 
 def remote_version() -> str:
@@ -95,32 +105,54 @@ def check_update() -> dict:
 
 
 def apply_update() -> dict:
-    """최신 파일들을 받아 로컬에 덮어쓴다. 성공 후 재시작 필요."""
+    """최신 파일을 '전부' 받은 뒤에만 덮어쓴다. 성공 후 재시작 필요.
+
+    한 개라도 못 받으면 아무 파일도 건드리지 않는다.
+    (중간에 끊겨 프론트/백엔드 버전이 어긋나는 상태를 막기 위함)
+    """
     root = PROJECT_ROOT.resolve()
-    updated: list[str] = []
-    failed: list[str] = []
+
+    # 1단계: 모두 메모리로 내려받는다. 여기서 실패하면 디스크는 그대로다.
+    payloads: list[tuple[Path, str, bytes]] = []
     for rel in UPDATE_FILES:
         target = (root / rel).resolve()
         # 경로 탈출 방지
         if target != root and root not in target.parents:
             continue
         try:
-            data = _fetch_file(rel)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            updated.append(rel)
-        except Exception:
-            failed.append(rel)
+            payloads.append((target, rel, _fetch_file(rel)))
+        except Exception as exc:
+            return {
+                "ok": False,
+                "updated": [],
+                "failed": [rel],
+                "count": 0,
+                "version": local_version(),
+                "message": f"'{rel}' 을(를) 받지 못해 업데이트를 취소했습니다. 기존 파일은 그대로입니다. ({exc})",
+            }
 
     try:
-        VERSION_FILE.write_text(remote_version(), encoding="utf-8")
+        latest = remote_version()
     except Exception:
-        pass
+        latest = ""
+
+    # 2단계: 전부 받아둔 뒤에만 기록한다.
+    updated: list[str] = []
+    for target, rel, data in payloads:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        updated.append(rel)
+
+    if latest:
+        try:
+            VERSION_FILE.write_text(latest + "\n", encoding="utf-8")
+        except OSError:
+            pass
 
     return {
-        "ok": bool(updated),
+        "ok": True,
         "updated": updated,
-        "failed": failed,
+        "failed": [],
         "count": len(updated),
         "version": local_version(),
     }
