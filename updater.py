@@ -27,6 +27,7 @@ UPDATE_FILES = [
     "main.py",
     "lms_crawler.py",
     "drive_uploader.py",
+    "calendar_sync.py",
     "email_reader.py",
     "email_notifier.py",
     "ai_summarizer.py",

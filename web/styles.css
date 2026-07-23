@@ -1246,6 +1246,81 @@ select:focus {
   opacity: 0.72;
 }
 
+/* ===== 과목 편집 모드 (One UI식 흔들림) ===== */
+.course-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.course-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.course-card {
+  position: relative;
+}
+
+@keyframes course-jiggle {
+  0% { transform: rotate(-0.7deg) translateY(0); }
+  25% { transform: rotate(0.7deg) translateY(-0.6px); }
+  50% { transform: rotate(-0.55deg) translateY(0); }
+  75% { transform: rotate(0.6deg) translateY(0.6px); }
+  100% { transform: rotate(-0.7deg) translateY(0); }
+}
+
+.course-grid.editing .course-card {
+  animation: course-jiggle 0.32s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+/* 카드마다 살짝 어긋나게 — 한 몸처럼 흔들리지 않도록 */
+.course-grid.editing .course-card:nth-child(3n + 2) { animation-delay: -0.11s; }
+.course-grid.editing .course-card:nth-child(3n + 3) { animation-delay: -0.22s; }
+.course-grid.editing .course-card:nth-child(4n + 1) { animation-duration: 0.35s; }
+
+.course-remove {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 2;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  border: none;
+  background: var(--red);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+  animation: course-remove-pop 0.18s ease-out;
+}
+.course-remove:hover {
+  filter: brightness(1.12);
+}
+
+@keyframes course-remove-pop {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* 흔들림에 민감한 사용자 배려 */
+@media (prefers-reduced-motion: reduce) {
+  .course-grid.editing .course-card {
+    animation: none;
+    outline: 2px dashed var(--border-strong);
+    outline-offset: 2px;
+  }
+}
+
 .course-card-top {
   display: flex;
   justify-content: space-between;
@@ -1420,9 +1495,67 @@ tbody tr:hover {
 .right-rail {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   position: sticky;
   top: 86px;
+  min-width: 0;
+}
+
+.right-rail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* 실행 로그 접기/펼치기 핸들 */
+.rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-end;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rail-toggle:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.rail-toggle-chevron {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.25s ease;
+}
+
+/* 접힌 상태: 그리드 열을 얇게 줄이고 세로 탭만 남김 */
+.workspace {
+  transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.workspace.rail-collapsed {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+.workspace.rail-collapsed .right-rail-body {
+  display: none;
+}
+.workspace.rail-collapsed .rail-toggle {
+  writing-mode: vertical-rl;
+  align-self: flex-start;
+  padding: 12px 5px;
+  gap: 8px;
+}
+.workspace.rail-collapsed .rail-toggle-chevron {
+  transform: rotate(180deg);
 }
 
 .checklist {
@@ -1633,6 +1766,29 @@ tbody tr:hover {
   border-radius: var(--radius-sm);
   padding: 11px 13px;
   margin-bottom: 13px;
+}
+
+/* 구글 캘린더 동기화 설정 */
+.gcal-row {
+  margin-top: 13px;
+}
+.gcal-row .google-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gcal-name-field {
+  display: block;
+  margin-bottom: 8px;
+}
+.gcal-name-field span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  margin-bottom: 5px;
+}
+.gcal-name-field input {
+  width: 100%;
 }
 
 .google-row strong {
@@ -1918,6 +2074,42 @@ tbody tr:hover {
 }
 
 .view-toggle-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* ===== 테마 선택기 (기본/화이트/다크) ===== */
+.theme-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.theme-opt {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.theme-opt:hover {
+  color: var(--text);
+  background: var(--bg-deep);
+}
+
+.theme-opt.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.theme-opt .icon {
   width: 16px;
   height: 16px;
 }
@@ -2813,7 +3005,7 @@ tbody tr:hover {
   padding-bottom: 4px;
 }
 .cal-cell {
-  min-height: 74px;
+  min-height: 92px;
   border-radius: 9px;
   padding: 6px 7px;
   display: flex;
@@ -2830,6 +3022,34 @@ tbody tr:hover {
 .cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
 .cal-cell.today .cal-daynum { color: var(--accent-strong); font-weight: 800; }
 .cal-dots { display: flex; gap: 3px; flex-wrap: wrap; }
+
+/* 삼성 캘린더식 간략 일정 표시 */
+.cal-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cal-chip {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-chip.cal-deadline { background: var(--red-soft); color: var(--red); }
+.cal-chip.cal-event { background: var(--accent-soft); color: var(--accent-strong); }
+.cal-chip.cal-done { background: var(--green-soft); color: var(--green); }
+.cal-more {
+  font-size: 10px;
+  color: var(--text-faint);
+  padding-left: 3px;
+  font-weight: 600;
+}
 
 .calendar-daylist { margin-top: 16px; }
 .calendar-daylist h3 { font-family: var(--font-serif); font-size: 15px; margin: 0 0 10px; }
@@ -2850,5 +3070,49 @@ tbody tr:hover {
 .cal-empty { color: var(--text-faint); font-size: 13px; padding: 12px 0; }
 
 @media (max-width: 640px) {
-  .cal-cell { min-height: 54px; }
+  .cal-cell { min-height: 64px; padding: 4px; }
+  /* 좁은 화면에서는 칩을 2개까지만 (3번째는 +N이 대신 알려줌) */
+  .cal-chip { font-size: 9.5px; padding: 1px 3px; }
+  .cal-chip:nth-of-type(n + 3) { display: none; }
+}
+
+/* ===== 화면 전환 / 메일 진입 애니메이션 ===== */
+/* fill-mode를 쓰지 않는 이유: 끝난 뒤에도 transform이 남으면
+   내부 fixed 요소의 기준(containing block)이 바뀌어 레이아웃이 틀어질 수 있음 */
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.view:not([hidden]) {
+  animation: view-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 목록 → 읽기/작성: 오른쪽에서 미끄러지듯 */
+@keyframes pane-enter-right {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+/* 읽기/작성 → 목록: 되돌아오는 방향 */
+@keyframes pane-enter-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+#mailReadPane:not([hidden]),
+#mailComposePane:not([hidden]) {
+  animation: pane-enter-right 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#mailListPane:not([hidden]) {
+  animation: pane-enter-left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view:not([hidden]),
+  #mailReadPane:not([hidden]),
+  #mailComposePane:not([hidden]),
+  #mailListPane:not([hidden]) {
+    animation: none;
+  }
+  .workspace {
+    transition: none;
+  }
 }

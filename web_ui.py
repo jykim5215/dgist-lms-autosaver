@@ -40,6 +40,9 @@ DRIVE_CREDENTIALS_PATH = Path(
 GOOGLE_OAUTH_PENDING_PATH = AUTOSAVER_ROOT / "oauth_pending.json"
 FALLBACK_COURSE_MAP = PROJECT_ROOT / "file_course_map.json"
 GOOGLE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file"
+GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+# Drive 업로드 + 캘린더 동기화를 함께 사용하므로 두 권한을 같이 요청한다.
+GOOGLE_OAUTH_SCOPES = [GOOGLE_OAUTH_SCOPE, GOOGLE_CALENDAR_SCOPE]
 GOOGLE_OAUTH_FALLBACK_REDIRECT_URI = "http://127.0.0.1:8765/oauth2callback"
 SESSION_COOKIE = "autosaver_sid"
 
@@ -244,6 +247,11 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
         "SCHOOL_EMAIL_PASSWORD": field("schoolEmailPassword", "SCHOOL_EMAIL_PASSWORD", secret=True),
         "SCHOOL_IMAP_HOST": field("schoolImapHost", "SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
         "LOCAL_SAVE_PATH": str(payload.get("localSavePath", existing.get("LOCAL_SAVE_PATH", ""))).strip(),
+        # 구글 캘린더 자동 동기화
+        "GCAL_SYNC_ENABLED": bool(
+            payload.get("gcalSyncEnabled", existing.get("GCAL_SYNC_ENABLED", False))
+        ),
+        "GCAL_CALENDAR_NAME": field("gcalCalendarName", "GCAL_CALENDAR_NAME", "DGIST 메일 일정"),
     }
 
     # 관심사: 선택한 태그 + 자유 입력을 합쳐 AI 분류 기준 문자열 생성
@@ -421,6 +429,8 @@ def get_google_oauth_status(workspace: UserWorkspace, base_url: str | None = Non
         "hasRefreshToken": False,
         "tokenUsable": False,
         "scope": GOOGLE_OAUTH_SCOPE,
+        "scopes": GOOGLE_OAUTH_SCOPES,
+        "calendarGranted": False,
     }
     if google_credentials_available():
         try:
@@ -441,12 +451,17 @@ def get_google_oauth_status(workspace: UserWorkspace, base_url: str | None = Non
 
         creds = Credentials.from_authorized_user_file(
             str(workspace.token_path),
-            [status["scope"]],
+            GOOGLE_OAUTH_SCOPES,
         )
         status["tokenValid"] = bool(creds.valid)
         status["tokenExpired"] = bool(creds.expired)
         status["hasRefreshToken"] = bool(creds.refresh_token)
         status["tokenUsable"] = bool(creds.valid or creds.refresh_token)
+        # 캘린더 권한은 나중에 추가되었으므로 예전 토큰에는 없을 수 있다.
+        # creds.scopes는 '요청한' 값을 그대로 돌려주므로 토큰 파일을 직접 읽어 확인한다.
+        token_data = read_json(workspace.token_path, {})
+        granted = set(token_data.get("scopes") or []) if isinstance(token_data, dict) else set()
+        status["calendarGranted"] = GOOGLE_CALENDAR_SCOPE in granted
     except Exception as exc:
         status["error"] = str(exc)
     return status
@@ -466,7 +481,7 @@ def create_google_oauth_url(
 
     flow = Flow.from_client_config(
         google_client_config_for_flow(),
-        scopes=[GOOGLE_OAUTH_SCOPE],
+        scopes=GOOGLE_OAUTH_SCOPES,
         redirect_uri=choose_google_redirect_uri(base_url),
     )
     auth_url, state = flow.authorization_url(
@@ -491,7 +506,7 @@ def finish_google_oauth(code: str, state: str) -> tuple[UserWorkspace, dict[str,
     redirect_uri = saved_state.get("redirect_uri") or choose_google_redirect_uri()
     flow = Flow.from_client_config(
         google_client_config_for_flow(),
-        scopes=[GOOGLE_OAUTH_SCOPE],
+        scopes=GOOGLE_OAUTH_SCOPES,
         redirect_uri=redirect_uri,
         code_verifier=saved_state.get("code_verifier"),
         autogenerate_code_verifier=False,
@@ -708,10 +723,21 @@ def get_local_save_dir(workspace: UserWorkspace) -> Path:
     return Path.home() / "Downloads"
 
 
+def _clean_hidden(value: Any) -> list[str]:
+    """숨긴(목록에서 제거한) 과목 라벨 목록을 정규화한다."""
+    if not isinstance(value, list):
+        return []
+    return sorted({str(name) for name in value if str(name).strip()})
+
+
 def get_upload_selection(workspace: UserWorkspace) -> dict[str, Any]:
     data = read_json(workspace.upload_selection_path, {})
     courses = data.get("courses") if isinstance(data, dict) else None
-    return {"courses": courses if isinstance(courses, dict) else {}}
+    hidden = data.get("hidden") if isinstance(data, dict) else None
+    return {
+        "courses": courses if isinstance(courses, dict) else {},
+        "hidden": _clean_hidden(hidden),
+    }
 
 
 def save_upload_selection(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
@@ -719,12 +745,13 @@ def save_upload_selection(workspace: UserWorkspace, payload: dict[str, Any]) -> 
     if not isinstance(courses, dict):
         courses = {}
     cleaned = {str(name): bool(enabled) for name, enabled in courses.items()}
+    hidden = _clean_hidden(payload.get("hidden"))
     workspace.root.mkdir(parents=True, exist_ok=True)
     workspace.upload_selection_path.write_text(
-        json.dumps({"courses": cleaned}, ensure_ascii=False, indent=2),
+        json.dumps({"courses": cleaned, "hidden": hidden}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return {"courses": cleaned}
+    return {"courses": cleaned, "hidden": hidden}
 
 
 def get_status(workspace: UserWorkspace, base_url: str | None = None) -> dict[str, Any]:
@@ -807,6 +834,8 @@ def safe_public_config(workspace: UserWorkspace) -> dict[str, Any]:
         ),
         "schoolEmail": config.get("SCHOOL_EMAIL", ""),
         "schoolImapHost": config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+        "gcalSyncEnabled": bool(config.get("GCAL_SYNC_ENABLED", False)),
+        "gcalCalendarName": config.get("GCAL_CALENDAR_NAME", "DGIST 메일 일정"),
         "interests": config.get("EMAIL_INTERESTS", "전공 탐색, 취업, 음악, 세미나"),
         "interestTags": config.get("EMAIL_INTEREST_TAGS", []),
         "interestsCustom": config.get("EMAIL_INTERESTS_CUSTOM", ""),
@@ -885,6 +914,45 @@ def run_process(workspace: UserWorkspace, kind: str, command: list[str], extra_e
         task_state["logs"].append(
             f"[{now_iso()}] {kind} 작업이 종료되었습니다. 종료 코드: {return_code}"
         )
+
+    # 메일을 새로 읽어온 뒤 구글 캘린더 자동 동기화 (설정에서 켠 경우에만)
+    if kind in ("emails", "sync") and return_code == 0:
+        auto_sync_calendar(workspace)
+
+
+def auto_sync_calendar(workspace: UserWorkspace) -> None:
+    """설정이 켜져 있으면 메일 일정을 구글 캘린더에 자동 반영한다.
+
+    실패해도 본 작업에는 영향을 주지 않도록 로그만 남긴다.
+    """
+    try:
+        config = read_config(workspace)
+        if not config.get("GCAL_SYNC_ENABLED"):
+            return
+        if not workspace.token_path.exists():
+            append_log(workspace.user_id, "[캘린더] 구글 계정이 연결되지 않아 동기화를 건너뜁니다.")
+            return
+
+        import calendar_sync
+
+        if not calendar_sync.has_calendar_scope(str(workspace.token_path)):
+            append_log(
+                workspace.user_id,
+                "[캘린더] 캘린더 권한이 없습니다. 설정에서 구글 계정을 다시 연결해 주세요.",
+            )
+            return
+        emails = get_emails(workspace).get("emails", [])
+        result = calendar_sync.sync_email_events(
+            emails,
+            calendar_name=config.get("GCAL_CALENDAR_NAME", "DGIST 메일 일정"),
+            token_path=str(workspace.token_path),
+        )
+        append_log(
+            workspace.user_id,
+            f"[캘린더] '{result.get('calendar')}' 동기화 완료 — {result.get('message')}",
+        )
+    except Exception as exc:
+        append_log(workspace.user_id, f"[캘린더] 자동 동기화 실패: {exc}")
 
 
 def start_task(workspace: UserWorkspace, kind: str, sync_mode: str = "fast") -> tuple[bool, str]:
@@ -1396,6 +1464,28 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             saved = save_upload_selection(workspace, payload)
             self.send_json({"ok": True, **saved})
             return
+        if route == "/api/gcal/sync":
+            try:
+                import calendar_sync
+
+                config = read_config(workspace)
+                if not workspace.token_path.exists():
+                    raise RuntimeError("먼저 설정에서 구글 계정을 연결해 주세요.")
+                if not calendar_sync.has_calendar_scope(str(workspace.token_path)):
+                    raise RuntimeError(
+                        "구글 캘린더 권한이 없습니다. 설정에서 구글 계정을 다시 연결해 주세요."
+                    )
+                emails = get_emails(workspace).get("emails", [])
+                result = calendar_sync.sync_email_events(
+                    emails,
+                    calendar_name=config.get("GCAL_CALENDAR_NAME", "DGIST 메일 일정"),
+                    token_path=str(workspace.token_path),
+                )
+                self.send_json(result)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+
         if route == "/api/google/connect":
             try:
                 payload = self.read_body_json()

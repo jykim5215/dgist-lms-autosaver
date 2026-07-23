@@ -33,7 +33,8 @@ const state = {
   status: null,
   files: [],
   deadlines: { items: [], events: [], updatedAt: null },
-  selection: { courses: {} },
+  selection: { courses: {}, hidden: [] },
+  courseEditMode: false,
   config: null,
   task: null,
   query: "",
@@ -107,8 +108,11 @@ function statusLabel(status) {
 /* ===== 뷰 전환 ===== */
 function switchView(view) {
   state.view = view;
+  // 메일 쓰기는 메일함(view-emails) 셸을 공유하되 작성 pane을 연다
+  const isCompose = view === "compose";
+  const shellView = isCompose ? "emails" : view;
   document.querySelectorAll(".view").forEach((node) => {
-    node.hidden = node.id !== `view-${view}`;
+    node.hidden = node.id !== `view-${shellView}`;
   });
   if (view === "settings") {
     populateSettings();
@@ -116,11 +120,19 @@ function switchView(view) {
   if (view === "emails") {
     showMailPane("list");
   }
+  if (isCompose) {
+    if (!state.config?.schoolEmail) {
+      showToast("설정 → 학교 이메일에서 계정을 먼저 입력해 주세요.");
+      openSettings();
+      return;
+    }
+    openCompose();
+  }
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.view === view);
   });
   // 메일함은 Gmail식 집중 모드: 사이드바 축소 + 우측 로그 레일 숨김
-  document.querySelector(".app-shell").classList.toggle("mail-focus", view === "emails");
+  document.querySelector(".app-shell").classList.toggle("mail-focus", shellView === "emails");
 }
 
 /* ===== 마감일 헬퍼 ===== */
@@ -518,6 +530,16 @@ function openCompose({ to = "", cc = "", bcc = "", subject = "", body = "", inRe
 function closeCompose() {
   state.attachments = [];
   showMailPane("list");
+}
+
+/* 작성 중인 내용이 있는지 (폴더 이동 시 실수로 날리는 것 방지) */
+function composeHasContent() {
+  const form = $("#composeForm");
+  if (!form) return false;
+  const filled = ["to", "cc", "bcc", "subject", "body"].some(
+    (name) => (form.elements[name]?.value || "").trim() !== "",
+  );
+  return filled || (state.attachments || []).length > 0;
 }
 
 function renderAttachments() {
@@ -945,22 +967,39 @@ function renderCourses() {
   const grid = $("#courseGrid");
   const empty = $("#courseEmpty");
   const query = state.query.trim().toLowerCase();
+  const hidden = state.selection.hidden || [];
   const summaries = courseSummaries().filter(
     (course) =>
-      !query ||
-      course.label.toLowerCase().includes(query) ||
-      course.korean.toLowerCase().includes(query),
+      !hidden.includes(course.label) &&
+      (!query ||
+        course.label.toLowerCase().includes(query) ||
+        course.korean.toLowerCase().includes(query)),
   );
+
+  // 편집 모드: 카드 흔들림 + 제거 버튼
+  grid.classList.toggle("editing", !!state.courseEditMode);
+  const editLabel = $("#courseEditLabel");
+  if (editLabel) editLabel.textContent = state.courseEditMode ? "완료" : "편집";
+  $("#courseEditButton")?.setAttribute("aria-pressed", String(!!state.courseEditMode));
+  const restoreBtn = $("#restoreCoursesButton");
+  if (restoreBtn) {
+    restoreBtn.hidden = hidden.length === 0;
+    restoreBtn.textContent = `숨긴 과목 ${hidden.length}개 복원`;
+  }
 
   empty.hidden = summaries.length > 0;
   grid.innerHTML = summaries
     .map((course) => {
       const enabled = state.selection.courses[course.label] !== false;
+      const removeBtn = state.courseEditMode
+        ? `<button type="button" class="course-remove" data-remove="${escapeHtml(course.label)}" aria-label="과목 제거" title="목록에서 제거">✕</button>`
+        : "";
       const nextLine = course.next
         ? `다음 마감 <b>${formatDue(course.next.due)}</b> · ${escapeHtml(shortText(course.next.name, 30))}`
         : "다가오는 미제출 마감 없음";
       return `
         <article class="course-card ${enabled ? "" : "off"}">
+          ${removeBtn}
           <div class="course-card-top">
             <h3>
               ${escapeHtml(shortText(course.label, 40))}
@@ -996,6 +1035,26 @@ function renderCourses() {
             ? `'${shortText(label, 24)}' 과목을 업로드에 포함합니다.`
             : `'${shortText(label, 24)}' 과목을 업로드에서 제외합니다.`,
         );
+        renderCourses();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+
+  // 편집 모드에서 과목 제거 (자료는 지우지 않고 목록에서만 숨김)
+  grid.querySelectorAll("[data-remove]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const label = btn.dataset.remove;
+      const ok = window.confirm(
+        `'${shortText(label, 30)}' 과목을 목록에서 제거할까요?\n받아둔 자료는 삭제되지 않으며, '숨긴 과목 복원'으로 되돌릴 수 있습니다.`,
+      );
+      if (!ok) return;
+      state.selection.hidden = [...new Set([...(state.selection.hidden || []), label])];
+      try {
+        await api("/api/selection", { method: "POST", body: JSON.stringify(state.selection) });
+        showToast(`'${shortText(label, 24)}' 과목을 목록에서 제거했습니다.`);
         renderCourses();
       } catch (error) {
         showToast(error.message);
@@ -1368,15 +1427,25 @@ function renderCalendar() {
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
   let html = weekdays.map((w) => `<div class="cal-weekday">${w}</div>`).join("");
   for (let i = 0; i < startDow; i += 1) html += `<div class="cal-cell empty"></div>`;
+  // 삼성 캘린더처럼 칸 안에 일정 제목을 간략히 표시 (넘치면 +N)
+  const MAX_CHIPS = 3;
   for (let d = 1; d <= daysInMonth; d += 1) {
     const dayItems = byDay[d] || [];
-    const dots = [...new Set(dayItems.map((it) => it.kind))]
-      .map((k) => `<i class="dot cal-${k}"></i>`)
+    const chips = dayItems
+      .slice(0, MAX_CHIPS)
+      .map(
+        (it) =>
+          `<span class="cal-chip cal-${it.kind}" title="${escapeHtml(it.title || "")}">${escapeHtml(
+            shortText(it.title || "", 14),
+          )}</span>`,
+      )
       .join("");
+    const more =
+      dayItems.length > MAX_CHIPS ? `<span class="cal-more">+${dayItems.length - MAX_CHIPS}</span>` : "";
     html += `
       <div class="cal-cell ${isToday(d) ? "today" : ""} ${state.calSelected === d ? "selected" : ""}" data-day="${d}">
         <span class="cal-daynum">${d}</span>
-        <span class="cal-dots">${dots}</span>
+        <span class="cal-chips">${chips}${more}</span>
       </div>`;
   }
   grid.innerHTML = html;
@@ -1439,6 +1508,7 @@ async function refreshAll() {
     state.files = files.files || [];
     state.deadlines = deadlines;
     state.selection = selection.courses ? selection : { courses: {} };
+    if (!Array.isArray(state.selection.hidden)) state.selection.hidden = [];
     state.emails = emails.emails ? emails : { emails: [], briefing: "", interests: "", updatedAt: null };
     state.config = config;
     renderAll();
@@ -1537,6 +1607,10 @@ async function populateSettings() {
   state.interestTags = new Set(state.config?.interestTags || []);
   form.elements.interestsCustom.value = state.config?.interestsCustom || "";
   form.elements.hidePastEmails.checked = Boolean(state.config?.hidePastEmails);
+  // 구글 캘린더 동기화 (체크박스라 value 대입으로는 반영되지 않음)
+  form.elements.gcalSyncEnabled.checked = Boolean(state.config?.gcalSyncEnabled);
+  form.elements.gcalCalendarName.value = state.config?.gcalCalendarName || "DGIST 메일 일정";
+  renderGcalStatus();
   renderInterestChips();
   renderSecretBadges();
   renderGoogleSection();
@@ -1635,9 +1709,20 @@ function bindEvents() {
   $("#mailFolders").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-folder]");
     if (!btn) return;
+    // 작성 중이던 내용이 있으면 확인 후 이동
+    if (
+      state.mailPane === "compose" &&
+      composeHasContent() &&
+      !window.confirm("작성 중인 메일이 있습니다. 저장하지 않고 이동할까요?")
+    ) {
+      return;
+    }
     state.emailFolder = btn.dataset.folder;
     state.emailFilter = "";
-    $("#mailScrollReset")?.scrollTo?.(0, 0);
+    state.attachments = [];
+    // 작성/읽기 pane에 가려지지 않도록 목록으로 복귀 + 사이드바 활성 항목 동기화
+    switchView("emails");
+    $("#mailScroll")?.scrollTo?.(0, 0);
     renderEmails();
   });
 
@@ -1695,14 +1780,7 @@ function bindEvents() {
   });
 
   // 메일 쓰기 / 발송
-  $("#composeButton").addEventListener("click", () => {
-    if (!state.config?.schoolEmail) {
-      showToast("설정 → 학교 이메일에서 계정을 먼저 입력해 주세요.");
-      openSettings();
-      return;
-    }
-    openCompose();
-  });
+  $("#composeButton").addEventListener("click", () => switchView("compose"));
   $("#closeComposeDialog").addEventListener("click", closeCompose);
   $("#cancelComposeButton").addEventListener("click", closeCompose);
   $("#toggleCcBcc").addEventListener("click", () => {
@@ -1928,7 +2006,44 @@ function bindEvents() {
 
   $("#openSettingsFromRail")?.addEventListener("click", openSettings);
 
-  $("#themeToggle").addEventListener("click", cycleTheme);
+  // 구글 캘린더 지금 동기화
+  $("#gcalSyncNowButton")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    renderGcalStatus("동기화 중…");
+    try {
+      const data = await api("/api/gcal/sync", { method: "POST", body: JSON.stringify({}) });
+      showToast(`'${data.calendar}' 캘린더에 반영했습니다. ${data.message || ""}`.trim());
+      renderGcalStatus(`마지막 동기화: ${data.message || "완료"}`);
+    } catch (error) {
+      showToast(error.message);
+      renderGcalStatus(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // 과목 편집 모드 토글 / 숨긴 과목 복원
+  $("#courseEditButton")?.addEventListener("click", () => {
+    state.courseEditMode = !state.courseEditMode;
+    renderCourses();
+  });
+  $("#restoreCoursesButton")?.addEventListener("click", async () => {
+    const count = (state.selection.hidden || []).length;
+    if (!count) return;
+    state.selection.hidden = [];
+    try {
+      await api("/api/selection", { method: "POST", body: JSON.stringify(state.selection) });
+      showToast(`숨긴 과목 ${count}개를 복원했습니다.`);
+      renderCourses();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  document.querySelectorAll(".theme-opt").forEach((btn) => {
+    btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
+  });
 
   $("#exportIcsButton").addEventListener("click", async () => {
     if (!state.deadlines.items.length) {
@@ -1998,6 +2113,7 @@ function bindEvents() {
     const payload = Object.fromEntries(formData.entries());
     payload.interestTags = [...state.interestTags];
     payload.hidePastEmails = event.currentTarget.elements.hidePastEmails.checked;
+    payload.gcalSyncEnabled = event.currentTarget.elements.gcalSyncEnabled.checked;
     try {
       await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
       showToast("설정을 저장했습니다.");
@@ -2036,22 +2152,14 @@ function applyTheme(theme) {
   } catch (error) {
     /* localStorage 사용 불가 환경 무시 */
   }
-  const button = $("#themeToggle");
-  if (button) {
-    const cur = THEMES.find((t) => t.key === theme) || THEMES[0];
-    button.innerHTML = `<span class="icon" data-icon="${cur.icon}"></span>`;
-    button.title = `테마: ${cur.label} (클릭하여 전환)`;
-    installIcons(button);
-  }
+  // 3분할 테마 선택기: 현재 테마 버튼만 활성 표시
+  document.querySelectorAll(".theme-opt").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.theme === theme);
+  });
 }
 
 function currentTheme() {
   return document.documentElement.getAttribute("data-theme") || "claude";
-}
-
-function cycleTheme() {
-  const idx = THEMES.findIndex((t) => t.key === currentTheme());
-  applyTheme(THEMES[(idx + 1) % THEMES.length].key);
 }
 
 function initTheme() {
@@ -2065,6 +2173,55 @@ function initTheme() {
   applyTheme(saved);
 }
 
+/* ===== 구글 캘린더 동기화 상태 ===== */
+function renderGcalStatus(message) {
+  const el = $("#gcalStatusText");
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    return;
+  }
+  const oauth = state.status?.googleOAuth || {};
+  if (!oauth.tokenExists) {
+    el.textContent = "먼저 위에서 구글 계정을 연결해 주세요.";
+  } else if (!oauth.calendarGranted) {
+    el.textContent = "캘린더 권한이 없습니다. 구글 계정을 다시 연결하면 권한이 추가됩니다.";
+  } else {
+    el.textContent = "메일에서 찾은 일정을 구글 캘린더에 자동으로 등록합니다.";
+  }
+}
+
+/* ===== 실행 로그 레일 접기/펼치기 ===== */
+function applyRailCollapsed(collapsed) {
+  const workspace = document.querySelector(".workspace");
+  if (!workspace) return;
+  workspace.classList.toggle("rail-collapsed", collapsed);
+  const toggle = $("#railToggle");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.title = collapsed ? "실행 로그 펼치기" : "실행 로그 접기";
+  }
+  try {
+    localStorage.setItem("autosaver-rail-collapsed", collapsed ? "1" : "0");
+  } catch (error) {
+    /* localStorage 사용 불가 환경 무시 */
+  }
+}
+
+function initRail() {
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem("autosaver-rail-collapsed") === "1";
+  } catch (error) {
+    /* 무시 */
+  }
+  applyRailCollapsed(collapsed);
+  $("#railToggle")?.addEventListener("click", () => {
+    const now = document.querySelector(".workspace")?.classList.contains("rail-collapsed");
+    applyRailCollapsed(!now);
+  });
+}
+
 function setHeroGreeting() {
   const hour = new Date().getHours();
   const greeting =
@@ -2076,6 +2233,7 @@ installIcons();
 bindEvents();
 bindInterestChips();
 initTheme();
+initRail();
 setHeroGreeting();
 refreshAll();
 window.setInterval(refreshAll, 3500);
