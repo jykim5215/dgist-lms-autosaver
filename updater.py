@@ -43,6 +43,9 @@ UPDATE_FILES = [
     "web/app.js",
     "web/styles.css",
     "web/favicon.svg",
+    # 창·바로가기 아이콘 (갱신되지 않으면 예전 로고가 남는다)
+    "web/app.png",
+    "web/app.ico",
 ]
 
 

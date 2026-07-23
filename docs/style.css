@@ -1,0 +1,222 @@
+@import url("https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --bg: #faf9f5;
+  --bg-deep: #f0eee6;
+  --surface: #ffffff;
+  --border: #e5e1d6;
+  --text: #1f1e1d;
+  --text-soft: #5d5a52;
+  --text-faint: #8b877c;
+  --accent: #bf6d27;
+  --accent-soft: #f2e4cd;
+  --bp-body: #eba43f;
+  --radius: 14px;
+  --font-serif: "Lora", "Noto Serif KR", Georgia, serif;
+  --font-sans: "Inter", "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #262624;
+    --bg-deep: #1f1e1d;
+    --surface: #30302e;
+    --border: #403e39;
+    --text: #e8e6df;
+    --text-soft: #b5b1a6;
+    --text-faint: #8a867b;
+    --accent: #e0a05a;
+    --accent-soft: #3b2f21;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+/* ===== 헤더 ===== */
+header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.logo svg { width: 30px; height: 30px; }
+
+.bar-title strong {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 16px;
+}
+
+.bar-title span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: -2px;
+}
+
+nav {
+  margin-left: auto;
+  display: flex;
+  gap: 18px;
+  font-size: 13.5px;
+}
+
+nav a {
+  color: var(--text-soft);
+  text-decoration: none;
+}
+
+nav a:hover { color: var(--accent); }
+
+/* ===== 본문 ===== */
+main { padding: 44px 0 72px; }
+
+h1 {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  margin: 40px 0 10px;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: 15px;
+  margin: 26px 0 6px;
+}
+
+p { margin: 0 0 14px; color: var(--text-soft); }
+
+.lead {
+  font-size: 17px;
+  color: var(--text-soft);
+  margin-bottom: 28px;
+}
+
+ul { padding-left: 20px; color: var(--text-soft); }
+li { margin-bottom: 7px; }
+
+code {
+  background: var(--bg-deep);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+a { color: var(--accent); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin: 18px 0;
+}
+
+.card h3 { margin-top: 0; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+}
+
+.btn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  padding: 11px 20px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+
+.meta {
+  font-size: 13px;
+  color: var(--text-faint);
+  border-left: 3px solid var(--accent-soft);
+  padding-left: 12px;
+  margin-bottom: 30px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 14px 0;
+  display: block;
+  overflow-x: auto;
+}
+
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th { color: var(--text); font-weight: 600; white-space: nowrap; }
+td { color: var(--text-soft); }
+
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0 40px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+footer a { color: var(--text-faint); }
+
+@media (max-width: 560px) {
+  h1 { font-size: 27px; }
+  nav { gap: 12px; font-size: 12.5px; }
+}

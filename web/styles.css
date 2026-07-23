@@ -23,8 +23,9 @@
   --blue-soft: #e6edf5;
   /* 붕어빵 로고: 베이지 바탕 + 노릇한 주황 */
   --bp-bg: #f2e4cd;
-  --bp-body: #eba43f;
-  --bp-line: #bf6d27;
+  --bp-body: #e99c33;
+  --bp-hi: #f5bf6a;
+  --bp-line: #b06020;
   --radius: 14px;
   --radius-sm: 9px;
   --shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 6px 20px -8px rgba(31, 30, 29, 0.08);
@@ -74,8 +75,9 @@
   --blue-soft: #2c3848;
   /* 다크에서는 바탕을 어둡게 낮추고 붕어빵은 살짝 더 밝게 */
   --bp-bg: #3b2f21;
-  --bp-body: #f0ac4a;
-  --bp-line: #d9853a;
+  --bp-body: #eca63f;
+  --bp-hi: #f7c87c;
+  --bp-line: #cc7a30;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 20px -8px rgba(0, 0, 0, 0.35);
 }
 
@@ -166,6 +168,10 @@ body {
   fill: var(--bp-body);
   stroke: var(--bp-line);
   stroke-width: 0.95;
+}
+.bp-hi {
+  fill: var(--bp-hi);
+  stroke: none;
 }
 .bp-fin {
   fill: var(--bp-line);
