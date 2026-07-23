@@ -77,8 +77,40 @@ def _fetch_file(rel_path: str) -> bytes:
         raise
 
 
+def _fetch_version_via_api() -> str:
+    """VERSION만 Contents API로 읽는다 (캐시 없이 즉시 최신).
+
+    호출이 1회뿐이라 시간당 60회 제한에 여유가 있다.
+    """
+    import base64
+    import json
+
+    url = f"https://api.github.com/repos/{REPO}/contents/VERSION?ref={BRANCH}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "DGIST-AutoSaver-Updater",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("encoding") == "base64" and "content" in data:
+        return base64.b64decode(data["content"]).decode("utf-8").strip()
+    raise RuntimeError("VERSION을 읽을 수 없습니다.")
+
+
 def remote_version() -> str:
-    return _fetch_file("VERSION").decode("utf-8").strip()
+    """최신 버전 문자열.
+
+    버전은 '갱신 필요 여부'의 기준이라 캐시 지연이 있으면 안 된다.
+    → Contents API를 먼저 쓰고(1회), 막혀 있으면 raw로 대체한다.
+    """
+    try:
+        return _fetch_version_via_api()
+    except Exception:
+        # API가 rate limit 등으로 막힌 경우: raw는 최대 몇 분 늦을 수 있다.
+        return _fetch_file("VERSION").decode("utf-8").strip()
 
 
 def _ver_tuple(v: str) -> tuple[int, ...]:
