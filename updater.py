@@ -42,6 +42,7 @@ UPDATE_FILES = [
     "web/index.html",
     "web/app.js",
     "web/styles.css",
+    "web/favicon.svg",
 ]
 
 

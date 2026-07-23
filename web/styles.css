@@ -21,6 +21,10 @@
   --red-soft: #f9e4e4;
   --blue: #5b7da8;
   --blue-soft: #e6edf5;
+  /* 붕어빵 로고: 베이지 바탕 + 노릇한 주황 */
+  --bp-bg: #f2e4cd;
+  --bp-body: #eba43f;
+  --bp-line: #bf6d27;
   --radius: 14px;
   --radius-sm: 9px;
   --shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 6px 20px -8px rgba(31, 30, 29, 0.08);
@@ -68,6 +72,10 @@
   --red-soft: #442a2a;
   --blue: #92b2d8;
   --blue-soft: #2c3848;
+  /* 다크에서는 바탕을 어둡게 낮추고 붕어빵은 살짝 더 밝게 */
+  --bp-bg: #3b2f21;
+  --bp-body: #f0ac4a;
+  --bp-line: #d9853a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 20px -8px rgba(0, 0, 0, 0.35);
 }
 
@@ -144,20 +152,41 @@ body {
 .brand-mark {
   width: 38px;
   height: 38px;
-  border-radius: 11px;
-  background: var(--accent);
-  color: #fff;
+  /* 스퀘어클(squircle)에 가까운 곡률 — 현대적인 앱 아이콘 느낌 */
+  border-radius: 12px;
+  background: var(--bp-bg);
   display: grid;
   place-items: center;
   flex: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* ===== 붕어빵 로고 파츠 ===== */
+.bp-body {
+  fill: var(--bp-body);
+  stroke: var(--bp-line);
+  stroke-width: 0.95;
+}
+.bp-fin {
+  fill: var(--bp-line);
+  stroke: none;
+  opacity: 0.9;
+}
+.bp-scale {
+  fill: none;
+  stroke: var(--bp-line);
+  stroke-width: 0.8;
+  opacity: 0.72;
+}
+.bp-eye {
+  fill: var(--bp-line);
+  stroke: none;
 }
 
 .brand-mark svg {
-  width: 21px;
-  height: 21px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
+  /* 디테일(비늘·지느러미)이 살아나도록 마크 대비 크게 */
+  width: 28px;
+  height: 28px;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
