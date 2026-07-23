@@ -31,8 +31,49 @@ import web_ui
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("AUTOSAVER_UI_PORT", "8765"))
-WINDOW_TITLE = "DGIST LMS AutoSaver"
+WINDOW_TITLE = "붕어빵"
 APP_ICON = Path(__file__).resolve().parent / "web" / "app.png"
+
+
+APP_ICO = Path(__file__).resolve().parent / "web" / "app.ico"
+
+
+def apply_window_icon(timeout: float = 15.0) -> bool:
+    """pywebview 창에 앱 아이콘을 입힌다 (Windows 전용).
+
+    pywebview의 create_window에는 아이콘 인자가 없어서, 창이 만들어진 뒤
+    Win32 WM_SETICON으로 직접 설정한다. 이걸 하지 않으면 창과 작업표시줄에
+    pythonw.exe의 기본 파이썬 아이콘이 그대로 노출된다.
+    """
+    if os.name != "nt" or not APP_ICO.exists():
+        return False
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
+        WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+
+        deadline = time.time() + timeout
+        hwnd = 0
+        while time.time() < deadline:
+            hwnd = user32.FindWindowW(None, WINDOW_TITLE)
+            if hwnd:
+                break
+            time.sleep(0.3)
+        if not hwnd:
+            return False
+
+        path = str(APP_ICO)
+        big = user32.LoadImageW(None, path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        small = user32.LoadImageW(None, path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+        return bool(big or small)
+    except Exception:
+        return False
 
 
 def notify(title: str, message: str) -> None:
@@ -206,6 +247,8 @@ def main() -> None:
         height=880,
         min_size=(900, 640),
     )
+    # 창이 뜬 뒤 아이콘을 입힌다 (pywebview는 Windows에서 아이콘 인자를 지원하지 않음)
+    threading.Thread(target=apply_window_icon, daemon=True).start()
     try:
         webview.start()
     finally:

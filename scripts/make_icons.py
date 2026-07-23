@@ -82,7 +82,10 @@ SCORES = [
 EYE = (6.0, 10.4, 0.85)
 
 
-def render(size: int, ss: int = 8, inset: float = 0.9, radius_ratio: float = 0.25,
+TILT = 0  # 정면 (기울이지 않음)
+
+
+def render(size: int, ss: int = 8, inset: float = 0.86, radius_ratio: float = 0.25,
            transparent_bg: bool = False) -> Image.Image:
     """붕어빵 아이콘 한 장을 그린다."""
     c = size * ss
@@ -92,40 +95,68 @@ def render(size: int, ss: int = 8, inset: float = 0.9, radius_ratio: float = 0.2
         x, y = p
         return ((12 + (x - 12) * inset) * u, (12 + (y - 12) * inset) * u)
 
-    img = Image.new("RGBA", (c, c), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    if not transparent_bg:
-        d.rounded_rectangle([0, 0, c - 1, c - 1], radius=int(c * radius_ratio), fill=BG)
+    def poly(pts):
+        return [T(p) for p in pts]
 
-    def stroke(pts, color, w, close=True):
+    # --- 붕어빵은 별도 레이어에 그린 뒤 통째로 기울인다 ---
+    fish = Image.new("RGBA", (c, c), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fish)
+
+    def stroke(dr, pts, color, w, close=True):
         r = max(w * ss / 2, 1)
         for p in (pts + [pts[0]] if close else pts):
             x, y = T(p)
-            d.ellipse([x - r, y - r, x + r, y + r], fill=color)
+            dr.ellipse([x - r, y - r, x + r, y + r], fill=color)
 
     def shape(pts, fill, w=0.95):
-        d.polygon([T(p) for p in pts], fill=fill)
-        stroke(pts, LINE, w)
+        fd.polygon(poly(pts), fill=fill)
+        stroke(fd, pts, LINE, w)
 
     shape(TAIL, BODY)
     shape(DORSAL, BODY)
     shape(BODY_PATH, BODY)
 
-    # 윗면 하이라이트: 노릇하게 구워진 볼록한 면
+    # 노릇하게 구워진 윗면
     hi = _path((4.4, 10.8), [
         ("C", (6.0, 8.2), (9.4, 7.3), (13.2, 7.9)),
         ("C", (9.6, 8.4), (6.6, 9.4), (4.4, 10.8)),
     ])
-    d.polygon([T(p) for p in hi], fill=BODY_HI)
+    fd.polygon(poly(hi), fill=BODY_HI)
 
-    d.polygon([T(p) for p in PECTORAL], fill=LINE)
+    # --- 붕어빵 틀 자국: 몸통 안쪽에만 보이도록 마스크로 잘라낸다 ---
+    body_mask = Image.new("L", (c, c), 0)
+    ImageDraw.Draw(body_mask).polygon(poly(BODY_PATH), fill=255)
+    grid = Image.new("RGBA", (c, c), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grid)
+    step = 1.55 * inset * u
+    lw = max(int(0.5 * ss), 1)
+    y0 = 5.5 * inset * u
+    x = 3.0 * inset * u
+    while x < c:
+        gd.line([(x, 0), (x - 3.2 * u, c)], fill=(176, 96, 32, 58), width=lw)
+        x += step
+    y = y0
+    while y < c:
+        gd.line([(0, y), (c, y - 1.1 * u)], fill=(176, 96, 32, 58), width=lw)
+        y += step
+    fish.alpha_composite(Image.composite(grid, Image.new("RGBA", (c, c), (0, 0, 0, 0)), body_mask))
+
+    fd.polygon(poly(PECTORAL), fill=LINE)
     for s in SCORES:
-        stroke([s[0]] + _bez(*s), SCORE, 0.8, close=False)
+        stroke(fd, [s[0]] + _bez(*s), SCORE, 0.8, close=False)
 
     ex, ey = T((EYE[0], EYE[1]))
     er = EYE[2] * inset * u
-    d.ellipse([ex - er, ey - er, ex + er, ey + er], fill=LINE)
+    fd.ellipse([ex - er, ey - er, ex + er, ey + er], fill=LINE)
 
+    fish = fish.rotate(TILT, resample=Image.BICUBIC, center=(c / 2, c / 2))
+
+    img = Image.new("RGBA", (c, c), (0, 0, 0, 0))
+    if not transparent_bg:
+        ImageDraw.Draw(img).rounded_rectangle(
+            [0, 0, c - 1, c - 1], radius=int(c * radius_ratio), fill=BG
+        )
+    img.alpha_composite(fish)
     return img.resize((size, size), Image.LANCZOS)
 
 

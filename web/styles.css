@@ -173,6 +173,11 @@ body {
   fill: var(--bp-hi);
   stroke: none;
 }
+/* 붕어빵 틀 자국 (currentColor로 패턴 선 색을 물려준다) */
+.bp-grid {
+  color: var(--bp-line);
+  opacity: 0.3;
+}
 .bp-fin {
   fill: var(--bp-line);
   stroke: none;
