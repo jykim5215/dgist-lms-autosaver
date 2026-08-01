@@ -22,10 +22,10 @@
   --blue: #5b7da8;
   --blue-soft: #e6edf5;
   /* 붕어빵 로고: 베이지 바탕 + 노릇한 주황 */
-  --bp-bg: #f2e4cd;
-  --bp-body: #e99c33;
-  --bp-hi: #f5bf6a;
-  --bp-line: #b06020;
+  --bp-bg: #faf6ec;
+  --bp-body: #f7be3c;
+  --bp-hi: #fcd882;
+  --bp-line: #2b2826;
   --radius: 14px;
   --radius-sm: 9px;
   --shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 6px 20px -8px rgba(31, 30, 29, 0.08);
@@ -74,10 +74,10 @@
   --blue: #92b2d8;
   --blue-soft: #2c3848;
   /* 다크에서는 바탕을 어둡게 낮추고 붕어빵은 살짝 더 밝게 */
-  --bp-bg: #3b2f21;
-  --bp-body: #eca63f;
-  --bp-hi: #f7c87c;
-  --bp-line: #cc7a30;
+  --bp-bg: #f3edde;
+  --bp-body: #f7be3c;
+  --bp-hi: #fcd882;
+  --bp-line: #2b2826;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 20px -8px rgba(0, 0, 0, 0.35);
 }
 
@@ -167,7 +167,7 @@ body {
 .bp-body {
   fill: var(--bp-body);
   stroke: var(--bp-line);
-  stroke-width: 0.95;
+  stroke-width: 1.5;
 }
 .bp-hi {
   fill: var(--bp-hi);
@@ -1731,25 +1731,71 @@ tbody tr:hover {
   100% { transform: scale(1); }
 }
 
-.day-detail,
-.event-editor {
+/* 달력 + 상세 패널: 날짜를 누르면 달력이 왼쪽으로 좁아지고 패널이 옆으로 빠져나온다 */
+.calendar-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0fr;
+  gap: 0;
+  align-items: start;
+  transition: grid-template-columns 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+              gap 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.calendar-stage.detail-open {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.62fr);
+  gap: 16px;
+}
+
+.day-detail {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  margin-top: 14px;
   overflow: hidden;
+  min-width: 0;
+  /* 달력에서 미끄러져 나오는 느낌 */
+  opacity: 0;
+  transform: translateX(-22px) scale(0.97);
+  transform-origin: left center;
+  transition: opacity 0.34s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  position: sticky;
+  top: 86px;
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
 }
-.day-detail[hidden],
-.event-editor[hidden] { display: none; }
+.day-detail[hidden] { display: none; }
+.calendar-stage.detail-open .day-detail {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
 
-.day-detail.opening,
+.event-editor {
+  border-top: 1px solid var(--bg-deep);
+  background: var(--surface-soft);
+  flex: none;
+}
+.event-editor[hidden] { display: none; }
 .event-editor.opening {
-  animation: detail-expand 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: detail-expand 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes detail-expand {
-  from { opacity: 0; transform: translateY(-8px) scaleY(0.9); transform-origin: top center; }
+  from { opacity: 0; transform: translateY(-8px) scaleY(0.92); transform-origin: top center; }
   to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+/* 좁은 화면에서는 위아래로 쌓기 */
+@media (max-width: 900px) {
+  .calendar-stage,
+  .calendar-stage.detail-open {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .day-detail {
+    position: static;
+    max-height: none;
+    transform: translateY(-10px) scale(0.98);
+  }
+  .calendar-stage.detail-open .day-detail { transform: translateY(0) scale(1); }
 }
 
 .day-detail-head,
@@ -1859,6 +1905,142 @@ tbody tr:hover {
 
 @media (max-width: 620px) {
   .event-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 작성창: 내 자료 패널 + 끌어다 첨부 ===== */
+.compose-with-files {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  gap: 0;
+  min-height: 0;
+}
+.compose-with-files > form {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.compose-files {
+  border-left: 1px solid var(--border);
+  background: var(--surface-soft);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.compose-files-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 13px 14px 9px;
+  gap: 8px;
+}
+.compose-files-head strong { font-size: 13px; }
+.compose-files-head span { font-size: 11px; color: var(--text-faint); }
+
+.compose-files-search {
+  position: relative;
+  padding: 0 12px 10px;
+}
+.compose-files-search .icon {
+  position: absolute;
+  left: 21px;
+  top: 8px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+}
+.compose-files-search input {
+  width: 100%;
+  padding-left: 30px;
+  font-size: 12.5px;
+}
+
+.compose-files-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 10px;
+}
+.compose-files-empty {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 14px 8px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.compose-file-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 8px;
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition: background 0.15s, transform 0.12s;
+}
+.compose-file-item:hover { background: var(--surface); }
+.compose-file-item:active { cursor: grabbing; }
+.compose-file-item.dragging { opacity: 0.45; transform: scale(0.97); }
+.compose-file-main { flex: 1; min-width: 0; }
+.compose-file-main strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compose-file-main span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compose-file-add {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.compose-file-add:hover { background: var(--accent-soft); color: var(--accent-strong); }
+
+/* 첨부 드롭 영역 */
+.compose-dropzone {
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.compose-dropzone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.dropzone-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+.compose-dropzone.drag-over .dropzone-hint { color: var(--accent-strong); }
+/* 첨부가 하나라도 있으면 안내문은 숨긴다 */
+.compose-dropzone:has(.attach-chip) .dropzone-hint { display: none; }
+
+@media (max-width: 1100px) {
+  .compose-with-files { grid-template-columns: minmax(0, 1fr); }
+  .compose-files {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 230px;
+  }
 }
 
 /* ===== 자료함: 폴더 보기 ===== */
@@ -3535,6 +3717,38 @@ tbody tr:hover {
 .cal-cell.selected { border-color: var(--accent); }
 .cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
 .cal-cell.today .cal-daynum { color: var(--accent-strong); font-weight: 800; }
+
+/* 주말·공휴일: 일요일과 공휴일은 빨강, 토요일은 파랑 */
+.cal-weekday.sun { color: var(--red); }
+.cal-weekday.sat { color: var(--blue); }
+.cal-cell.sun .cal-daynum { color: var(--red); }
+.cal-cell.sat .cal-daynum { color: var(--blue); }
+.cal-cell.today.sun .cal-daynum,
+.cal-cell.today.sat .cal-daynum { color: var(--accent-strong); }
+
+.cal-holiday {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--red);
+  line-height: 1.2;
+  margin-top: -2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.holiday-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0 4px;
+  user-select: none;
+}
+.holiday-toggle input { cursor: pointer; accent-color: var(--accent); }
 .cal-dots { display: flex; gap: 3px; flex-wrap: wrap; }
 
 /* 삼성 캘린더식 간략 일정 표시 */

@@ -61,6 +61,7 @@ const state = {
   myEvents: [],
   fileMode: "list",
   openFolders: {},
+  showHolidays: true,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -580,6 +581,7 @@ function openCompose({ to = "", cc = "", bcc = "", subject = "", body = "", inRe
   $("#htmlModeToggle").checked = false;
   state.attachments = [];
   renderAttachments();
+  renderComposeFiles();
   const account = state.config?.schoolEmail || "";
   $("#composeFrom").textContent = account ? `보내는 사람: ${account}` : "설정에서 학교 이메일을 먼저 입력해 주세요.";
   showMailPane("compose");
@@ -658,6 +660,116 @@ async function importFromDrive() {
   } catch (error) {
     showToast(error.message);
   }
+}
+
+/* ===== 작성창: 내 자료 패널 + 끌어다 첨부 ===== */
+function renderComposeFiles() {
+  const list = $("#composeFilesList");
+  if (!list) return;
+  const q = ($("#composeFileSearch")?.value || "").trim().toLowerCase();
+  // 로컬에 실제로 있는 파일만 첨부할 수 있다
+  const rows = (state.files || [])
+    .filter((f) => f.status === "local")
+    .filter((f) => !q || f.name.toLowerCase().includes(q) || (f.courseLabel || "").toLowerCase().includes(q))
+    .slice(0, 60);
+
+  list.innerHTML = rows.length
+    ? rows
+        .map(
+          (f) => `
+      <div class="compose-file-item" draggable="true" data-localname="${escapeHtml(f.localName)}" title="${escapeHtml(f.name)}">
+        <span class="file-type-icon"><span class="icon" data-icon="file"></span></span>
+        <span class="compose-file-main">
+          <strong>${escapeHtml(shortText(f.name, 30))}</strong>
+          <span>${escapeHtml(shortText(f.courseLabel || f.course || "", 24))}</span>
+        </span>
+        <button type="button" class="compose-file-add" data-add="${escapeHtml(f.localName)}" title="첨부에 추가">＋</button>
+      </div>`,
+        )
+        .join("")
+    : `<p class="compose-files-empty">${
+        q ? "검색 결과가 없습니다." : "첨부할 수 있는 자료가 없습니다. 먼저 동기화해 주세요."
+      }</p>`;
+  installIcons(list);
+}
+
+async function attachLocalFile(localName) {
+  if (!localName) return;
+  if ((state.attachments || []).some((a) => a.localName === localName)) {
+    showToast("이미 첨부된 파일입니다.");
+    return;
+  }
+  try {
+    showToast("첨부하는 중…");
+    // /api/file 은 파일 원본을 그대로 내려주므로 blob으로 받아 base64로 바꾼다
+    const resp = await fetch(`/api/file?name=${encodeURIComponent(localName)}`);
+    if (!resp.ok) throw new Error("파일을 읽을 수 없습니다. 먼저 동기화해 주세요.");
+    const blob = await resp.blob();
+    const meta = (state.files || []).find((f) => f.localName === localName);
+    const filename = meta?.name || localName;
+    const content = await fileToBase64(new File([blob], filename));
+    state.attachments.push({ filename, size: blob.size, content, localName });
+    renderAttachments();
+    showToast(`${filename} 첨부됨`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function bindComposeFiles() {
+  const panel = $("#composeFiles");
+  const zone = $("#composeDropzone");
+  if (!panel || !zone) return;
+
+  $("#composeFileSearch")?.addEventListener("input", renderComposeFiles);
+
+  // 목록: 드래그 시작 + ＋ 버튼
+  panel.addEventListener("click", (event) => {
+    const add = event.target.closest("[data-add]");
+    if (add) attachLocalFile(add.dataset.add);
+  });
+  panel.addEventListener("dragstart", (event) => {
+    const item = event.target.closest(".compose-file-item");
+    if (!item) return;
+    event.dataTransfer.setData("text/x-autosaver-file", item.dataset.localname);
+    event.dataTransfer.effectAllowed = "copy";
+    item.classList.add("dragging");
+  });
+  panel.addEventListener("dragend", (event) => {
+    event.target.closest(".compose-file-item")?.classList.remove("dragging");
+  });
+
+  // 첨부칸: 내 자료 + 컴퓨터 파일 모두 받기
+  const over = (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    zone.classList.add("drag-over");
+  };
+  zone.addEventListener("dragover", over);
+  zone.addEventListener("dragenter", over);
+  zone.addEventListener("dragleave", (event) => {
+    if (!zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+  });
+  zone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    zone.classList.remove("drag-over");
+
+    const localName = event.dataTransfer.getData("text/x-autosaver-file");
+    if (localName) {
+      await attachLocalFile(localName);
+      return;
+    }
+    // 운영체제에서 끌어온 파일
+    const files = [...(event.dataTransfer.files || [])];
+    for (const file of files) {
+      const content = await fileToBase64(file);
+      state.attachments.push({ filename: file.name, size: file.size, content });
+    }
+    if (files.length) {
+      renderAttachments();
+      showToast(`${files.length}개 파일을 첨부했습니다.`);
+    }
+  });
 }
 
 /* ===== 주소 자동완성 (DGIST 연락처) ===== */
@@ -1612,7 +1724,9 @@ function renderCalendar() {
   const isToday = (d) => today.getFullYear() === y && today.getMonth() === m && today.getDate() === d;
 
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
-  let html = weekdays.map((w) => `<div class="cal-weekday">${w}</div>`).join("");
+  let html = weekdays
+    .map((w, i) => `<div class="cal-weekday ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</div>`)
+    .join("");
   for (let i = 0; i < startDow; i += 1) html += `<div class="cal-cell empty"></div>`;
   // 삼성 캘린더처럼 칸 안에 일정 제목을 간략히 표시 (넘치면 +N)
   const MAX_CHIPS = 3;
@@ -1629,9 +1743,14 @@ function renderCalendar() {
       .join("");
     const more =
       dayItems.length > MAX_CHIPS ? `<span class="cal-more">+${dayItems.length - MAX_CHIPS}</span>` : "";
+    const dow = new Date(y, m, d).getDay();
+    const holiday = state.showHolidays ? holidayName(y, m + 1, d) : null;
+    // 일요일·공휴일은 빨강, 토요일은 파랑
+    const dayTone = holiday || dow === 0 ? "sun" : dow === 6 ? "sat" : "";
     html += `
-      <div class="cal-cell ${isToday(d) ? "today" : ""} ${state.calSelected === d ? "selected" : ""}" data-day="${d}">
+      <div class="cal-cell ${isToday(d) ? "today" : ""} ${state.calSelected === d ? "selected" : ""} ${dayTone}" data-day="${d}">
         <span class="cal-daynum">${d}</span>
+        ${holiday ? `<span class="cal-holiday" title="${escapeHtml(holiday)}">${escapeHtml(shortText(holiday, 7))}</span>` : ""}
         <span class="cal-chips">${chips}${more}</span>
       </div>`;
   }
@@ -1644,6 +1763,43 @@ function renderCalendar() {
 
 function pad2(n) {
   return String(n).padStart(2, "0");
+}
+
+/* ===== 대한민국 공휴일 =====
+   양력 고정 공휴일은 매년 같지만, 설날·추석·부처님오신날은 음력이라
+   해마다 날짜가 달라 연도별 표로 관리한다. */
+const FIXED_HOLIDAYS = {
+  "1-1": "신정",
+  "3-1": "삼일절",
+  "5-5": "어린이날",
+  "6-6": "현충일",
+  "8-15": "광복절",
+  "10-3": "개천절",
+  "10-9": "한글날",
+  "12-25": "성탄절",
+};
+
+const LUNAR_HOLIDAYS = {
+  2025: {
+    "1-28": "설날 연휴", "1-29": "설날", "1-30": "설날 연휴",
+    "5-5": "부처님오신날",
+    "10-5": "추석 연휴", "10-6": "추석", "10-7": "추석 연휴",
+  },
+  2026: {
+    "2-16": "설날 연휴", "2-17": "설날", "2-18": "설날 연휴",
+    "5-24": "부처님오신날",
+    "9-24": "추석 연휴", "9-25": "추석", "9-26": "추석 연휴",
+  },
+  2027: {
+    "2-5": "설날 연휴", "2-6": "설날", "2-7": "설날 연휴",
+    "5-13": "부처님오신날",
+    "9-14": "추석 연휴", "9-15": "추석", "9-16": "추석 연휴",
+  },
+};
+
+function holidayName(year, month, day) {
+  const key = `${month}-${day}`;
+  return LUNAR_HOLIDAYS[year]?.[key] || FIXED_HOLIDAYS[key] || null;
 }
 
 /* ===== 날짜 상세 (셀을 누르면 아래로 펼쳐짐) ===== */
@@ -1688,19 +1844,29 @@ function openDayDetail(day) {
     : `<p class="cal-empty">이 날에는 일정이 없습니다. ‘이 날에 추가’로 만들어 보세요.</p>`;
 
   installIcons($("#dayDetailBody"));
+  // 패널을 먼저 보이게 한 뒤 리플로우를 강제하면 시작 상태가 확정되어
+  // 곧바로 클래스를 켜도 트랜지션이 재생된다.
+  // (requestAnimationFrame은 백그라운드 탭에서 안 돌아 패널이 안 열릴 수 있어 쓰지 않는다)
   panel.hidden = false;
-  panel.classList.remove("opening");
-  void panel.offsetWidth; // 애니메이션 재생용 리플로우
-  panel.classList.add("opening");
+  const stage = $("#calendarStage");
+  if (stage) {
+    window.clearTimeout(state._dayDetailTimer);
+    void panel.offsetWidth;
+    stage.classList.add("detail-open");
+  }
 }
 
 function closeDayDetail() {
+  const stage = $("#calendarStage");
   const panel = $("#dayDetail");
-  if (panel) {
-    panel.hidden = true;
-    panel.classList.remove("opening");
-  }
   closeEventEditor();
+  if (!stage || !panel) return;
+  stage.classList.remove("detail-open");
+  // 접히는 애니메이션이 끝난 뒤에 숨긴다
+  window.clearTimeout(state._dayDetailTimer);
+  state._dayDetailTimer = window.setTimeout(() => {
+    if (!stage.classList.contains("detail-open")) panel.hidden = true;
+  }, 430);
 }
 
 /* ===== 일정 편집 ===== */
@@ -1981,6 +2147,25 @@ function bindEvents() {
     renderCalendar();
   });
   $("#addEventButton").addEventListener("click", () => openEventEditor());
+  // 공휴일 표시 on/off (선택은 브라우저에 기억)
+  const holidayBox = $("#holidayToggle");
+  if (holidayBox) {
+    try {
+      state.showHolidays = localStorage.getItem("autosaver-holidays") !== "0";
+    } catch (error) {
+      /* 무시 */
+    }
+    holidayBox.checked = state.showHolidays;
+    holidayBox.addEventListener("change", () => {
+      state.showHolidays = holidayBox.checked;
+      try {
+        localStorage.setItem("autosaver-holidays", state.showHolidays ? "1" : "0");
+      } catch (error) {
+        /* 무시 */
+      }
+      renderCalendar();
+    });
+  }
   $("#dayAddEventButton").addEventListener("click", () => {
     const { y, m } = state.calMonth;
     const d = state.calSelected || new Date().getDate();
@@ -2355,6 +2540,8 @@ function bindEvents() {
   });
 
   $("#openSettingsFromRail")?.addEventListener("click", openSettings);
+
+  bindComposeFiles();
 
   // 자료함: 폴더/리스트 전환
   document.querySelectorAll("[data-filemode]").forEach((btn) => {
