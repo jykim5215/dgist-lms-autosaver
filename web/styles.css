@@ -1625,6 +1625,335 @@ tbody tr:hover {
   height: 15px;
 }
 
+/* ===== 상단 진행 칩 + 물방울 ===== */
+.top-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 13px 6px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  min-width: 210px;
+  max-width: 300px;
+  transform-origin: right center;
+}
+.top-progress[hidden] { display: none; }
+
+.top-progress.pop {
+  animation: top-progress-pop 0.5s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+@keyframes top-progress-pop {
+  0%   { transform: scale(0.4) translateX(18px); opacity: 0; }
+  60%  { transform: scale(1.06) translateX(0); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.top-progress-ring {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: top-ring-spin 0.75s linear infinite;
+}
+@keyframes top-ring-spin { to { transform: rotate(360deg); } }
+
+.top-progress-main { flex: 1; min-width: 0; }
+.top-progress-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+.top-progress-track {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+.top-progress-fill {
+  display: block;
+  height: 100%;
+  width: 8%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.top-progress-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+/* 완료: 링을 멈추고 초록으로 */
+.top-progress.done .top-progress-ring {
+  animation: none;
+  border-color: var(--green);
+  border-top-color: var(--green);
+  background: var(--green-soft);
+}
+.top-progress.done .top-progress-fill { background: var(--green); }
+
+.progress-droplet {
+  position: fixed;
+  z-index: 90;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-progress.pop { animation: none; }
+  .top-progress-ring { animation: none; }
+}
+
+/* ===== 캘린더: 날짜 상세 ===== */
+.cal-cell.popping {
+  animation: cal-pop 0.42s cubic-bezier(0.34, 1.56, 0.4, 1);
+  z-index: 2;
+}
+@keyframes cal-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.14); box-shadow: 0 8px 24px -8px rgba(0,0,0,0.28); }
+  100% { transform: scale(1); }
+}
+
+.day-detail,
+.event-editor {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-top: 14px;
+  overflow: hidden;
+}
+.day-detail[hidden],
+.event-editor[hidden] { display: none; }
+
+.day-detail.opening,
+.event-editor.opening {
+  animation: detail-expand 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes detail-expand {
+  from { opacity: 0; transform: translateY(-8px) scaleY(0.9); transform-origin: top center; }
+  to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+.day-detail-head,
+.event-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--bg-deep);
+}
+.day-detail-head h3 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+}
+#dayDetailCount {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.day-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.day-detail-body { padding: 6px 8px 10px; }
+
+.day-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 10px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.day-item[data-mailid] { cursor: pointer; }
+.day-item:hover { background: var(--surface-soft); }
+.day-item-time {
+  flex: none;
+  width: 48px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.day-item-main { min-width: 0; flex: 1; }
+.day-item-main strong {
+  display: block;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.day-item-main span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.day-item-edit {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+}
+.day-item-edit:hover { background: var(--bg-deep); color: var(--text); }
+.day-item-edit .icon { width: 15px; height: 15px; }
+
+.cal-mine { background: var(--blue); }
+.cal-chip.cal-mine { background: var(--blue-soft); color: var(--blue); }
+
+/* 일정 편집 폼 */
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+.event-field { display: block; min-width: 0; }
+.event-field-wide { grid-column: 1 / -1; }
+.event-field span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-bottom: 5px;
+}
+.event-field span em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.event-field input { width: 100%; }
+.event-editor-foot {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+.event-editor-foot .button.ghost { color: var(--red); }
+
+@media (max-width: 620px) {
+  .event-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 자료함: 폴더 보기 ===== */
+.folder-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+.folder-view[hidden] { display: none; }
+
+.folder-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.folder-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 15px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.folder-head:hover { background: var(--surface-soft); }
+.folder-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  display: grid;
+  place-items: center;
+}
+.folder-icon .icon { width: 17px; height: 17px; }
+.folder-title { flex: 1; min-width: 0; }
+.folder-title strong {
+  display: block;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder-title span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.folder-chevron {
+  flex: none;
+  font-size: 18px;
+  color: var(--text-faint);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.folder-card.open .folder-chevron { transform: rotate(90deg); }
+
+/* 부드럽게 펼쳐지기: 0fr→1fr 기법은 자식이 '하나'여야 해서 inner로 감싼다 */
+.folder-files {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.folder-files-inner { overflow: hidden; min-height: 0; }
+.folder-card.open .folder-files { grid-template-rows: 1fr; }
+
+.folder-file {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 15px 9px 20px;
+  border-top: 1px solid var(--bg-deep);
+}
+.folder-file-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-cell.popping,
+  .day-detail.opening,
+  .event-editor.opening { animation: none; }
+  .folder-files, .folder-chevron { transition: none; }
+}
+
 /* ===== 작업 진행 표시 ===== */
 .task-progress {
   margin: 4px 0 12px;
@@ -3173,7 +3502,8 @@ tbody tr:hover {
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* minmax(0,1fr): 칸 내용이 길어도 열이 밀려나지 않게 (좁은 화면 넘침 방지) */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
   background: var(--surface);
   border: 1px solid var(--border);

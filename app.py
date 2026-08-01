@@ -181,6 +181,7 @@ def scheduler_loop() -> None:
             last_run_day = datetime.now().strftime("%Y-%m-%d")
     except Exception:
         pass
+    last_interval_run = time.monotonic()
     while True:
         try:
             config = web_ui.read_config(workspace)
@@ -193,6 +194,18 @@ def scheduler_loop() -> None:
                 if not running:
                     last_run_day = today
                     run_scheduled_sync(workspace)
+
+            # 주기 실행 (설정에서 켠 경우에만)
+            interval = int(config.get("AUTO_INTERVAL_MINUTES", 0) or 0)
+            if interval > 0 and time.monotonic() - last_interval_run >= interval * 60:
+                with web_ui.task_lock:
+                    running = web_ui.task_states.get(workspace.user_id, {}).get("running", False)
+                if not running:
+                    last_interval_run = time.monotonic()
+                    kind = str(config.get("AUTO_INTERVAL_KIND", "emails")).strip() or "emails"
+                    if kind not in ("emails", "deadlines", "sync"):
+                        kind = "emails"
+                    web_ui.start_task(workspace, kind)
         except Exception:
             pass
         time.sleep(30)

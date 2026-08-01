@@ -58,6 +58,9 @@ const state = {
   interestTags: new Set(),
   calMonth: null, // {y, m}
   calSelected: null,
+  myEvents: [],
+  fileMode: "list",
+  openFolders: {},
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -1267,10 +1270,75 @@ function filteredFiles() {
   });
 }
 
+/* ===== 자료함: 과목별 폴더 보기 ===== */
+function renderFolderView(rows) {
+  const wrap = $("#folderView");
+  if (!wrap) return;
+  const groups = new Map();
+  rows.forEach((file) => {
+    const key = file.courseLabel || file.course || "기타";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(file);
+  });
+
+  const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  wrap.innerHTML = sorted.length
+    ? sorted
+        .map(([course, files]) => {
+          const open = !!state.openFolders[course];
+          const localCount = files.filter((f) => f.status === "local").length;
+          return `
+            <section class="folder-card ${open ? "open" : ""}" data-folder="${escapeHtml(course)}">
+              <button type="button" class="folder-head" aria-expanded="${open}">
+                <span class="folder-icon"><span class="icon" data-icon="folder"></span></span>
+                <span class="folder-title">
+                  <strong title="${escapeHtml(course)}">${escapeHtml(shortText(course, 40))}</strong>
+                  <span>${files.length}개 · 저장됨 ${localCount}개</span>
+                </span>
+                <span class="folder-chevron" aria-hidden="true">›</span>
+              </button>
+              <div class="folder-files">
+                <div class="folder-files-inner">
+                ${files
+                  .map(
+                    (file) => `
+                  <div class="folder-file">
+                    <span class="file-type-icon"><span class="icon" data-icon="file"></span></span>
+                    <span class="folder-file-name" title="${escapeHtml(file.name)}">${escapeHtml(shortText(file.name, 46))}</span>
+                    <span class="status-badge ${file.status}">${statusLabel(file.status)}</span>
+                    <button class="save-file-button" data-save="${escapeHtml(file.localName)}"
+                      ${file.status === "local" ? "" : "disabled"} title="내 컴퓨터에 저장">
+                      <span class="icon" data-icon="download"></span>저장
+                    </button>
+                  </div>`,
+                  )
+                  .join("")}
+                </div>
+              </div>
+            </section>`;
+        })
+        .join("")
+    : "";
+  installIcons(wrap);
+}
+
+function applyFileMode() {
+  const folder = state.fileMode === "folder";
+  const fv = $("#folderView");
+  const tw = $("#fileTableWrap");
+  if (fv) fv.hidden = !folder;
+  if (tw) tw.hidden = folder;
+  document.querySelectorAll("[data-filemode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.filemode === state.fileMode);
+  });
+}
+
 function renderFiles() {
   const rows = filteredFiles().slice(0, 150);
   const table = $("#filesTable");
   const empty = $("#emptyState");
+  renderFolderView(rows);
+  applyFileMode();
 
   // 화면에 없는 파일은 선택에서 제거
   const visible = new Set(rows.filter((f) => f.status === "local").map((f) => f.localName));
@@ -1440,6 +1508,7 @@ function renderTask(task) {
     $("#taskStageDetail").textContent = p.detail;
     $("#taskProgressFill").style.width = `${p.pct}%`;
     progressWrap.hidden = false;
+    showTopProgress(`${taskLabel} · ${p.label}`, p.pct);
   } else {
     progressWrap.hidden = true;
     $("#taskSummary").textContent =
@@ -1448,6 +1517,11 @@ function renderTask(task) {
         : task.returnCode === 0
           ? `${taskLabel} 완료`
           : `${taskLabel} 실패 (코드 ${task.returnCode})`;
+    if (task.returnCode !== null) {
+      finishTopProgress(task.returnCode === 0 ? `${taskLabel} 완료` : `${taskLabel} 실패`);
+    } else {
+      hideTopProgress();
+    }
   }
 
   if (!logs.length) {
@@ -1495,6 +1569,19 @@ function calendarItems() {
     const dt = new Date(m.eventDate);
     if (Number.isNaN(dt.getTime())) return;
     items.push({ date: dt, title: m.summary || m.subject, sub: m.fromName || m.fromEmail, kind: "event", mailId: m.id });
+  });
+  // 내가 직접 추가한 일정
+  (state.myEvents || []).forEach((e) => {
+    const dt = new Date(`${e.date}T${e.time || "00:00"}`);
+    if (Number.isNaN(dt.getTime())) return;
+    items.push({
+      date: dt,
+      title: e.title,
+      sub: e.note || "",
+      kind: "mine",
+      eventId: e.id,
+      allDay: !e.time,
+    });
   });
   return items;
 }
@@ -1555,6 +1642,97 @@ function renderCalendar() {
   renderCalendarDayList(byDay);
 }
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/* ===== 날짜 상세 (셀을 누르면 아래로 펼쳐짐) ===== */
+function openDayDetail(day) {
+  const panel = $("#dayDetail");
+  if (!panel) return;
+  const { y, m } = state.calMonth;
+  const items = calendarItems()
+    .filter(
+      (it) =>
+        it.date.getFullYear() === y && it.date.getMonth() === m && it.date.getDate() === day,
+    )
+    .sort((a, b) => a.date - b.date);
+
+  const KIND_LABEL = { deadline: "과제 마감", done: "제출 완료", event: "메일 일정", mine: "내 일정" };
+  $("#dayDetailTitle").textContent = `${m + 1}월 ${day}일 (${["일", "월", "화", "수", "목", "금", "토"][new Date(y, m, day).getDay()]})`;
+  $("#dayDetailCount").textContent = items.length ? `${items.length}건` : "일정 없음";
+
+  $("#dayDetailBody").innerHTML = items.length
+    ? items
+        .map((it) => {
+          const time = it.allDay
+            ? "종일"
+            : `${pad2(it.date.getHours())}:${pad2(it.date.getMinutes())}`;
+          const actions = it.eventId
+            ? `<button type="button" class="day-item-edit" data-edit-event="${escapeHtml(it.eventId)}" title="수정">
+                 <span class="icon" data-icon="edit"></span>
+               </button>`
+            : "";
+          return `
+            <div class="day-item kind-${it.kind}" ${it.mailId ? `data-mailid="${escapeHtml(String(it.mailId))}"` : ""}>
+              <span class="day-item-time">${time}</span>
+              <span class="dot cal-${it.kind}"></span>
+              <div class="day-item-main">
+                <strong>${escapeHtml(it.title || "")}</strong>
+                <span>${escapeHtml(KIND_LABEL[it.kind] || "")}${it.sub ? " · " + escapeHtml(shortText(it.sub, 40)) : ""}</span>
+              </div>
+              ${actions}
+            </div>`;
+        })
+        .join("")
+    : `<p class="cal-empty">이 날에는 일정이 없습니다. ‘이 날에 추가’로 만들어 보세요.</p>`;
+
+  installIcons($("#dayDetailBody"));
+  panel.hidden = false;
+  panel.classList.remove("opening");
+  void panel.offsetWidth; // 애니메이션 재생용 리플로우
+  panel.classList.add("opening");
+}
+
+function closeDayDetail() {
+  const panel = $("#dayDetail");
+  if (panel) {
+    panel.hidden = true;
+    panel.classList.remove("opening");
+  }
+  closeEventEditor();
+}
+
+/* ===== 일정 편집 ===== */
+function openEventEditor(event = null) {
+  const panel = $("#eventEditor");
+  const form = $("#eventForm");
+  if (!panel || !form) return;
+  const today = new Date();
+  const { y, m } = state.calMonth || { y: today.getFullYear(), m: today.getMonth() };
+  form.elements.id.value = event?.id || "";
+  form.elements.title.value = event?.title || "";
+  form.elements.date.value =
+    event?.date || `${y}-${pad2(m + 1)}-${pad2(state.calSelected || today.getDate())}`;
+  form.elements.time.value = event?.time || "";
+  form.elements.note.value = event?.note || "";
+  $("#eventEditorTitle").textContent = event?.id ? "일정 수정" : "새 일정";
+  $("#eventDeleteButton").hidden = !event?.id;
+  panel.hidden = false;
+  panel.classList.remove("opening");
+  void panel.offsetWidth;
+  panel.classList.add("opening");
+  form.elements.title.focus();
+}
+
+function closeEventEditor() {
+  const panel = $("#eventEditor");
+  if (panel) {
+    panel.hidden = true;
+    panel.classList.remove("opening");
+  }
+}
+
 function renderCalendarDayList(byDay) {
   const wrap = $("#calendarDayList");
   const day = state.calSelected;
@@ -1595,7 +1773,7 @@ function renderCalendarDayList(byDay) {
 
 async function refreshAll() {
   try {
-    const [status, files, task, deadlines, selection, emails, config] = await Promise.all([
+    const [status, files, task, deadlines, selection, emails, config, myEvents] = await Promise.all([
       api("/api/status"),
       api("/api/files"),
       api("/api/task"),
@@ -1603,7 +1781,9 @@ async function refreshAll() {
       api("/api/selection"),
       api("/api/emails"),
       api("/api/config"),
+      api("/api/my-events").catch(() => ({ events: [] })),
     ]);
+    state.myEvents = myEvents.events || [];
     state.status = status;
     state.files = files.files || [];
     state.deadlines = deadlines;
@@ -1711,6 +1891,8 @@ async function populateSettings() {
   // 구글 캘린더 동기화 (체크박스라 value 대입으로는 반영되지 않음)
   form.elements.gcalSyncEnabled.checked = Boolean(state.config?.gcalSyncEnabled);
   form.elements.gcalCalendarName.value = state.config?.gcalCalendarName || "DGIST 메일 일정";
+  form.elements.autoIntervalMinutes.value = String(state.config?.autoIntervalMinutes ?? 0);
+  form.elements.autoIntervalKind.value = state.config?.autoIntervalKind || "emails";
   renderGcalStatus();
   renderInterestChips();
   renderSecretBadges();
@@ -1742,9 +1924,10 @@ function bindEvents() {
     renderFiles();
   });
 
-  $("#refreshEmailsButton").addEventListener("click", () =>
-    startRun("/api/refresh-emails", "메일 새로고침"),
-  );
+  $("#refreshEmailsButton").addEventListener("click", () => {
+    splashFromButton($("#refreshEmailsButton"));
+    startRun("/api/refresh-emails", "메일 새로고침");
+  });
 
   $("#emailSearchInput").addEventListener("input", (event) => {
     state.emailQuery = event.target.value;
@@ -1781,8 +1964,72 @@ function bindEvents() {
     const cell = event.target.closest(".cal-cell[data-day]");
     if (!cell) return;
     const day = Number(cell.dataset.day);
-    state.calSelected = state.calSelected === day ? null : day;
+    const closing = state.calSelected === day;
+    state.calSelected = closing ? null : day;
+    if (!closing) {
+      // 누른 칸이 '쫙' 커지는 느낌
+      cell.classList.add("popping");
+      cell.addEventListener("animationend", () => cell.classList.remove("popping"), { once: true });
+    }
     renderCalendar();
+    if (!closing) openDayDetail(day);
+    else closeDayDetail();
+  });
+  $("#dayDetailClose").addEventListener("click", () => {
+    state.calSelected = null;
+    closeDayDetail();
+    renderCalendar();
+  });
+  $("#addEventButton").addEventListener("click", () => openEventEditor());
+  $("#dayAddEventButton").addEventListener("click", () => {
+    const { y, m } = state.calMonth;
+    const d = state.calSelected || new Date().getDate();
+    openEventEditor({ date: `${y}-${pad2(m + 1)}-${pad2(d)}` });
+  });
+  $("#eventEditorClose").addEventListener("click", closeEventEditor);
+  $("#dayDetailBody").addEventListener("click", (event) => {
+    const editBtn = event.target.closest("[data-edit-event]");
+    if (editBtn) {
+      const ev = (state.myEvents || []).find((e) => e.id === editBtn.dataset.editEvent);
+      if (ev) openEventEditor(ev);
+      return;
+    }
+    const mailItem = event.target.closest("[data-mailid]");
+    if (mailItem) {
+      const mail = state.emails.emails.find((m) => String(m.id) === mailItem.dataset.mailid);
+      if (mail) {
+        switchView("emails");
+        openEmailDetail(mail);
+      }
+    }
+  });
+  $("#eventForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      await api("/api/my-events/save", { method: "POST", body: JSON.stringify(payload) });
+      showToast(payload.id ? "일정을 수정했습니다." : "일정을 추가했습니다.");
+      closeEventEditor();
+      await refreshAll();
+      if (state.calSelected) openDayDetail(state.calSelected);
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $("#eventDeleteButton").addEventListener("click", async () => {
+    const id = $("#eventForm").elements.id.value;
+    if (!id) return;
+    if (!window.confirm("이 일정을 삭제할까요?")) return;
+    try {
+      await api("/api/my-events/delete", { method: "POST", body: JSON.stringify({ id }) });
+      showToast("일정을 삭제했습니다.");
+      closeEventEditor();
+      await refreshAll();
+      if (state.calSelected) openDayDetail(state.calSelected);
+    } catch (error) {
+      showToast(error.message);
+    }
   });
   $("#calendarDayList").addEventListener("click", (event) => {
     const item = event.target.closest("[data-mailid]");
@@ -2009,6 +2256,7 @@ function bindEvents() {
       "빠른 동기화를 시작할까요? 마지막 동기화 이후 변경된 자료만 빠르게 확인합니다.\n(전체 검사는 설정 → 고급 설정에서 실행할 수 있습니다.)",
     );
     if (confirmed) {
+      splashFromButton($("#runButton"));
       startRun("/api/run", "빠른 동기화", { confirm: true, mode: "fast" });
     }
   });
@@ -2042,9 +2290,10 @@ function bindEvents() {
   });
 
   $("#verifyButton").addEventListener("click", () => startRun("/api/verify", "검증"));
-  $("#refreshDeadlinesButton").addEventListener("click", () =>
-    startRun("/api/refresh-deadlines", "마감 새로고침"),
-  );
+  $("#refreshDeadlinesButton").addEventListener("click", () => {
+    splashFromButton($("#refreshDeadlinesButton"));
+    startRun("/api/refresh-deadlines", "마감 새로고침");
+  });
 
   $("#googleLoginButton").addEventListener("click", () => {
     const oauth = state.status?.googleOAuth || {};
@@ -2106,6 +2355,31 @@ function bindEvents() {
   });
 
   $("#openSettingsFromRail")?.addEventListener("click", openSettings);
+
+  // 자료함: 폴더/리스트 전환
+  document.querySelectorAll("[data-filemode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.fileMode = btn.dataset.filemode;
+      applyFileMode();
+    });
+  });
+
+  // 폴더 펼치기/접기 + 폴더 안에서 저장
+  $("#folderView")?.addEventListener("click", async (event) => {
+    const head = event.target.closest(".folder-head");
+    if (head) {
+      const card = head.closest(".folder-card");
+      const key = card.dataset.folder;
+      state.openFolders[key] = !state.openFolders[key];
+      card.classList.toggle("open", state.openFolders[key]);
+      head.setAttribute("aria-expanded", String(!!state.openFolders[key]));
+      return;
+    }
+    const saveBtn = event.target.closest("[data-save]");
+    if (saveBtn && !saveBtn.disabled) {
+      saveFilesToComputer(saveBtn.dataset.save);
+    }
+  });
 
   // 구글 캘린더 지금 동기화
   $("#gcalSyncNowButton")?.addEventListener("click", async (event) => {
@@ -2272,6 +2546,73 @@ function initTheme() {
   }
   if (!THEMES.some((t) => t.key === saved)) saved = "claude";
   applyTheme(saved);
+}
+
+/* ===== 상단 진행 표시 =====
+   동기화/새로고침 버튼을 누르면 물방울이 튀어나와 상단 진행 칩으로 빨려 들어간다. */
+function splashFromButton(button) {
+  if (!button || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const target = $("#topProgress");
+  if (!target) return;
+  const from = button.getBoundingClientRect();
+  // 칩이 아직 숨겨져 있으면 버튼 왼쪽을 목적지로 삼는다
+  const to = target.hidden ? { left: from.left - 150, top: from.top, width: 40, height: from.height } : target.getBoundingClientRect();
+
+  const drop = document.createElement("span");
+  drop.className = "progress-droplet";
+  drop.style.left = `${from.left + from.width / 2}px`;
+  drop.style.top = `${from.top + from.height / 2}px`;
+  document.body.appendChild(drop);
+
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const anim = drop.animate(
+    [
+      { transform: "translate(-50%, -50%) scale(0.35)", opacity: 0.95, offset: 0 },
+      { transform: `translate(calc(-50% + ${dx * 0.45}px), calc(-50% + ${dy - 16}px)) scale(1.25)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.2)`, opacity: 0, offset: 1 },
+    ],
+    { duration: 620, easing: "cubic-bezier(0.34, 1.2, 0.4, 1)" },
+  );
+  // 백그라운드 탭 등으로 애니메이션이 끝나지 않아도 반드시 정리되도록 이중 안전장치
+  const cleanup = () => drop.remove();
+  anim.addEventListener("finish", cleanup);
+  anim.addEventListener("cancel", cleanup);
+  window.setTimeout(cleanup, 1200);
+}
+
+function showTopProgress(label, pct) {
+  const wrap = $("#topProgress");
+  if (!wrap) return;
+  const first = wrap.hidden;
+  wrap.hidden = false;
+  wrap.classList.remove("done");
+  if (first) {
+    wrap.classList.remove("pop");
+    void wrap.offsetWidth;
+    wrap.classList.add("pop");
+  }
+  $("#topProgressLabel").textContent = label;
+  $("#topProgressFill").style.width = `${pct}%`;
+  $("#topProgressPct").textContent = `${Math.round(pct)}%`;
+}
+
+function finishTopProgress(label) {
+  const wrap = $("#topProgress");
+  if (!wrap || wrap.hidden) return;
+  $("#topProgressLabel").textContent = label;
+  $("#topProgressFill").style.width = "100%";
+  $("#topProgressPct").textContent = "100%";
+  wrap.classList.add("done");
+  window.clearTimeout(state._topProgressTimer);
+  state._topProgressTimer = window.setTimeout(hideTopProgress, 2200);
+}
+
+function hideTopProgress() {
+  const wrap = $("#topProgress");
+  if (!wrap) return;
+  wrap.hidden = true;
+  wrap.classList.remove("pop", "done");
 }
 
 /* ===== 구글 캘린더 동기화 상태 ===== */

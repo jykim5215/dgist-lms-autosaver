@@ -86,6 +86,7 @@ class UserWorkspace:
     deadlines_log: Path
     upload_selection_path: Path
     emails_log: Path
+    my_events_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -117,6 +118,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         deadlines_log=root / "deadlines.json",
         upload_selection_path=root / "upload_selection.json",
         emails_log=root / "emails.json",
+        my_events_path=root / "my_events.json",
     )
 
 
@@ -247,6 +249,21 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
         "SCHOOL_EMAIL_PASSWORD": field("schoolEmailPassword", "SCHOOL_EMAIL_PASSWORD", secret=True),
         "SCHOOL_IMAP_HOST": field("schoolImapHost", "SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
         "LOCAL_SAVE_PATH": str(payload.get("localSavePath", existing.get("LOCAL_SAVE_PATH", ""))).strip(),
+        # 주기적 자동 실행 (분 단위, 0이면 사용 안 함)
+        "AUTO_INTERVAL_MINUTES": max(
+            0,
+            int(
+                str(
+                    payload.get("autoIntervalMinutes", existing.get("AUTO_INTERVAL_MINUTES", 0))
+                    or 0
+                )
+                or 0
+            ),
+        ),
+        "AUTO_INTERVAL_KIND": str(
+            payload.get("autoIntervalKind", existing.get("AUTO_INTERVAL_KIND", "emails"))
+        ).strip()
+        or "emails",
         # 구글 캘린더 자동 동기화
         "GCAL_SYNC_ENABLED": bool(
             payload.get("gcalSyncEnabled", existing.get("GCAL_SYNC_ENABLED", False))
@@ -723,6 +740,58 @@ def get_local_save_dir(workspace: UserWorkspace) -> Path:
     return Path.home() / "Downloads"
 
 
+def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
+    """사용자가 캘린더에서 직접 만든 일정 목록."""
+    data = read_json(workspace.my_events_path, [])
+    items = data if isinstance(data, list) else []
+    cleaned = []
+    for item in items:
+        if isinstance(item, dict) and item.get("id") and item.get("date"):
+            cleaned.append(item)
+    return {"events": cleaned}
+
+
+def save_my_event(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """일정 추가 또는 수정 (id가 있으면 수정)."""
+    title = str(payload.get("title", "")).strip()
+    date = str(payload.get("date", "")).strip()
+    if not title:
+        raise ValueError("일정 제목을 입력해 주세요.")
+    if not date:
+        raise ValueError("날짜를 선택해 주세요.")
+
+    events = get_my_events(workspace)["events"]
+    event_id = str(payload.get("id", "")).strip()
+    entry = {
+        "id": event_id or f"my-{secrets.token_hex(6)}",
+        "title": title[:200],
+        "date": date,                                   # YYYY-MM-DD
+        "time": str(payload.get("time", "")).strip(),   # HH:MM (빈 값이면 종일)
+        "note": str(payload.get("note", "")).strip()[:500],
+        "updatedAt": now_iso(),
+    }
+    if event_id:
+        events = [entry if e.get("id") == event_id else e for e in events]
+    else:
+        events.append(entry)
+
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.my_events_path.write_text(
+        json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"ok": True, "event": entry, "events": events}
+
+
+def delete_my_event(workspace: UserWorkspace, event_id: str) -> dict[str, Any]:
+    events = get_my_events(workspace)["events"]
+    remaining = [e for e in events if e.get("id") != event_id]
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.my_events_path.write_text(
+        json.dumps(remaining, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"ok": True, "removed": len(events) - len(remaining), "events": remaining}
+
+
 def _clean_hidden(value: Any) -> list[str]:
     """숨긴(목록에서 제거한) 과목 라벨 목록을 정규화한다."""
     if not isinstance(value, list):
@@ -842,6 +911,8 @@ def safe_public_config(workspace: UserWorkspace) -> dict[str, Any]:
         ),
         "schoolEmail": config.get("SCHOOL_EMAIL", ""),
         "schoolImapHost": config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+        "autoIntervalMinutes": int(config.get("AUTO_INTERVAL_MINUTES", 0) or 0),
+        "autoIntervalKind": config.get("AUTO_INTERVAL_KIND", "emails"),
         "gcalSyncEnabled": bool(config.get("GCAL_SYNC_ENABLED", False)),
         "gcalCalendarName": config.get("GCAL_CALENDAR_NAME", "DGIST 메일 일정"),
         "interests": config.get("EMAIL_INTERESTS", "전공 탐색, 취업, 음악, 세미나"),
@@ -1198,6 +1269,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/selection":
             self.send_json(get_upload_selection(workspace))
             return
+        if route == "/api/my-events":
+            self.send_json(get_my_events(workspace))
+            return
         if route == "/api/emails":
             self.send_json(get_emails(workspace))
             return
@@ -1471,6 +1545,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             payload = self.read_body_json()
             saved = save_upload_selection(workspace, payload)
             self.send_json({"ok": True, **saved})
+            return
+        if route == "/api/my-events/save":
+            try:
+                self.send_json(save_my_event(workspace, self.read_body_json()))
+            except ValueError as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/my-events/delete":
+            try:
+                payload = self.read_body_json()
+                event_id = str(payload.get("id", "")).strip()
+                if not event_id:
+                    raise ValueError("삭제할 일정을 찾을 수 없습니다.")
+                self.send_json(delete_my_event(workspace, event_id))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if route == "/api/gcal/sync":
             try:
