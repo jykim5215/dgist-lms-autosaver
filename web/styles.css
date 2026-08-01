@@ -194,12 +194,11 @@ body {
   stroke: none;
 }
 
-.brand-mark svg {
-  /* 디테일(비늘·지느러미)이 살아나도록 마크 대비 크게 */
-  width: 28px;
-  height: 28px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.brand-mark img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  display: block;
 }
 
 .brand strong {
