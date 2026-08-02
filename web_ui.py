@@ -1183,6 +1183,34 @@ def save_shelves(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
     return {"ok": True, "shelves": cleaned}
 
 
+ALLOWED_LINK_HOSTS = (".dgist.ac.kr",)
+
+
+def open_external_url(payload: dict[str, Any]) -> dict[str, Any]:
+    """학교 사이트를 기본 브라우저로 연다.
+
+    아무 주소나 열지 않도록 dgist.ac.kr 도메인만 허용한다.
+    (화면에서 넘어온 값이라도 그대로 믿지 않는다)
+    """
+    from urllib.parse import urlparse
+
+    url = str(payload.get("url", "")).strip()
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("열 수 없는 주소입니다.")
+    if not (host == "dgist.ac.kr" or host.endswith(ALLOWED_LINK_HOSTS)):
+        raise ValueError("학교(dgist.ac.kr) 사이트만 열 수 있습니다.")
+
+    opened = False
+    if not MULTI_USER_MODE:
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+    return {"ok": True, "url": url, "opened": opened}
+
+
 def open_assignment_page(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
     """과제의 LMS 제출 페이지를 기본 브라우저로 연다.
 
@@ -2057,6 +2085,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/shelves/save":
             try:
                 self.send_json(save_shelves(workspace, self.read_body_json()))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/open-url":
+            try:
+                self.send_json(open_external_url(self.read_body_json()))
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

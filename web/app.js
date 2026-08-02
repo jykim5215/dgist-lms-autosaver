@@ -1898,6 +1898,7 @@ function renderAll() {
   renderCourseFilter();
   renderFiles();
   renderHealth();
+  renderQuicklinks();
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -2783,6 +2784,7 @@ function bindEvents() {
   bindComposeFiles();
   bindBackup();
   bindShelves();
+  bindQuicklinks();
 
   // 동기화 실패 배너
   $("#healthRetryButton")?.addEventListener("click", () => {
@@ -2981,6 +2983,77 @@ function initTheme() {
   }
   if (!THEMES.some((t) => t.key === saved)) saved = "claude";
   applyTheme(saved);
+}
+
+/* ===== 학교 사이트 바로가기 =====
+   주소는 DGIST 공식 홈페이지에 실제로 걸려 있는 링크에서 확인한 것들이다. */
+const SCHOOL_LINKS = [
+  { name: "LMS", desc: "강의·과제", url: "https://lms.dgist.ac.kr", icon: "book", primary: true },
+  { name: "학생 포탈", desc: "수강·성적·증명", url: "https://my.dgist.ac.kr", icon: "layout", primary: true },
+  { name: "웹메일", desc: "학교 메일", url: "https://mail.dgist.ac.kr", icon: "mail", primary: true },
+  { name: "전자도서관", desc: "자료 검색·열람실", url: "https://library.dgist.ac.kr", icon: "book", primary: true },
+  { name: "공식 홈페이지", desc: "공지·학사일정", url: "https://www.dgist.ac.kr", icon: "layout" },
+  { name: "교과목 검색", desc: "개설 과목 조회", url: "https://welcome.dgist.ac.kr", icon: "search" },
+  { name: "생활관", desc: "기숙사 신청·공지", url: "https://dorm.dgist.ac.kr", icon: "folder" },
+  { name: "통합인증", desc: "계정·비밀번호", url: "https://auth.dgist.ac.kr", icon: "settings" },
+  { name: "IT 서비스", desc: "전산 문의·요청", url: "https://easyit.dgist.ac.kr", icon: "help" },
+  { name: "DGIST Scholar", desc: "연구 성과", url: "https://scholar.dgist.ac.kr", icon: "sparkle" },
+  { name: "T-market", desc: "교내 장터", url: "https://tmarket.dgist.ac.kr", icon: "grid" },
+  { name: "교직원 포탈", desc: "임직원용", url: "https://portal.dgist.ac.kr", icon: "layout" },
+];
+
+function renderQuicklinks() {
+  const wrap = $("#quicklinks");
+  if (!wrap) return;
+  const showAll = !!state.showAllLinks;
+  const items = showAll ? SCHOOL_LINKS : SCHOOL_LINKS.filter((l) => l.primary);
+
+  wrap.innerHTML = items
+    .map(
+      (l) => `
+      <a class="quicklink" href="${escapeHtml(l.url)}" target="_blank" rel="noreferrer"
+         data-link="${escapeHtml(l.url)}" title="${escapeHtml(l.url)}">
+        <span class="quicklink-icon"><span class="icon" data-icon="${l.icon}"></span></span>
+        <span class="quicklink-text">
+          <strong>${escapeHtml(l.name)}</strong>
+          <span>${escapeHtml(l.desc)}</span>
+        </span>
+      </a>`,
+    )
+    .join("");
+  installIcons(wrap);
+
+  const toggle = $("#toggleQuicklinks");
+  if (toggle) toggle.textContent = showAll ? "자주 쓰는 것만" : "전체 보기";
+}
+
+function bindQuicklinks() {
+  $("#toggleQuicklinks")?.addEventListener("click", () => {
+    state.showAllLinks = !state.showAllLinks;
+    try {
+      localStorage.setItem("autosaver-links-all", state.showAllLinks ? "1" : "0");
+    } catch (error) {
+      /* 무시 */
+    }
+    renderQuicklinks();
+  });
+
+  // 데스크톱 앱(WebView)에서는 새 창 대신 기본 브라우저로 열어 준다
+  $("#quicklinks")?.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-link]");
+    if (!link) return;
+    event.preventDefault();
+    const url = link.dataset.link;
+    api("/api/open-url", { method: "POST", body: JSON.stringify({ url }) }).catch(() => {
+      window.open(url, "_blank", "noreferrer");
+    });
+  });
+
+  try {
+    state.showAllLinks = localStorage.getItem("autosaver-links-all") === "1";
+  } catch (error) {
+    /* 무시 */
+  }
 }
 
 /* ===== 저장 공간 ===== */

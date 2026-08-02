@@ -1925,6 +1925,71 @@ tbody tr:hover {
   .event-grid { grid-template-columns: 1fr; }
 }
 
+/* ===== 학교 사이트 바로가기 ===== */
+.quicklinks-panel .panel-header p { margin: 2px 0 0; font-size: 12px; color: var(--text-faint); }
+
+.quicklinks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 9px;
+  padding: 4px 0 2px;
+}
+
+.quicklink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.16s, box-shadow 0.16s;
+}
+.quicklink:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+.quicklink:active { transform: translateY(0); }
+
+.quicklink-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  display: grid;
+  place-items: center;
+}
+.quicklink-icon .icon { width: 16px; height: 16px; }
+
+.quicklink-text { min-width: 0; }
+.quicklink-text strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quicklink-text span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quicklink { transition: none; }
+  .quicklink:hover { transform: none; }
+}
+
 /* ===== 내 폴더 (자유 편집) ===== */
 .shelf-view[hidden] { display: none; }
 .shelf-toolbar {
