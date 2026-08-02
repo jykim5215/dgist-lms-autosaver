@@ -147,21 +147,20 @@ body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 0 8px;
+  justify-content: center;
+  padding: 2px 8px 6px;
 }
 
-.brand-mark {
-  width: 38px;
-  height: 38px;
-  /* 스퀘어클(squircle)에 가까운 곡률 — 현대적인 앱 아이콘 느낌 */
-  border-radius: 12px;
-  background: var(--bp-bg);
-  display: grid;
-  place-items: center;
-  flex: none;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+/* 붕어빵 로고만 (배경·글씨 없이) */
+.brand-fish {
+  width: 76px;
+  height: auto;
+  display: block;
+  /* 원본이 작아 흐려 보이지 않도록 또렷하게 */
+  image-rendering: -webkit-optimize-contrast;
 }
+
+
 
 /* ===== 붕어빵 로고 파츠 ===== */
 .bp-body {
@@ -192,27 +191,6 @@ body {
 .bp-eye {
   fill: var(--bp-line);
   stroke: none;
-}
-
-.brand-mark img {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
-  display: block;
-}
-
-.brand strong {
-  display: block;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  letter-spacing: -0.01em;
-}
-
-.brand span {
-  display: block;
-  font-size: 11.5px;
-  color: var(--text-faint);
-  margin-top: -2px;
 }
 
 .nav-list {
@@ -542,10 +520,121 @@ body {
 }
 
 /* ===== Metrics ===== */
+/* 카드 묶음 + 오른쪽 미리보기 패널 */
+.metrics-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0fr;
+  gap: 0;
+  align-items: start;
+  transition: grid-template-columns 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+              gap 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.metrics-stage.peek-open {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.52fr);
+  gap: 13px;
+}
+
+.metric-peek {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(-14px);
+  transition: opacity 0.26s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.metric-peek[hidden] { display: none; }
+.metrics-stage.peek-open .metric-peek { opacity: 1; transform: translateX(0); }
+
+.metric-peek-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 13px 9px;
+  border-bottom: 1px solid var(--bg-deep);
+}
+.metric-peek-head strong { font-size: 13px; }
+.metric-peek-head span { font-size: 11px; color: var(--text-faint); }
+.metric-peek-body { padding: 4px 6px 8px; max-height: 260px; overflow-y: auto; }
+
+.peek-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+}
+.peek-row:hover { background: var(--surface-soft); }
+.peek-main { flex: 1; min-width: 0; }
+.peek-main strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-main span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-side { flex: none; text-align: right; }
+.peek-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-deep);
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+.peek-tag.urgent { background: var(--red-soft); color: var(--red); }
+.peek-tag.soon { background: var(--amber-soft); color: var(--amber); }
+.peek-tag.done { background: var(--green-soft); color: var(--green); }
+.peek-side em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.peek-empty { font-size: 12px; color: var(--text-faint); padding: 14px 10px; margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .metrics-stage, .metric-peek { transition: none; }
+}
+
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 13px;
+  transition: grid-template-columns 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 패널이 열려 자리가 좁아지면 2x2로 접는다 */
+.metrics-stage.peek-open .metrics-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* 좁은 화면에서는 미리보기를 아래로 */
+@media (max-width: 1000px) {
+  .metrics-stage,
+  .metrics-stage.peek-open {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+  }
+  .metrics-stage.peek-open .metrics-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .metric-peek { transform: translateY(-10px); }
+  .metrics-stage.peek-open .metric-peek { transform: translateY(0); }
 }
 
 .metric-card {
@@ -3351,8 +3440,6 @@ tbody tr:hover {
   grid-template-columns: 72px 1fr;
 }
 
-.app-shell.mail-focus .brand strong,
-.app-shell.mail-focus .brand span,
 .app-shell.mail-focus .nav-item,
 .app-shell.mail-focus .nav-group-label,
 .app-shell.mail-focus .sidebar-footer div,
@@ -3379,7 +3466,7 @@ tbody tr:hover {
 .app-shell.mail-focus .nav-item { position: relative; }
 
 .app-shell.mail-focus .brand { justify-content: center; }
-.app-shell.mail-focus .brand-mark { margin: 0; }
+.app-shell.mail-focus .brand-fish { width: 40px; }
 
 .app-shell.mail-focus .right-rail { display: none; }
 .app-shell.mail-focus .topbar { display: none; }

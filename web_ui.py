@@ -584,16 +584,24 @@ def get_files(workspace: UserWorkspace) -> list[dict[str, Any]]:
         file_path = download_path / name
         extension = Path(display_name).suffix.lower().replace(".", "") or "file"
         exists_locally = file_path.exists()
+        stat = file_path.stat() if exists_locally else None
         rows.append(
             {
                 "name": display_name,
                 "localName": name,
                 "course": course,
                 "courseLabel": extract_course_label(course),
+                "semester": extract_semester(course),
                 "folder": folder or ("샘플 데이터" if source == "sample" else "강의 자료"),
                 "type": extension.upper(),
                 "status": "local" if exists_locally else ("sample" if source == "sample" else "missing"),
-                "size": file_path.stat().st_size if exists_locally else None,
+                "size": stat.st_size if stat else None,
+                # 최근 받은 자료를 보여 주려면 시각이 필요하다
+                "savedAt": (
+                    datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+                    if stat
+                    else None
+                ),
                 "source": source,
             }
         )
@@ -1639,6 +1647,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 "Set-Cookie",
                 f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Lax{secure}",
             )
+        # 화면 파일은 캐시하지 않는다.
+        # 앱을 업데이트했는데 옛 화면이 그대로 뜨는 문제를 원천 차단하기 위함
+        # (로컬 서버라 캐시로 얻는 이득이 없다).
+        path = self.path.split("?", 1)[0]
+        if path.endswith((".js", ".css", ".html", "/")):
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
         super().end_headers()
 
     def host_allowed(self) -> bool:

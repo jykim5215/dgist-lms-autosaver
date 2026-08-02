@@ -5,19 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>붕어빵</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css?v=1.4.3" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="주요 메뉴">
         <div class="brand">
-          <div class="brand-mark bungeoppang" aria-hidden="true">
-            <img src="/brand-fish.png?v=1.3.2" alt="" />
-          </div>
-          <div>
-            <strong>붕어빵</strong>
-            <span>DGIST LMS 도우미</span>
-          </div>
+          <img class="brand-fish" src="/brand-fish.png" alt="붕어빵" />
         </div>
 
         <nav class="nav-list">
@@ -164,31 +158,42 @@
                 <div class="quicklinks" id="quicklinks"></div>
               </section>
 
-              <div class="metrics-grid" aria-label="요약 상태">
-                <article class="metric-card" data-goto="deadlines">
+              <div class="metrics-stage" id="metricsStage">
+                <div class="metrics-grid" aria-label="요약 상태">
+                <article class="metric-card" data-goto="deadlines" data-peek="deadlines">
                   <div class="metric-icon coral"><span class="icon" data-icon="calendar"></span></div>
                   <span class="metric-label">임박한 마감</span>
                   <strong id="metricDeadlines">0</strong>
                   <small id="metricDeadlinesNote">7일 이내 미제출</small>
                 </article>
-                <article class="metric-card" data-goto="files">
+                <article class="metric-card" data-goto="files" data-peek="files">
                   <div class="metric-icon blue"><span class="icon" data-icon="file"></span></div>
                   <span class="metric-label">전체 자료</span>
                   <strong id="metricFiles">0</strong>
                   <small id="metricFilesNote">목록 불러오는 중</small>
                 </article>
-                <article class="metric-card" data-goto="courses">
+                <article class="metric-card" data-goto="courses" data-peek="courses">
                   <div class="metric-icon amber"><span class="icon" data-icon="book"></span></div>
                   <span class="metric-label">강의</span>
                   <strong id="metricCourses">0</strong>
                   <small id="metricCoursesNote">분류된 과목</small>
                 </article>
-                <article class="metric-card">
+                <article class="metric-card" data-peek="drive">
                   <div class="metric-icon green"><span class="icon" data-icon="cloud"></span></div>
                   <span class="metric-label">Drive</span>
                   <strong id="metricLocal">대기</strong>
                   <small id="metricDriveNote">Drive 준비 상태</small>
                 </article>
+                </div>
+
+                <!-- 카드에 커서를 올리면 오른쪽에서 상세가 미끄러져 나온다 -->
+                <aside class="metric-peek" id="metricPeek" hidden aria-live="polite">
+                  <div class="metric-peek-head">
+                    <strong id="metricPeekTitle"></strong>
+                    <span id="metricPeekCount"></span>
+                  </div>
+                  <div class="metric-peek-body" id="metricPeekBody"></div>
+                </aside>
               </div>
 
               <section class="panel" aria-labelledby="upcomingTitle">
@@ -956,6 +961,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=1.4.3" defer></script>
+    <script src="/app.js" defer></script>
   </body>
 </html>

@@ -2782,6 +2782,7 @@ function bindEvents() {
   $("#openSettingsFromRail")?.addEventListener("click", openSettings);
 
   bindComposeFiles();
+  bindMetricPeek();
   bindBackup();
   bindShelves();
   bindQuicklinks();
@@ -3238,6 +3239,139 @@ function bindBackup() {
       showToast(error.message || "백업 파일을 읽을 수 없습니다.");
     }
   });
+}
+
+/* ===== 대시보드: 카드에 커서를 올리면 오른쪽에 상세가 뜬다 ===== */
+function peekRows(kind) {
+  const now = Date.now();
+  if (kind === "deadlines") {
+    const rows = (state.deadlines.items || [])
+      .filter((d) => !isSubmitted(d))
+      .map((d) => ({ d, due: parseDue(d) }))
+      .filter((x) => x.due && x.due.getTime() >= now)
+      .sort((a, b) => a.due - b.due)
+      .slice(0, 8)
+      .map(({ d, due }) => {
+        const dd = ddayInfo(d);
+        return {
+          title: d.name,
+          sub: d.courseLabel || d.course,
+          tag: dd.label,
+          tone: dd.cls,
+          extra: formatDue(due),
+        };
+      });
+    return { title: "다가오는 마감", empty: "다가오는 마감이 없습니다.", rows };
+  }
+
+  if (kind === "files") {
+    const rows = (state.files || [])
+      .filter((f) => f.savedAt)
+      .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+      .slice(0, 8)
+      .map((f) => ({
+        title: f.name,
+        sub: f.courseLabel,
+        tag: f.type,
+        tone: "normal",
+        extra: formatDue(new Date(f.savedAt)),
+      }));
+    return { title: "최근 받은 자료", empty: "아직 받은 자료가 없습니다. 동기화해 주세요.", rows };
+  }
+
+  if (kind === "courses") {
+    const hidden = state.selection.hidden || [];
+    const rows = courseSummaries()
+      .filter((c) => !hidden.includes(c.label))
+      .sort((a, b) => b.files - a.files)
+      .slice(0, 8)
+      .map((c) => ({
+        title: c.label,
+        sub: c.korean || (c.next ? `다음 마감 ${formatDue(c.next.due)}` : "진행 중"),
+        tag: `${c.files}개`,
+        tone: "normal",
+        extra: c.deadlines ? `과제 ${c.deadlines}` : "",
+      }));
+    return { title: "수강 중인 강의", empty: "표시할 강의가 없습니다.", rows };
+  }
+
+  if (kind === "drive") {
+    // Drive에 올라간 것 = 로컬에 저장된 자료 (업로드는 동기화 때 함께 처리됨)
+    const rows = (state.files || [])
+      .filter((f) => f.status === "local" && f.savedAt)
+      .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+      .slice(0, 8)
+      .map((f) => ({
+        title: f.name,
+        sub: f.courseLabel,
+        tag: formatBytes(f.size || 0),
+        tone: "done",
+        extra: formatDue(new Date(f.savedAt)),
+      }));
+    return { title: "최근 저장된 파일", empty: "저장된 파일이 없습니다.", rows };
+  }
+  return { title: "", empty: "", rows: [] };
+}
+
+function showMetricPeek(kind) {
+  const panel = $("#metricPeek");
+  const stage = $("#metricsStage");
+  if (!panel || !stage) return;
+  const data = peekRows(kind);
+  $("#metricPeekTitle").textContent = data.title;
+  $("#metricPeekCount").textContent = data.rows.length ? `${data.rows.length}건` : "";
+  $("#metricPeekBody").innerHTML = data.rows.length
+    ? data.rows
+        .map(
+          (r) => `
+      <div class="peek-row">
+        <div class="peek-main">
+          <strong title="${escapeHtml(r.title || "")}">${escapeHtml(shortText(r.title || "", 34))}</strong>
+          <span>${escapeHtml(shortText(r.sub || "", 30))}</span>
+        </div>
+        <div class="peek-side">
+          <span class="peek-tag ${r.tone}">${escapeHtml(r.tag || "")}</span>
+          ${r.extra ? `<em>${escapeHtml(r.extra)}</em>` : ""}
+        </div>
+      </div>`,
+        )
+        .join("")
+    : `<p class="peek-empty">${escapeHtml(data.empty)}</p>`;
+
+  panel.hidden = false;
+  void panel.offsetWidth;
+  stage.classList.add("peek-open");
+}
+
+function hideMetricPeek() {
+  const panel = $("#metricPeek");
+  const stage = $("#metricsStage");
+  if (!panel || !stage) return;
+  stage.classList.remove("peek-open");
+  window.clearTimeout(state._peekTimer);
+  state._peekTimer = window.setTimeout(() => {
+    if (!stage.classList.contains("peek-open")) panel.hidden = true;
+  }, 320);
+}
+
+function bindMetricPeek() {
+  const stage = $("#metricsStage");
+  if (!stage) return;
+  stage.querySelectorAll("[data-peek]").forEach((card) => {
+    const open = () => {
+      window.clearTimeout(state._peekLeave);
+      showMetricPeek(card.dataset.peek);
+    };
+    card.addEventListener("mouseenter", open);
+    card.addEventListener("focusin", open);
+    card.addEventListener("mouseleave", () => {
+      state._peekLeave = window.setTimeout(hideMetricPeek, 180);
+    });
+  });
+  // 패널 위로 커서가 올라가면 유지
+  const panel = $("#metricPeek");
+  panel?.addEventListener("mouseenter", () => window.clearTimeout(state._peekLeave));
+  panel?.addEventListener("mouseleave", hideMetricPeek);
 }
 
 /* ===== 상단 진행 표시 =====
