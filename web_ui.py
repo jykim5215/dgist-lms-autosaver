@@ -10,7 +10,9 @@ import hashlib
 import html
 import json
 import os
+import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -87,6 +89,7 @@ class UserWorkspace:
     upload_selection_path: Path
     emails_log: Path
     my_events_path: Path
+    health_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -119,6 +122,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         upload_selection_path=root / "upload_selection.json",
         emails_log=root / "emails.json",
         my_events_path=root / "my_events.json",
+        health_path=root / "health.json",
     )
 
 
@@ -206,6 +210,12 @@ def read_legacy_config() -> dict[str, Any]:
 def read_config(workspace: UserWorkspace) -> dict[str, Any]:
     data = read_json(workspace.config_path, {})
     if isinstance(data, dict) and data:
+        # 저장된 비밀 항목은 암호문이므로 읽을 때 풀어 준다.
+        # (평문으로 저장된 예전 설정도 그대로 통과한다)
+        for key in SECRET_KEYS:
+            value = data.get(key)
+            if isinstance(value, str) and value.startswith(DPAPI_PREFIX):
+                data[key] = dpapi_unprotect(value)
         return data
     if not MULTI_USER_MODE:
         return read_legacy_config()
@@ -299,14 +309,25 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
     if payload.get("clearSchoolEmailPassword") is True:
         values["SCHOOL_EMAIL_PASSWORD"] = ""
 
-    workspace.root.mkdir(parents=True, exist_ok=True)
-    workspace.config_path.write_text(
-        json.dumps(values, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    save_config_dict(workspace, values)
     Path(download_path).mkdir(parents=True, exist_ok=True)
     ensure_data_files(workspace)
     return values
+
+
+def save_config_dict(workspace: UserWorkspace, values: dict[str, Any]) -> None:
+    """설정을 저장한다. 비밀 항목은 DPAPI로 암호화해서 넣는다."""
+    to_write = dict(values)
+    for key in SECRET_KEYS:
+        raw = str(to_write.get(key, "") or "")
+        # 이미 암호문이면 그대로 두고, 평문이면 암호화
+        if raw and not raw.startswith(DPAPI_PREFIX):
+            to_write[key] = dpapi_protect(raw)
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.config_path.write_text(
+        json.dumps(to_write, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 BUNDLED_CREDENTIALS_PATH = PROJECT_ROOT / "credentials.json"
@@ -740,6 +761,378 @@ def get_local_save_dir(workspace: UserWorkspace) -> Path:
     return Path.home() / "Downloads"
 
 
+SECRET_KEYS = (
+    "LMS_PASSWORD",
+    "EMAIL_PASSWORD",
+    "SCHOOL_EMAIL_PASSWORD",
+    "GEMINI_API_KEY",
+)
+DPAPI_PREFIX = "dpapi:"
+
+
+def dpapi_protect(text: str) -> str:
+    """Windows DPAPI로 문자열을 암호화한다 (현재 사용자 계정에서만 복호 가능).
+
+    실패하거나 Windows가 아니면 원문을 그대로 돌려준다 — 저장은 되어야 하므로.
+    """
+    if os.name != "nt" or not text:
+        return text
+    try:
+        import base64
+        import ctypes
+        from ctypes import wintypes
+
+        class BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+        raw = text.encode("utf-8")
+        blob_in = BLOB(len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_char)))
+        blob_out = BLOB()
+        ok = ctypes.windll.crypt32.CryptProtectData(
+            ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+        )
+        if not ok:
+            return text
+        data = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+        return DPAPI_PREFIX + base64.b64encode(data).decode("ascii")
+    except Exception:
+        return text
+
+
+def dpapi_unprotect(text: str) -> str:
+    """dpapi: 로 시작하면 복호화, 아니면 그대로 (평문 호환)."""
+    if not isinstance(text, str) or not text.startswith(DPAPI_PREFIX):
+        return text
+    if os.name != "nt":
+        return ""
+    try:
+        import base64
+        import ctypes
+        from ctypes import wintypes
+
+        class BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+        raw = base64.b64decode(text[len(DPAPI_PREFIX) :])
+        blob_in = BLOB(len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_char)))
+        blob_out = BLOB()
+        ok = ctypes.windll.crypt32.CryptUnprotectData(
+            ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+        )
+        if not ok:
+            return ""
+        data = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+        return data.decode("utf-8")
+    except Exception:
+        return ""
+
+
+def export_settings(workspace: UserWorkspace, include_secrets: bool = False) -> dict[str, Any]:
+    """설정·과목 선택·내 일정을 한 덩어리로 내보낸다."""
+    config = dict(read_config(workspace))
+    if include_secrets:
+        # 다른 PC에서도 열 수 있도록 평문으로 되돌려 담는다
+        for key in SECRET_KEYS:
+            if key in config:
+                config[key] = dpapi_unprotect(str(config[key]))
+    else:
+        for key in SECRET_KEYS:
+            config.pop(key, None)
+    return {
+        "app": "붕어빵",
+        "version": (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        if (PROJECT_ROOT / "VERSION").exists()
+        else "",
+        "exportedAt": now_iso(),
+        "includesSecrets": include_secrets,
+        "config": config,
+        "selection": get_upload_selection(workspace),
+        "myEvents": get_my_events(workspace)["events"],
+    }
+
+
+def import_settings(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """내보낸 백업을 되돌린다. 빠진 항목은 기존 값을 유지한다."""
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    if not isinstance(data, dict) or "config" not in data:
+        raise ValueError("붕어빵에서 내보낸 백업 파일이 아닙니다.")
+
+    restored = []
+    incoming = data.get("config")
+    if isinstance(incoming, dict):
+        current = dict(read_config(workspace))
+        for key, value in incoming.items():
+            # 비밀 항목은 값이 있을 때만 덮어쓴다 (빈 값으로 지워지는 사고 방지)
+            if key in SECRET_KEYS:
+                if str(value).strip():
+                    current[key] = str(value)
+            else:
+                current[key] = value
+        save_config_dict(workspace, current)  # 저장 시 자동 암호화
+        restored.append("설정")
+
+    selection = data.get("selection")
+    if isinstance(selection, dict) and selection.get("courses") is not None:
+        save_upload_selection(workspace, selection)
+        restored.append("과목 선택")
+
+    events = data.get("myEvents")
+    if isinstance(events, list):
+        workspace.root.mkdir(parents=True, exist_ok=True)
+        workspace.my_events_path.write_text(
+            json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        restored.append(f"내 일정 {len(events)}건")
+
+    if not restored:
+        raise ValueError("복원할 내용이 없습니다.")
+    return {"ok": True, "restored": restored, "message": f"{', '.join(restored)}을(를) 복원했습니다."}
+
+
+def get_health(workspace: UserWorkspace) -> dict[str, Any]:
+    """마지막 성공 시각과 최근 실패를 알려 준다 (조용한 실패 방지)."""
+    data = read_json(workspace.health_path, {})
+    if not isinstance(data, dict):
+        data = {}
+    out = {
+        "lastSuccess": data.get("lastSuccess", {}),
+        "lastFailure": data.get("lastFailure", {}),
+        "consecutiveFailures": int(data.get("consecutiveFailures", 0) or 0),
+        "staleDays": None,
+        "stale": False,
+        "warning": "",
+    }
+    # 동기화/메일 중 가장 최근 성공을 기준으로 며칠 지났는지 계산
+    stamps = [v for v in out["lastSuccess"].values() if v]
+    if stamps:
+        try:
+            newest = max(datetime.fromisoformat(str(s)) for s in stamps)
+            days = (datetime.now() - newest).days
+            out["staleDays"] = days
+            out["stale"] = days >= 3
+        except ValueError:
+            pass
+    if out["consecutiveFailures"] >= 2:
+        kind = out["lastFailure"].get("kind", "작업")
+        out["warning"] = f"{kind}이(가) {out['consecutiveFailures']}번 연속 실패했습니다. 설정에서 계정 정보를 확인해 주세요."
+    elif out["stale"]:
+        out["warning"] = f"{out['staleDays']}일째 동기화가 되지 않았습니다."
+    return out
+
+
+def record_task_result(workspace: UserWorkspace, kind: str, return_code: int) -> dict[str, Any]:
+    """작업 성공/실패를 기록한다. 실패가 쌓이면 사용자에게 알리기 위함."""
+    data = read_json(workspace.health_path, {})
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("lastSuccess", {})
+    stamp = now_iso()
+    if return_code == 0:
+        data["lastSuccess"][kind] = stamp
+        data["consecutiveFailures"] = 0
+        data.pop("lastFailure", None)
+    else:
+        data["consecutiveFailures"] = int(data.get("consecutiveFailures", 0) or 0) + 1
+        data["lastFailure"] = {"kind": kind, "at": stamp, "code": return_code}
+    try:
+        workspace.root.mkdir(parents=True, exist_ok=True)
+        workspace.health_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        pass
+    return data
+
+
+SEMESTER_RE = re.compile(r"\[\s*(\d{4})[_\s-]*(\d)\s*학기")
+
+
+def extract_semester(course: str) -> str:
+    """'일반화학Ⅰ (...)_03[ 2026_1학기 ]' → '2026-1학기'. 못 찾으면 '기타'."""
+    m = SEMESTER_RE.search(str(course or ""))
+    return f"{m.group(1)}-{m.group(2)}학기" if m else "기타"
+
+
+def human_size(num: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(num) < 1024 or unit == "GB":
+            return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} B"
+        num /= 1024
+    return f"{num:.1f} GB"
+
+
+def get_storage(workspace: UserWorkspace) -> dict[str, Any]:
+    """다운로드 폴더 용량과 디스크 여유 공간, 학기·과목별 사용량."""
+    config = read_config(workspace)
+    download_dir = Path(config.get("DOWNLOAD_PATH", str(workspace.default_download_path)))
+    metadata = read_json(workspace.file_metadata_log, {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    per_semester: dict[str, dict[str, Any]] = {}
+    per_course: dict[str, dict[str, Any]] = {}
+    total = 0
+    file_count = 0
+    unknown = {"bytes": 0, "count": 0}
+
+    if download_dir.exists():
+        for entry in download_dir.rglob("*"):
+            if not entry.is_file():
+                continue
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                continue
+            total += size
+            file_count += 1
+            meta = metadata.get(entry.name)
+            if not meta:
+                unknown["bytes"] += size
+                unknown["count"] += 1
+                continue
+            course = str(meta.get("course", ""))
+            label = extract_course_label(course)
+            sem = extract_semester(course)
+            s = per_semester.setdefault(sem, {"bytes": 0, "count": 0, "courses": set()})
+            s["bytes"] += size
+            s["count"] += 1
+            s["courses"].add(label)
+            c = per_course.setdefault(label, {"bytes": 0, "count": 0, "semester": sem})
+            c["bytes"] += size
+            c["count"] += 1
+
+    try:
+        usage = shutil.disk_usage(str(download_dir if download_dir.exists() else workspace.root))
+        disk = {
+            "totalBytes": usage.total,
+            "freeBytes": usage.free,
+            "usedPercent": round((usage.total - usage.free) / usage.total * 100, 1),
+            "freeHuman": human_size(usage.free),
+            "totalHuman": human_size(usage.total),
+            # 5GB 미만이면 경고
+            "low": usage.free < 5 * 1024**3,
+        }
+    except Exception:
+        disk = {}
+
+    app_bytes = total - unknown["bytes"]
+    # 다운로드 경로가 개인 폴더(Downloads/문서/바탕화면 등)로 잡혀 있으면 알려 준다
+    personal_dirs = {"downloads", "documents", "desktop", "다운로드", "문서", "바탕화면"}
+    shared_folder = download_dir.name.lower() in personal_dirs
+
+    return {
+        "downloadPath": str(download_dir),
+        "sharedFolder": shared_folder,
+        "totalBytes": total,
+        "totalHuman": human_size(total),
+        "appBytes": app_bytes,
+        "appHuman": human_size(app_bytes),
+        "appFileCount": file_count - unknown["count"],
+        "fileCount": file_count,
+        "disk": disk,
+        "semesters": sorted(
+            (
+                {
+                    "name": name,
+                    "bytes": v["bytes"],
+                    "human": human_size(v["bytes"]),
+                    "count": v["count"],
+                    "courseCount": len(v["courses"]),
+                }
+                for name, v in per_semester.items()
+            ),
+            key=lambda x: x["name"],
+            reverse=True,
+        ),
+        "courses": sorted(
+            (
+                {
+                    "name": name,
+                    "bytes": v["bytes"],
+                    "human": human_size(v["bytes"]),
+                    "count": v["count"],
+                    "semester": v["semester"],
+                }
+                for name, v in per_course.items()
+            ),
+            key=lambda x: x["bytes"],
+            reverse=True,
+        ),
+        # 앱이 받지 않은 파일 = 사용자 개인 파일. 표시만 하고 절대 지우지 않는다.
+        "unknown": {**unknown, "human": human_size(unknown["bytes"])},
+    }
+
+
+def cleanup_storage(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """학기 또는 과목 단위로 '앱이 내려받은' 파일만 지운다.
+
+    안전장치:
+    - file_metadata.json에 기록된 파일(= 앱이 직접 받은 것)만 대상으로 한다.
+      다운로드 경로가 사용자의 개인 Downloads 폴더로 잡혀 있는 경우가 있어,
+      기록에 없는 파일은 어떤 경우에도 건드리지 않는다.
+    - 대상이 명시되지 않으면 아무것도 지우지 않는다.
+    지운 파일은 downloaded_files.json에서도 빼서 다음 동기화 때 다시 받을 수 있게 한다.
+    """
+    semesters = {str(s) for s in payload.get("semesters", []) if str(s).strip()}
+    courses = {str(c) for c in payload.get("courses", []) if str(c).strip()}
+    if not semesters and not courses:
+        raise ValueError("지울 학기나 과목을 선택해 주세요.")
+
+    config = read_config(workspace)
+    download_dir = Path(config.get("DOWNLOAD_PATH", str(workspace.default_download_path)))
+    metadata = read_json(workspace.file_metadata_log, {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    removed_names: list[str] = []
+    freed = 0
+    if download_dir.exists():
+        for entry in list(download_dir.rglob("*")):
+            if not entry.is_file():
+                continue
+            meta = metadata.get(entry.name)
+            # 앱이 받은 기록이 없는 파일은 사용자 개인 파일일 수 있으므로 절대 건드리지 않는다
+            if not meta:
+                continue
+            course = str(meta.get("course", ""))
+            label = extract_course_label(course)
+            sem = extract_semester(course)
+            if sem not in semesters and label not in courses:
+                continue
+            try:
+                size = entry.stat().st_size
+                entry.unlink()
+                freed += size
+                removed_names.append(entry.name)
+            except OSError:
+                continue
+
+    # 기록에서도 제거 → 필요하면 다시 받을 수 있음
+    if removed_names:
+        gone = set(removed_names)
+        log = read_json(workspace.downloaded_files_log, [])
+        if isinstance(log, list):
+            kept = [item for item in log if str(item) not in gone]
+            workspace.downloaded_files_log.write_text(
+                json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        for name in gone:
+            metadata.pop(name, None)
+        workspace.file_metadata_log.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    return {
+        "ok": True,
+        "removed": len(removed_names),
+        "freedBytes": freed,
+        "freedHuman": human_size(freed),
+        "message": f"{len(removed_names)}개 파일을 지워 {human_size(freed)}를 확보했습니다.",
+    }
+
+
 def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     """사용자가 캘린더에서 직접 만든 일정 목록."""
     data = read_json(workspace.my_events_path, [])
@@ -993,6 +1386,16 @@ def run_process(workspace: UserWorkspace, kind: str, command: list[str], extra_e
         task_state["logs"].append(
             f"[{now_iso()}] {kind} 작업이 종료되었습니다. 종료 코드: {return_code}"
         )
+
+    # 성공/실패 기록 (조용한 실패를 사용자에게 알리기 위함)
+    if kind in ("sync", "emails", "deadlines"):
+        health = record_task_result(workspace, kind, return_code)
+        if return_code != 0:
+            fails = health.get("consecutiveFailures", 0)
+            append_log(
+                workspace.user_id,
+                f"[알림] {kind} 작업이 실패했습니다 (연속 {fails}회). 계정 정보나 네트워크를 확인해 주세요.",
+            )
 
     # 메일을 새로 읽어온 뒤 구글 캘린더 자동 동기화 (설정에서 켠 경우에만)
     if kind in ("emails", "sync") and return_code == 0:
@@ -1271,6 +1674,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/my-events":
             self.send_json(get_my_events(workspace))
+            return
+        if route == "/api/storage":
+            self.send_json(get_storage(workspace))
+            return
+        if route == "/api/health":
+            self.send_json(get_health(workspace))
+            return
+        if route == "/api/config/export":
+            try:
+                self.send_json(export_settings(workspace, params.get("secrets", ["0"])[0] == "1"))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if route == "/api/emails":
             self.send_json(get_emails(workspace))
@@ -1551,6 +1966,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_json(save_my_event(workspace, self.read_body_json()))
             except ValueError as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/storage/cleanup":
+            try:
+                self.send_json(cleanup_storage(workspace, self.read_body_json()))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/config/import":
+            try:
+                self.send_json(import_settings(workspace, self.read_body_json()))
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

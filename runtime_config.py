@@ -60,12 +60,59 @@ def _read_legacy_config() -> dict[str, Any]:
     return values
 
 
+DPAPI_PREFIX = "dpapi:"
+SECRET_KEYS = ("LMS_PASSWORD", "EMAIL_PASSWORD", "SCHOOL_EMAIL_PASSWORD", "GEMINI_API_KEY")
+
+
+def _dpapi_unprotect(text: str) -> str:
+    """설정에 저장된 DPAPI 암호문을 푼다.
+
+    이 모듈은 크롤러/메일 리더 같은 별도 프로세스에서도 쓰이므로,
+    여기서 복호하지 않으면 암호문이 그대로 비밀번호로 들어가 로그인이 실패한다.
+    """
+    if not isinstance(text, str) or not text.startswith(DPAPI_PREFIX):
+        return text
+    if os.name != "nt":
+        return ""
+    try:
+        import base64
+        import ctypes
+        from ctypes import wintypes
+
+        class BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+        raw = base64.b64decode(text[len(DPAPI_PREFIX) :])
+        blob_in = BLOB(
+            len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_char))
+        )
+        blob_out = BLOB()
+        ok = ctypes.windll.crypt32.CryptUnprotectData(
+            ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+        )
+        if not ok:
+            return ""
+        data = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+        return data.decode("utf-8")
+    except Exception:
+        return ""
+
+
 def _load_config() -> dict[str, Any]:
     if CONFIG_JSON_PATH.exists():
-        return _read_json(CONFIG_JSON_PATH)
-    if os.environ.get("AUTOSAVER_CONFIG_PATH") or os.environ.get("AUTOSAVER_DISABLE_LEGACY_CONFIG"):
-        return {}
-    return _read_legacy_config()
+        data = _read_json(CONFIG_JSON_PATH)
+    elif os.environ.get("AUTOSAVER_CONFIG_PATH") or os.environ.get(
+        "AUTOSAVER_DISABLE_LEGACY_CONFIG"
+    ):
+        data = {}
+    else:
+        data = _read_legacy_config()
+    for key in SECRET_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.startswith(DPAPI_PREFIX):
+            data[key] = _dpapi_unprotect(value)
+    return data
 
 
 _CONFIG = _load_config()

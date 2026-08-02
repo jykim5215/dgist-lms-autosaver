@@ -122,6 +122,7 @@ function switchView(view) {
   });
   if (view === "settings") {
     populateSettings();
+    renderStorage();
   }
   if (view === "emails") {
     showMailPane("list");
@@ -1660,6 +1661,7 @@ function renderAll() {
   renderCourses();
   renderCourseFilter();
   renderFiles();
+  renderHealth();
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -2542,6 +2544,14 @@ function bindEvents() {
   $("#openSettingsFromRail")?.addEventListener("click", openSettings);
 
   bindComposeFiles();
+  bindBackup();
+
+  // 동기화 실패 배너
+  $("#healthRetryButton")?.addEventListener("click", () => {
+    splashFromButton($("#healthRetryButton"));
+    startRun("/api/run", "빠른 동기화", { confirm: true, mode: "fast" });
+  });
+  $("#healthSettingsButton")?.addEventListener("click", openSettings);
 
   // 자료함: 폴더/리스트 전환
   document.querySelectorAll("[data-filemode]").forEach((btn) => {
@@ -2733,6 +2743,190 @@ function initTheme() {
   }
   if (!THEMES.some((t) => t.key === saved)) saved = "claude";
   applyTheme(saved);
+}
+
+/* ===== 저장 공간 ===== */
+async function renderStorage() {
+  const box = $("#storageBox");
+  if (!box) return;
+  try {
+    const s = await api("/api/storage");
+    state.storage = s;
+    const disk = s.disk || {};
+    const warn = disk.low ? "low" : "";
+    const shared = s.sharedFolder
+      ? `<p class="storage-warn">저장 위치가 <code>${escapeHtml(s.downloadPath)}</code> 입니다.
+           개인 파일이 섞이는 폴더라, 앱이 받은 자료만 정리 대상으로 잡습니다.</p>`
+      : "";
+
+    box.innerHTML = `
+      <div class="storage-top">
+        <div>
+          <strong>강의자료 ${s.appHuman}</strong>
+          <span>${s.appFileCount}개 · ${escapeHtml(s.downloadPath)}</span>
+        </div>
+        <div class="storage-disk ${warn}">
+          <strong>디스크 여유 ${disk.freeHuman || "?"}</strong>
+          <span>전체 ${disk.totalHuman || "?"} 중 ${disk.usedPercent ?? "?"}% 사용</span>
+        </div>
+      </div>
+      ${disk.low ? `<p class="storage-warn">디스크 여유 공간이 부족합니다. 지난 학기 자료를 정리해 보세요.</p>` : ""}
+      ${shared}
+      ${
+        s.semesters.length
+          ? `<div class="storage-group">
+              <h4>학기별</h4>
+              ${s.semesters
+                .map(
+                  (x) => `
+                <div class="storage-row">
+                  <label>
+                    <input type="checkbox" data-sem="${escapeHtml(x.name)}" />
+                    <span>${escapeHtml(x.name)}</span>
+                  </label>
+                  <span class="storage-size">${x.human} · ${x.count}개</span>
+                </div>`,
+                )
+                .join("")}
+            </div>`
+          : `<p class="section-note">아직 분류된 강의자료가 없습니다.</p>`
+      }
+      ${
+        s.courses.length
+          ? `<details class="storage-details">
+               <summary>과목별로 보기 (${s.courses.length}개)</summary>
+               ${s.courses
+                 .map(
+                   (x) => `
+                 <div class="storage-row">
+                   <label>
+                     <input type="checkbox" data-course-storage="${escapeHtml(x.name)}" />
+                     <span title="${escapeHtml(x.name)}">${escapeHtml(shortText(x.name, 34))}</span>
+                   </label>
+                   <span class="storage-size">${x.human} · ${x.count}개</span>
+                 </div>`,
+                 )
+                 .join("")}
+             </details>`
+          : ""
+      }
+      ${
+        s.unknown.count
+          ? `<p class="section-note storage-personal">
+               이 폴더의 다른 파일 ${s.unknown.count}개(${s.unknown.human})는 앱이 받은 게 아니라
+               <strong>정리 대상이 아닙니다.</strong>
+             </p>`
+          : ""
+      }
+      <div class="storage-actions">
+        <button class="button compact danger" id="cleanupStorageButton" type="button" disabled>선택 항목 정리</button>
+      </div>`;
+
+    const sync = () => {
+      const picked = box.querySelectorAll("input[type=checkbox]:checked").length;
+      const btn = $("#cleanupStorageButton");
+      btn.disabled = picked === 0;
+      btn.textContent = picked ? `선택한 ${picked}개 정리` : "선택 항목 정리";
+    };
+    box.querySelectorAll("input[type=checkbox]").forEach((c) => c.addEventListener("change", sync));
+
+    $("#cleanupStorageButton").addEventListener("click", async () => {
+      const semesters = [...box.querySelectorAll("[data-sem]:checked")].map((c) => c.dataset.sem);
+      const courses = [...box.querySelectorAll("[data-course-storage]:checked")].map(
+        (c) => c.dataset.courseStorage,
+      );
+      const names = [...semesters, ...courses];
+      if (!names.length) return;
+      if (
+        !window.confirm(
+          `다음 항목의 강의자료를 지웁니다.\n\n${names.join(", ")}\n\n` +
+            "직접 넣어 둔 파일은 지워지지 않으며, 지운 자료는 다음 동기화 때 다시 받을 수 있습니다.\n계속할까요?",
+        )
+      )
+        return;
+      try {
+        const r = await api("/api/storage/cleanup", {
+          method: "POST",
+          body: JSON.stringify({ semesters, courses }),
+        });
+        showToast(r.message);
+        renderStorage();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  } catch (error) {
+    box.innerHTML = `<p class="section-note">저장 공간 정보를 불러오지 못했습니다: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+/* ===== 동기화 상태 (조용한 실패 방지) ===== */
+async function renderHealth() {
+  const banner = $("#healthBanner");
+  if (!banner) return;
+  try {
+    const h = await api("/api/health");
+    state.health = h;
+    if (!h.warning) {
+      banner.hidden = true;
+      return;
+    }
+    const last = Object.values(h.lastSuccess || {}).sort().pop();
+    $("#healthTitle").textContent =
+      h.consecutiveFailures >= 2 ? "동기화가 계속 실패하고 있어요" : "한동안 동기화가 되지 않았어요";
+    $("#healthDetail").textContent =
+      h.warning + (last ? ` (마지막 성공: ${String(last).replace("T", " ")})` : "");
+    banner.hidden = false;
+  } catch (error) {
+    banner.hidden = true;
+  }
+}
+
+/* ===== 설정 백업 ===== */
+function bindBackup() {
+  $("#exportSettingsButton")?.addEventListener("click", async () => {
+    const withSecrets = $("#backupSecrets")?.checked;
+    if (
+      withSecrets &&
+      !window.confirm(
+        "비밀번호가 평문으로 담긴 파일이 만들어집니다.\n" +
+          "다른 사람에게 전달되지 않도록 주의해 주세요. 계속할까요?",
+      )
+    )
+      return;
+    try {
+      const data = await api(`/api/config/export?secrets=${withSecrets ? 1 : 0}`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `붕어빵-설정-${stamp}${withSecrets ? "-비밀번호포함" : ""}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("설정을 내보냈습니다.");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  $("#importSettingsButton")?.addEventListener("click", () => $("#importSettingsInput")?.click());
+  $("#importSettingsInput")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!window.confirm("백업 파일의 내용으로 현재 설정을 덮어씁니다. 계속할까요?")) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const r = await api("/api/config/import", { method: "POST", body: JSON.stringify({ data }) });
+      showToast(r.message);
+      await refreshAll();
+      populateSettings();
+    } catch (error) {
+      showToast(error.message || "백업 파일을 읽을 수 없습니다.");
+    }
+  });
 }
 
 /* ===== 상단 진행 표시 =====
