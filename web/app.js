@@ -61,6 +61,7 @@ const state = {
   myEvents: [],
   fileMode: "list",
   openFolders: {},
+  shelves: [],
   showHolidays: true,
 };
 
@@ -212,6 +213,13 @@ function deadlineRow(item, removable = false) {
   const remove = removable
     ? `<button type="button" class="deadline-remove" data-remove-deadline="${escapeHtml(deadlineKey(item))}" title="목록에서 지우기" aria-label="목록에서 지우기"><span class="icon" data-icon="trash"></span></button>`
     : "";
+  // 미제출 과제는 LMS 제출 페이지로 바로 이동
+  const submit =
+    !removable && item.courseId
+      ? `<button type="button" class="deadline-submit" data-submit='${escapeHtml(
+          JSON.stringify({ courseId: item.courseId, columnId: item.columnId || "", name: item.name || "" }),
+        )}' title="LMS 제출 페이지 열기">제출하러 가기</button>`
+      : "";
   return `
     <div class="deadline-row">
       <span class="dday-badge ${dday.cls}">${dday.label}</span>
@@ -223,6 +231,7 @@ function deadlineRow(item, removable = false) {
         <time>${formatDue(due)}</time>
         ${submitBadge(item)}
       </div>
+      ${submit}
       ${remove}
     </div>
   `;
@@ -367,6 +376,30 @@ function renderDeadlines() {
       showToast(error.message);
     }
   };
+
+  // 제출 페이지 열기 (앱이 대신 제출하지는 않음)
+  list.querySelectorAll("[data-submit]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      let info;
+      try {
+        info = JSON.parse(btn.dataset.submit);
+      } catch (error) {
+        return;
+      }
+      try {
+        const r = await api("/api/assignment/open", { method: "POST", body: JSON.stringify(info) });
+        showToast(
+          r.opened
+            ? `'${shortText(info.name, 22)}' 제출 페이지를 열었습니다. 파일 업로드와 제출은 LMS에서 직접 해 주세요.`
+            : r.message,
+        );
+        if (!r.opened && r.url) window.open(r.url, "_blank");
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
 
   list.querySelectorAll("[data-remove-deadline]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
@@ -1436,13 +1469,216 @@ function renderFolderView(rows) {
 }
 
 function applyFileMode() {
-  const folder = state.fileMode === "folder";
-  const fv = $("#folderView");
-  const tw = $("#fileTableWrap");
-  if (fv) fv.hidden = !folder;
-  if (tw) tw.hidden = folder;
+  const mode = state.fileMode;
+  const set = (el, show) => {
+    if (el) el.hidden = !show;
+  };
+  set($("#folderView"), mode === "folder");
+  set($("#shelfView"), mode === "shelf");
+  set($("#fileTableWrap"), mode === "list");
   document.querySelectorAll("[data-filemode]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.filemode === state.fileMode);
+    btn.classList.toggle("active", btn.dataset.filemode === mode);
+  });
+  if (mode === "shelf") renderShelves();
+}
+
+/* ===== 내 폴더 (자유 편집) ===== */
+async function loadShelves() {
+  try {
+    const data = await api("/api/shelves");
+    state.shelves = data.shelves || [];
+  } catch (error) {
+    state.shelves = [];
+  }
+}
+
+async function persistShelves() {
+  try {
+    await api("/api/shelves/save", {
+      method: "POST",
+      body: JSON.stringify({ shelves: state.shelves }),
+    });
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderShelves() {
+  const list = $("#shelfList");
+  const pool = $("#shelfPool");
+  if (!list || !pool) return;
+  const shelves = state.shelves || [];
+  const byName = new Map((state.files || []).map((f) => [f.localName, f]));
+  const claimed = new Set(shelves.flatMap((s) => s.files));
+
+  list.innerHTML = shelves.length
+    ? shelves
+        .map(
+          (s) => `
+      <section class="shelf-card" data-shelf="${escapeHtml(s.id)}">
+        <div class="shelf-head">
+          <span class="folder-icon"><span class="icon" data-icon="folder"></span></span>
+          <input class="shelf-name" value="${escapeHtml(s.name)}" data-rename="${escapeHtml(s.id)}"
+                 aria-label="폴더 이름" />
+          <span class="shelf-count">${s.files.length}개</span>
+          <button type="button" class="shelf-delete" data-del-shelf="${escapeHtml(s.id)}" title="폴더 삭제">✕</button>
+        </div>
+        <div class="shelf-drop" data-drop="${escapeHtml(s.id)}">
+          ${
+            s.files.length
+              ? s.files
+                  .map((name) => {
+                    const f = byName.get(name);
+                    return `<span class="shelf-chip" draggable="true" data-file="${escapeHtml(name)}" data-from="${escapeHtml(s.id)}">
+                      ${escapeHtml(shortText(f?.name || name, 26))}
+                      <button type="button" class="shelf-chip-x" data-out="${escapeHtml(name)}" data-shelf-id="${escapeHtml(s.id)}">✕</button>
+                    </span>`;
+                  })
+                  .join("")
+              : `<span class="shelf-empty">여기로 파일을 끌어다 놓으세요</span>`
+          }
+        </div>
+      </section>`,
+        )
+        .join("")
+    : `<p class="section-note">아직 만든 폴더가 없습니다. ‘폴더 만들기’로 시작해 보세요.</p>`;
+
+  const unclaimed = (state.files || []).filter((f) => !claimed.has(f.localName)).slice(0, 120);
+  pool.innerHTML = unclaimed.length
+    ? unclaimed
+        .map(
+          (f) => `
+      <span class="shelf-chip pool" draggable="true" data-file="${escapeHtml(f.localName)}" title="${escapeHtml(f.name)}">
+        ${escapeHtml(shortText(f.name, 26))}
+        <em>${escapeHtml(shortText(f.courseLabel || "", 14))}</em>
+      </span>`,
+        )
+        .join("")
+    : `<p class="section-note">모든 자료가 폴더에 담겨 있습니다.</p>`;
+
+  installIcons(list);
+}
+
+function bindShelves() {
+  const view = $("#shelfView");
+  if (!view) return;
+
+  $("#addShelfButton").addEventListener("click", async () => {
+    const name = window.prompt("새 폴더 이름", "새 폴더");
+    if (name === null) return;
+    state.shelves = [
+      ...(state.shelves || []),
+      { id: `shelf-${Date.now().toString(36)}`, name: name.trim() || "새 폴더", files: [], courses: [] },
+    ];
+    await persistShelves();
+    renderShelves();
+  });
+
+  // 학기별 자동 정리
+  $("#autoShelfButton").addEventListener("click", async () => {
+    const groups = new Map();
+    (state.files || []).forEach((f) => {
+      const m = /\[\s*(\d{4})[_\s-]*(\d)\s*학기/.exec(f.course || "");
+      const key = m ? `${m[1]}-${m[2]}학기` : null;
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(f.localName);
+    });
+    if (!groups.size) {
+      showToast("학기 정보를 가진 자료가 없습니다.");
+      return;
+    }
+    if (!window.confirm(`학기 ${groups.size}개로 폴더를 만듭니다. 기존 폴더는 그대로 둡니다.`)) return;
+    const existing = new Set((state.shelves || []).map((s) => s.name));
+    const added = [...groups.entries()]
+      .filter(([name]) => !existing.has(name))
+      .map(([name, files]) => ({
+        id: `shelf-${name.replace(/\W/g, "")}-${Date.now().toString(36)}`,
+        name,
+        files,
+        courses: [],
+      }));
+    if (!added.length) {
+      showToast("이미 학기 폴더가 있습니다.");
+      return;
+    }
+    state.shelves = [...(state.shelves || []), ...added];
+    await persistShelves();
+    renderShelves();
+    showToast(`학기 폴더 ${added.length}개를 만들었습니다.`);
+  });
+
+  // 이름 변경
+  view.addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-rename]");
+    if (!input) return;
+    const shelf = state.shelves.find((s) => s.id === input.dataset.rename);
+    if (!shelf) return;
+    shelf.name = input.value.trim() || "새 폴더";
+    await persistShelves();
+  });
+
+  // 삭제 / 개별 빼기
+  view.addEventListener("click", async (event) => {
+    const del = event.target.closest("[data-del-shelf]");
+    if (del) {
+      const shelf = state.shelves.find((s) => s.id === del.dataset.delShelf);
+      if (!shelf) return;
+      if (!window.confirm(`'${shelf.name}' 폴더를 지울까요?\n(자료 파일 자체는 지워지지 않습니다.)`)) return;
+      state.shelves = state.shelves.filter((s) => s.id !== del.dataset.delShelf);
+      await persistShelves();
+      renderShelves();
+      return;
+    }
+    const out = event.target.closest("[data-out]");
+    if (out) {
+      const shelf = state.shelves.find((s) => s.id === out.dataset.shelfId);
+      if (!shelf) return;
+      shelf.files = shelf.files.filter((f) => f !== out.dataset.out);
+      await persistShelves();
+      renderShelves();
+    }
+  });
+
+  // 끌어다 넣기
+  view.addEventListener("dragstart", (event) => {
+    const chip = event.target.closest(".shelf-chip");
+    if (!chip) return;
+    event.dataTransfer.setData("text/x-shelf-file", chip.dataset.file);
+    event.dataTransfer.setData("text/x-shelf-from", chip.dataset.from || "");
+    event.dataTransfer.effectAllowed = "move";
+    chip.classList.add("dragging");
+  });
+  view.addEventListener("dragend", (event) => {
+    event.target.closest(".shelf-chip")?.classList.remove("dragging");
+  });
+  view.addEventListener("dragover", (event) => {
+    const zone = event.target.closest("[data-drop]");
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.add("drag-over");
+  });
+  view.addEventListener("dragleave", (event) => {
+    const zone = event.target.closest("[data-drop]");
+    if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+  });
+  view.addEventListener("drop", async (event) => {
+    const zone = event.target.closest("[data-drop]");
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.remove("drag-over");
+    const file = event.dataTransfer.getData("text/x-shelf-file");
+    const from = event.dataTransfer.getData("text/x-shelf-from");
+    if (!file) return;
+    const target = state.shelves.find((s) => s.id === zone.dataset.drop);
+    if (!target || target.files.includes(file)) return;
+    if (from) {
+      const src = state.shelves.find((s) => s.id === from);
+      if (src) src.files = src.files.filter((f) => f !== file);
+    }
+    target.files.push(file);
+    await persistShelves();
+    renderShelves();
   });
 }
 
@@ -1952,6 +2188,7 @@ async function refreshAll() {
       api("/api/my-events").catch(() => ({ events: [] })),
     ]);
     state.myEvents = myEvents.events || [];
+    loadShelves();
     state.status = status;
     state.files = files.files || [];
     state.deadlines = deadlines;
@@ -2545,6 +2782,7 @@ function bindEvents() {
 
   bindComposeFiles();
   bindBackup();
+  bindShelves();
 
   // 동기화 실패 배너
   $("#healthRetryButton")?.addEventListener("click", () => {

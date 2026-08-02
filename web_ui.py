@@ -90,6 +90,7 @@ class UserWorkspace:
     emails_log: Path
     my_events_path: Path
     health_path: Path
+    shelves_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -123,6 +124,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         emails_log=root / "emails.json",
         my_events_path=root / "my_events.json",
         health_path=root / "health.json",
+        shelves_path=root / "shelves.json",
     )
 
 
@@ -1133,6 +1135,86 @@ def cleanup_storage(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[s
     }
 
 
+def get_shelves(workspace: UserWorkspace) -> dict[str, Any]:
+    """사용자가 직접 만든 자료 폴더(책장)."""
+    data = read_json(workspace.shelves_path, {})
+    if not isinstance(data, dict):
+        data = {}
+    shelves = data.get("shelves")
+    if not isinstance(shelves, list):
+        shelves = []
+    cleaned = []
+    for s in shelves:
+        if not isinstance(s, dict) or not s.get("id"):
+            continue
+        cleaned.append(
+            {
+                "id": str(s.get("id")),
+                "name": str(s.get("name", "새 폴더")),
+                "files": [str(f) for f in s.get("files", []) if str(f).strip()],
+                "courses": [str(c) for c in s.get("courses", []) if str(c).strip()],
+            }
+        )
+    return {"shelves": cleaned}
+
+
+def save_shelves(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """폴더 목록 전체를 저장한다 (만들기·이름변경·항목이동·삭제 공용)."""
+    shelves = payload.get("shelves")
+    if not isinstance(shelves, list):
+        raise ValueError("폴더 목록이 올바르지 않습니다.")
+    cleaned = []
+    for s in shelves[:60]:
+        if not isinstance(s, dict):
+            continue
+        name = str(s.get("name", "")).strip() or "새 폴더"
+        cleaned.append(
+            {
+                "id": str(s.get("id") or f"shelf-{secrets.token_hex(5)}"),
+                "name": name[:60],
+                "files": [str(f) for f in s.get("files", [])][:500],
+                "courses": [str(c) for c in s.get("courses", [])][:100],
+            }
+        )
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.shelves_path.write_text(
+        json.dumps({"shelves": cleaned}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"ok": True, "shelves": cleaned}
+
+
+def open_assignment_page(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """과제의 LMS 제출 페이지를 기본 브라우저로 연다.
+
+    앱이 대신 제출하지는 않는다. 파일 업로드와 최종 제출은 사용자가 직접
+    LMS 화면에서 하도록 두는 편이 안전하다 (되돌릴 수 없는 작업이므로).
+    """
+    course_id = str(payload.get("courseId", "")).strip()
+    column_id = str(payload.get("columnId", "")).strip()
+    if not course_id:
+        raise ValueError("과제의 강의 정보를 찾을 수 없습니다. '마감 새로고침'을 먼저 해 주세요.")
+
+    config = read_config(workspace)
+    base = str(config.get("LMS_URL", "https://lms.dgist.ac.kr")).rstrip("/")
+    if column_id:
+        url = f"{base}/ultra/courses/{course_id}/outline/assessment/{column_id}"
+    else:
+        url = f"{base}/ultra/courses/{course_id}/outline"
+
+    opened = False
+    if not MULTI_USER_MODE:
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+    return {
+        "ok": True,
+        "url": url,
+        "opened": opened,
+        "message": "LMS 제출 페이지를 열었습니다." if opened else "아래 주소를 브라우저에서 열어 주세요.",
+    }
+
+
 def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     """사용자가 캘린더에서 직접 만든 일정 목록."""
     data = read_json(workspace.my_events_path, [])
@@ -1678,6 +1760,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/storage":
             self.send_json(get_storage(workspace))
             return
+        if route == "/api/shelves":
+            self.send_json(get_shelves(workspace))
+            return
         if route == "/api/health":
             self.send_json(get_health(workspace))
             return
@@ -1966,6 +2051,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_json(save_my_event(workspace, self.read_body_json()))
             except ValueError as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/shelves/save":
+            try:
+                self.send_json(save_shelves(workspace, self.read_body_json()))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/assignment/open":
+            try:
+                self.send_json(open_assignment_page(workspace, self.read_body_json()))
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

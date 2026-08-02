@@ -48,3 +48,4 @@ artifacts/
 # 별도 하위 프로젝트 (자체 저장소)
 doc2paper/
 hw_synth/
+shelves.json

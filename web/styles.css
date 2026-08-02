@@ -1604,6 +1604,25 @@ tbody tr:hover {
 .deadline-row {
   position: relative;
 }
+.deadline-submit {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.deadline-submit:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .deadline-remove {
   border: none;
   background: transparent;
@@ -1904,6 +1923,136 @@ tbody tr:hover {
 
 @media (max-width: 620px) {
   .event-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 내 폴더 (자유 편집) ===== */
+.shelf-view[hidden] { display: none; }
+.shelf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 6px 0 14px;
+}
+.shelf-hint { font-size: 11.5px; color: var(--text-faint); }
+
+.shelf-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.shelf-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.shelf-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bg-deep);
+}
+.shelf-name {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.shelf-name:hover { border-color: var(--border); }
+.shelf-name:focus { border-color: var(--accent); outline: none; background: var(--surface-soft); }
+.shelf-count { font-size: 11px; color: var(--text-faint); flex: none; }
+.shelf-delete {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.shelf-delete:hover { background: var(--red-soft); color: var(--red); }
+
+.shelf-drop {
+  min-height: 74px;
+  padding: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+  transition: background 0.18s, box-shadow 0.18s;
+}
+.shelf-drop.drag-over {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.shelf-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  align-self: center;
+  margin: auto;
+}
+
+.shelf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-deep);
+  border-radius: 999px;
+  padding: 4px 6px 4px 11px;
+  font-size: 11.5px;
+  cursor: grab;
+  max-width: 100%;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.shelf-chip:active { cursor: grabbing; }
+.shelf-chip.dragging { opacity: 0.4; transform: scale(0.95); }
+.shelf-chip em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  padding-right: 6px;
+}
+.shelf-chip-x {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 50%;
+}
+.shelf-chip-x:hover { background: var(--red-soft); color: var(--red); }
+
+.shelf-pool { margin-top: 20px; }
+.shelf-pool h4 {
+  margin: 0 0 9px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+.shelf-pool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.shelf-chip.pool { background: var(--surface); }
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf-chip, .shelf-drop { transition: none; }
 }
 
 /* ===== 저장 공간 ===== */

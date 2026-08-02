@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>붕어빵</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css?v=1.4.0" />
+    <link rel="stylesheet" href="/styles.css?v=1.4.1" />
   </head>
   <body>
     <div class="app-shell">
@@ -535,8 +535,11 @@
                   </div>
                   <div class="filters">
                     <div class="view-toggle" role="group" aria-label="자료 보기 방식">
-                      <button type="button" class="view-toggle-btn" data-filemode="folder" aria-label="폴더 보기" title="과목별 폴더">
+                      <button type="button" class="view-toggle-btn" data-filemode="folder" aria-label="과목별 폴더" title="과목별 폴더">
                         <span class="icon" data-icon="folder"></span>
+                      </button>
+                      <button type="button" class="view-toggle-btn" data-filemode="shelf" aria-label="내 폴더" title="내가 만든 폴더">
+                        <span class="icon" data-icon="edit"></span>
                       </button>
                       <button type="button" class="view-toggle-btn active" data-filemode="list" aria-label="리스트 보기" title="전체 목록">
                         <span class="icon" data-icon="list"></span>
@@ -560,6 +563,25 @@
 
                 <!-- 폴더 보기: 과목별로 묶어서 -->
                 <div class="folder-view" id="folderView" hidden></div>
+
+                <!-- 내 폴더: 직접 만들고 파일을 끌어다 넣기 -->
+                <div class="shelf-view" id="shelfView" hidden>
+                  <div class="shelf-toolbar">
+                    <button class="button compact primary" id="addShelfButton" type="button">
+                      <span class="icon" data-icon="folder"></span>
+                      폴더 만들기
+                    </button>
+                    <button class="button compact ghost" id="autoShelfButton" type="button" title="학기별로 폴더를 자동으로 만듭니다">
+                      학기별로 자동 정리
+                    </button>
+                    <span class="shelf-hint">아래 목록에서 파일을 끌어다 폴더에 놓으세요.</span>
+                  </div>
+                  <div class="shelf-list" id="shelfList"></div>
+                  <div class="shelf-pool">
+                    <h4>아직 담지 않은 자료</h4>
+                    <div class="shelf-pool-list" id="shelfPool"></div>
+                  </div>
+                </div>
 
                 <div class="table-wrap" id="fileTableWrap">
                   <table>
@@ -922,6 +944,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=1.4.0" defer></script>
+    <script src="/app.js?v=1.4.1" defer></script>
   </body>
 </html>
