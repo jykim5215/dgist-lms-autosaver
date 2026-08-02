@@ -520,6 +520,141 @@ body {
 }
 
 /* ===== Metrics ===== */
+/* ===== 주간 시간표 ===== */
+.timetable-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.timetable-wrap { overflow-x: auto; }
+
+.timetable {
+  --tt-days: 5;
+  min-width: 420px;
+  user-select: none;
+}
+
+.tt-head {
+  display: grid;
+  grid-template-columns: 34px repeat(var(--tt-days), minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 2px;
+}
+.tt-dayname {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-soft);
+  padding: 5px 0;
+}
+.tt-dayname.sat { color: var(--blue); }
+
+.tt-body { position: relative; display: flex; }
+
+.tt-hours {
+  position: relative;
+  width: 34px;
+  flex: none;
+}
+.tt-hour {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--bg-deep);
+}
+.tt-hour span {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-cols {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--tt-days), minmax(0, 1fr));
+  gap: 1px;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tt-col {
+  position: relative;
+  background: var(--surface);
+  cursor: crosshair;
+  /* 1시간 간격 옅은 줄 */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 53px,
+    var(--bg-deep) 53px,
+    var(--bg-deep) 54px
+  );
+}
+.tt-col:hover { background-color: var(--surface-soft); }
+
+.tt-block {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 6px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: filter 0.15s, transform 0.15s;
+}
+.tt-block:hover { filter: brightness(1.07); transform: scale(1.015); }
+.tt-block strong {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-block span,
+.tt-block em {
+  font-size: 9.5px;
+  font-style: normal;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 시간표 색 */
+.tone-coral  { background: #d97757; }
+.tone-blue   { background: #5b7da8; }
+.tone-green  { background: #5e8b5e; }
+.tone-amber  { background: #b8860b; }
+.tone-violet { background: #7c6bab; }
+.tone-teal   { background: #3f8f8a; }
+
+.tt-colors { display: flex; gap: 7px; }
+.tt-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.tt-color.on { border-color: var(--text); transform: scale(1.1); }
+
+.tt-editor { margin-top: 12px; border-radius: var(--radius); border: 1px solid var(--border); }
+
 /* 카드 묶음 + 오른쪽 미리보기 패널 */
 .metrics-stage {
   display: grid;
@@ -3078,27 +3213,193 @@ tbody tr:hover {
   }
 }
 
+/* ===== 휴대폰 크기: 사이드바를 하단 탭바로 =====
+   좁은 화면에서 세로 사이드바가 화면을 통째로 차지하던 문제를 없앤다. */
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
+
   .sidebar {
-    position: static;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 60;
     height: auto;
     flex-direction: row;
-    align-items: center;
+    align-items: stretch;
+    gap: 0;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-right: none;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 -2px 14px -6px rgba(0, 0, 0, 0.18);
     overflow-x: auto;
-    gap: 14px;
+    overflow-y: hidden;
+    scrollbar-width: none;
   }
-  .nav-list {
-    flex-direction: row;
-  }
-  .sidebar-footer {
+  .sidebar::-webkit-scrollbar { display: none; }
+
+  /* 탭바에서는 로고·상태·저작권 숨김 */
+  .brand,
+  .sidebar-footer,
+  .copyright,
+  .nav-group-label {
     display: none;
   }
+
+  .nav-list {
+    flex-direction: row;
+    gap: 2px;
+    flex: 1;
+    min-width: max-content;
+  }
+
+  .nav-item {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 62px;
+    padding: 7px 6px 5px;
+    font-size: 10.5px;
+    line-height: 1.1;
+    white-space: nowrap;
+    border-radius: 10px;
+  }
+  .nav-item .icon { width: 19px; height: 19px; }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent-strong); }
+  .nav-item .nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 8px;
+    transform: none;
+  }
+  .nav-item { position: relative; }
+
+  /* 탭바에 가리지 않도록 본문 아래 여백 */
+  .main { padding-bottom: 68px; }
+
+  /* 상단바: 검색은 한 줄 전체, 버튼은 아이콘만 */
   .topbar {
     flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
   }
+  .search-wrap { flex: 1 1 100%; }
+  .topbar-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar-actions::-webkit-scrollbar { display: none; }
+  /* 글자를 숨기고 아이콘만 남겨 한 줄에 들어가게 */
+  .topbar-actions .button span:not(.icon) { display: none; }
+  .topbar-actions .button {
+    padding: 8px 10px;
+    flex: none;
+  }
+  .top-progress { min-width: 150px; max-width: 200px; }
+
+  .workspace {
+    padding: 16px 14px 28px;
+  }
+
+  /* 메일 집중 모드에서도 탭바 유지 */
+  .app-shell.mail-focus {
+    grid-template-columns: 1fr;
+  }
+  .app-shell.mail-focus .topbar { display: flex; }
+}
+
+/* 휴대폰: 화면별 세부 정리 */
+@media (max-width: 760px) {
+  /* 헤더의 버튼 묶음이 넘치지 않게 줄바꿈 */
+  .calendar-hero,
+  .course-hero,
+  .panel-header,
+  .email-hero-actions {
+    flex-wrap: wrap;
+  }
+  .calendar-nav,
+  .course-hero-actions,
+  .timetable-actions,
+  .filters {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .hero-panel h1 { font-size: 22px; }
+  .hero-panel p { font-size: 13px; }
+
+  /* 표는 가로 스크롤로 */
+  .table-wrap { overflow-x: auto; }
+  .table-wrap table { min-width: 560px; }
+
+  /* 지표 카드는 2열 */
+  .metrics-grid,
+  .metrics-stage.peek-open .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 시간표는 가로 스크롤 + 조금 촘촘하게 */
+  .timetable { min-width: 380px; }
+
+  /* 메일 작성: 자료 패널을 아래로 */
+  .compose-with-files { grid-template-columns: minmax(0, 1fr); }
+  .compose-files { max-height: 200px; }
+
+  /* 실행 로그 레일은 접힌 채로 시작 */
+  .right-rail { position: static; }
+
+  /* 메일함: 폴더 레일이 본문을 밀어내지 않게 위로 올린다 */
+  .mail-app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .mail-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .mail-rail::-webkit-scrollbar { display: none; }
+  .mail-folders {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    min-width: max-content;
+  }
+  .mail-folders button {
+    white-space: nowrap;
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+  .mail-compose-btn,
+  .mail-refresh {
+    width: auto;
+    flex: none;
+    white-space: nowrap;
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+  .mail-main { min-width: 0; }
+  .mail-pane { min-width: 0; }
+}
+
+/* 아주 좁은 화면 */
+@media (max-width: 420px) {
+  .nav-item { min-width: 56px; font-size: 10px; }
+  .workspace { padding: 14px 11px 24px; }
+  .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quicklinks { grid-template-columns: 1fr; }
 }
 
 /* ===== 메일앱 고도화: 툴바/정렬/뷰토글 ===== */
@@ -4228,4 +4529,50 @@ tbody tr:hover {
   .workspace {
     transition: none;
   }
+}
+
+
+/* ===== 휴대폰: 메일 집중 모드 무력화 =====
+   mail-focus 규칙이 이 파일 뒤쪽에 있어, 앞선 미디어쿼리로는 덮이지 않는다.
+   반드시 그 규칙들보다 아래에 두어야 한다. */
+@media (max-width: 760px) {
+  .app-shell.mail-focus {
+    grid-template-columns: 1fr;
+  }
+  .app-shell.mail-focus .topbar { display: flex; }
+  .app-shell.mail-focus .main { height: auto; overflow: visible; }
+  .app-shell.mail-focus .workspace {
+    padding: 16px 14px 28px;
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .app-shell.mail-focus .content-column { height: auto; }
+  .app-shell.mail-focus #view-emails { height: auto; }
+  /* 탭바는 계속 보이게 */
+  .app-shell.mail-focus .sidebar { display: flex; }
+  .app-shell.mail-focus .nav-item { font-size: 10.5px; }
+  .app-shell.mail-focus .nav-item .icon { width: 19px; height: 19px; }
+  .app-shell.mail-focus .brand { display: none; }
+
+  .mail-app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+  .mail-pane { height: auto; }
+  .mail-scroll, .mail-read-scroll, .compose-scroll { max-height: none; }
+}
+
+
+/* ===== 중간 폭(태블릿~작은 노트북) 상단바 정리 =====
+   버튼 글자까지 다 들어가지 않아 화면 밖으로 밀리던 문제 해결 */
+@media (max-width: 1080px) {
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
+}
+
+@media (max-width: 940px) {
+  /* 글자를 접고 아이콘만 남긴다 (툴팁으로 뜻은 유지) */
+  .topbar-actions .button span:not(.icon) { display: none; }
+  .topbar-actions .button { padding: 8px 11px; }
 }

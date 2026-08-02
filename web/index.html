@@ -196,6 +196,80 @@
                 </aside>
               </div>
 
+              <!-- 주간 시간표 -->
+              <section class="panel timetable-panel" aria-labelledby="timetableTitle">
+                <div class="panel-header">
+                  <div>
+                    <h2 id="timetableTitle">주간 시간표</h2>
+                    <p id="timetableHint">빈 칸을 누르면 과목을 넣을 수 있어요.</p>
+                  </div>
+                  <div class="timetable-actions">
+                    <label class="holiday-toggle" title="토요일 표시">
+                      <input type="checkbox" id="timetableSat" />
+                      <span>토요일</span>
+                    </label>
+                    <button class="button compact ghost" id="timetableFromCourses" type="button">
+                      수강 과목 불러오기
+                    </button>
+                  </div>
+                </div>
+                <div class="timetable-wrap">
+                  <div class="timetable" id="timetable"></div>
+                </div>
+
+                <!-- 칸 편집 -->
+                <section class="event-editor tt-editor" id="ttEditor" hidden>
+                  <form id="ttForm">
+                    <div class="event-editor-head">
+                      <strong id="ttEditorTitle">과목 추가</strong>
+                      <button class="icon-button" id="ttEditorClose" type="button" aria-label="닫기">
+                        <span class="icon" data-icon="x"></span>
+                      </button>
+                    </div>
+                    <input type="hidden" name="id" />
+                    <div class="event-grid">
+                      <label class="event-field event-field-wide">
+                        <span>과목명</span>
+                        <input name="title" type="text" placeholder="예: 일반물리학Ⅰ" required autocomplete="off" list="courseNameList" />
+                        <datalist id="courseNameList"></datalist>
+                      </label>
+                      <label class="event-field">
+                        <span>요일</span>
+                        <select name="day">
+                          <option value="0">월</option>
+                          <option value="1">화</option>
+                          <option value="2">수</option>
+                          <option value="3">목</option>
+                          <option value="4">금</option>
+                          <option value="5">토</option>
+                        </select>
+                      </label>
+                      <label class="event-field">
+                        <span>강의실</span>
+                        <input name="room" type="text" placeholder="예: E7-101" autocomplete="off" />
+                      </label>
+                      <label class="event-field">
+                        <span>시작</span>
+                        <input name="start" type="time" required step="300" />
+                      </label>
+                      <label class="event-field">
+                        <span>끝</span>
+                        <input name="end" type="time" required step="300" />
+                      </label>
+                      <label class="event-field event-field-wide">
+                        <span>색</span>
+                        <div class="tt-colors" id="ttColors"></div>
+                        <input type="hidden" name="color" value="coral" />
+                      </label>
+                    </div>
+                    <div class="event-editor-foot">
+                      <button class="button primary" type="submit">저장</button>
+                      <button class="button ghost" id="ttDeleteButton" type="button" hidden>삭제</button>
+                    </div>
+                  </form>
+                </section>
+              </section>
+
               <section class="panel" aria-labelledby="upcomingTitle">
                 <div class="panel-header">
                   <div>

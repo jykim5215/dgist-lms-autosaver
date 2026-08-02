@@ -90,6 +90,7 @@ class UserWorkspace:
     emails_log: Path
     my_events_path: Path
     health_path: Path
+    timetable_path: Path
     shelves_path: Path
 
 
@@ -124,6 +125,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         emails_log=root / "emails.json",
         my_events_path=root / "my_events.json",
         health_path=root / "health.json",
+        timetable_path=root / "timetable.json",
         shelves_path=root / "shelves.json",
     )
 
@@ -1251,6 +1253,77 @@ def open_assignment_page(workspace: UserWorkspace, payload: dict[str, Any]) -> d
     }
 
 
+def get_timetable(workspace: UserWorkspace) -> dict[str, Any]:
+    """주간 시간표. 학기별로 따로 보관해 지난 학기 것도 남는다."""
+    data = read_json(workspace.timetable_path, {})
+    if not isinstance(data, dict):
+        data = {}
+    entries = data.get("entries")
+    return {
+        "entries": entries if isinstance(entries, list) else [],
+        "semester": str(data.get("semester", "")),
+    }
+
+
+def save_timetable_entry(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
+    """시간표 칸 추가/수정. day는 0=월 … 5=토."""
+    title = str(payload.get("title", "")).strip()
+    if not title:
+        raise ValueError("과목명을 입력해 주세요.")
+    try:
+        day = int(payload.get("day", 0))
+    except (TypeError, ValueError):
+        raise ValueError("요일이 올바르지 않습니다.")
+    if not 0 <= day <= 5:
+        raise ValueError("요일이 올바르지 않습니다.")
+
+    start = str(payload.get("start", "")).strip()
+    end = str(payload.get("end", "")).strip()
+    if not re.fullmatch(r"\d{2}:\d{2}", start) or not re.fullmatch(r"\d{2}:\d{2}", end):
+        raise ValueError("시간을 HH:MM 형식으로 입력해 주세요.")
+    if start >= end:
+        raise ValueError("끝나는 시간이 시작 시간보다 늦어야 합니다.")
+
+    data = get_timetable(workspace)
+    entries = data["entries"]
+    entry_id = str(payload.get("id", "")).strip()
+    entry = {
+        "id": entry_id or f"tt-{secrets.token_hex(5)}",
+        "title": title[:60],
+        "day": day,
+        "start": start,
+        "end": end,
+        "room": str(payload.get("room", "")).strip()[:40],
+        "color": str(payload.get("color", "")).strip()[:20] or "coral",
+        "courseLabel": str(payload.get("courseLabel", "")).strip()[:120],
+    }
+    if entry_id:
+        entries = [entry if e.get("id") == entry_id else e for e in entries]
+    else:
+        entries.append(entry)
+
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    workspace.timetable_path.write_text(
+        json.dumps(
+            {"entries": entries, "semester": str(payload.get("semester", data.get("semester", "")))},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {"ok": True, "entry": entry, "entries": entries}
+
+
+def delete_timetable_entry(workspace: UserWorkspace, entry_id: str) -> dict[str, Any]:
+    data = get_timetable(workspace)
+    remaining = [e for e in data["entries"] if e.get("id") != entry_id]
+    workspace.timetable_path.write_text(
+        json.dumps({"entries": remaining, "semester": data["semester"]}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {"ok": True, "entries": remaining}
+
+
 def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     """사용자가 캘린더에서 직접 만든 일정 목록."""
     data = read_json(workspace.my_events_path, [])
@@ -1800,6 +1873,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/my-events":
             self.send_json(get_my_events(workspace))
             return
+        if route == "/api/timetable":
+            self.send_json(get_timetable(workspace))
+            return
         if route == "/api/storage":
             self.send_json(get_storage(workspace))
             return
@@ -2088,6 +2164,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             payload = self.read_body_json()
             saved = save_upload_selection(workspace, payload)
             self.send_json({"ok": True, **saved})
+            return
+        if route == "/api/timetable/save":
+            try:
+                self.send_json(save_timetable_entry(workspace, self.read_body_json()))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/timetable/delete":
+            try:
+                eid = str(self.read_body_json().get("id", "")).strip()
+                if not eid:
+                    raise ValueError("삭제할 항목을 찾을 수 없습니다.")
+                self.send_json(delete_timetable_entry(workspace, eid))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if route == "/api/my-events/save":
             try:

@@ -63,6 +63,8 @@ const state = {
   openFolders: {},
   shelves: [],
   showHolidays: true,
+  timetable: [],
+  ttShowSat: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -1899,6 +1901,7 @@ function renderAll() {
   renderFiles();
   renderHealth();
   renderQuicklinks();
+  renderTimetable();
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -2178,7 +2181,7 @@ function renderCalendarDayList(byDay) {
 
 async function refreshAll() {
   try {
-    const [status, files, task, deadlines, selection, emails, config, myEvents] = await Promise.all([
+    const [status, files, task, deadlines, selection, emails, config, myEvents, timetable] = await Promise.all([
       api("/api/status"),
       api("/api/files"),
       api("/api/task"),
@@ -2187,8 +2190,10 @@ async function refreshAll() {
       api("/api/emails"),
       api("/api/config"),
       api("/api/my-events").catch(() => ({ events: [] })),
+      api("/api/timetable").catch(() => ({ entries: [] })),
     ]);
     state.myEvents = myEvents.events || [];
+    state.timetable = timetable.entries || [];
     loadShelves();
     state.status = status;
     state.files = files.files || [];
@@ -2783,6 +2788,7 @@ function bindEvents() {
 
   bindComposeFiles();
   bindMetricPeek();
+  bindTimetable();
   bindBackup();
   bindShelves();
   bindQuicklinks();
@@ -3238,6 +3244,215 @@ function bindBackup() {
     } catch (error) {
       showToast(error.message || "백업 파일을 읽을 수 없습니다.");
     }
+  });
+}
+
+/* ===== 주간 시간표 (에브리타임 방식) ===== */
+const TT_DAYS = ["월", "화", "수", "목", "금", "토"];
+const TT_COLORS = ["coral", "blue", "green", "amber", "violet", "teal"];
+const TT_START_HOUR = 9;   // 표의 시작 시각
+const TT_END_HOUR = 21;    // 표의 끝 시각
+
+function ttMinutes(hhmm) {
+  const [h, m] = String(hhmm || "0:0").split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function renderTimetable() {
+  const grid = $("#timetable");
+  if (!grid) return;
+  const entries = state.timetable || [];
+  const showSat = state.ttShowSat || entries.some((e) => Number(e.day) === 5);
+  const dayCount = showSat ? 6 : 5;
+  const satBox = $("#timetableSat");
+  if (satBox) satBox.checked = showSat;
+
+  // 등록된 수업에 맞춰 표의 시간 범위를 자동 조절
+  let startHour = TT_START_HOUR;
+  let endHour = TT_END_HOUR;
+  entries.forEach((e) => {
+    startHour = Math.min(startHour, Math.floor(ttMinutes(e.start) / 60));
+    endHour = Math.max(endHour, Math.ceil(ttMinutes(e.end) / 60));
+  });
+  const totalMin = (endHour - startHour) * 60;
+  const pxPerMin = 0.9;
+
+  grid.style.setProperty("--tt-days", String(dayCount));
+  grid.style.setProperty("--tt-height", `${totalMin * pxPerMin}px`);
+
+  const hourRows = [];
+  for (let h = startHour; h < endHour; h += 1) {
+    hourRows.push(
+      `<div class="tt-hour" style="top:${(h - startHour) * 60 * pxPerMin}px">
+         <span>${h}</span>
+       </div>`,
+    );
+  }
+
+  const cols = [];
+  for (let d = 0; d < dayCount; d += 1) {
+    const blocks = entries
+      .filter((e) => Number(e.day) === d)
+      .map((e) => {
+        const top = (ttMinutes(e.start) - startHour * 60) * pxPerMin;
+        const height = Math.max(22, (ttMinutes(e.end) - ttMinutes(e.start)) * pxPerMin);
+        return `
+          <button type="button" class="tt-block tone-${escapeHtml(e.color || "coral")}"
+                  style="top:${top}px;height:${height}px" data-tt="${escapeHtml(e.id)}"
+                  title="${escapeHtml(e.title)}${e.room ? " · " + escapeHtml(e.room) : ""}">
+            <strong>${escapeHtml(shortText(e.title, 18))}</strong>
+            ${e.room ? `<span>${escapeHtml(shortText(e.room, 14))}</span>` : ""}
+            <em>${escapeHtml(e.start)}~${escapeHtml(e.end)}</em>
+          </button>`;
+      })
+      .join("");
+    cols.push(`<div class="tt-col" data-day="${d}">${blocks}</div>`);
+  }
+
+  grid.innerHTML = `
+    <div class="tt-head">
+      <div class="tt-corner"></div>
+      ${TT_DAYS.slice(0, dayCount).map((n, i) => `<div class="tt-dayname ${i === 5 ? "sat" : ""}">${n}</div>`).join("")}
+    </div>
+    <div class="tt-body" style="height:${totalMin * pxPerMin}px">
+      <div class="tt-hours">${hourRows.join("")}</div>
+      <div class="tt-cols">${cols.join("")}</div>
+    </div>`;
+
+  const hint = $("#timetableHint");
+  if (hint) {
+    hint.textContent = entries.length
+      ? `${entries.length}개 수업 · 칸을 눌러 수정하거나 빈 곳을 눌러 추가하세요.`
+      : "빈 칸을 누르면 과목을 넣을 수 있어요.";
+  }
+}
+
+function openTtEditor(entry = null, preset = {}) {
+  const panel = $("#ttEditor");
+  const form = $("#ttForm");
+  if (!panel || !form) return;
+  form.elements.id.value = entry?.id || "";
+  form.elements.title.value = entry?.title || "";
+  form.elements.day.value = String(entry?.day ?? preset.day ?? 0);
+  form.elements.start.value = entry?.start || preset.start || "09:00";
+  form.elements.end.value = entry?.end || preset.end || "10:30";
+  form.elements.room.value = entry?.room || "";
+  form.elements.color.value = entry?.color || TT_COLORS[(state.timetable || []).length % TT_COLORS.length];
+  $("#ttEditorTitle").textContent = entry?.id ? "과목 수정" : "과목 추가";
+  $("#ttDeleteButton").hidden = !entry?.id;
+
+  // 색 고르기
+  const wrap = $("#ttColors");
+  wrap.innerHTML = TT_COLORS.map(
+    (c) => `<button type="button" class="tt-color tone-${c} ${c === form.elements.color.value ? "on" : ""}" data-color="${c}" aria-label="${c}"></button>`,
+  ).join("");
+
+  // 과목명 자동완성 (수강 중인 과목)
+  const list = $("#courseNameList");
+  if (list) {
+    list.innerHTML = courseSummaries()
+      .map((c) => `<option value="${escapeHtml(c.label)}"></option>`)
+      .join("");
+  }
+
+  panel.hidden = false;
+  panel.classList.remove("opening");
+  void panel.offsetWidth;
+  panel.classList.add("opening");
+  form.elements.title.focus();
+}
+
+function closeTtEditor() {
+  const panel = $("#ttEditor");
+  if (panel) {
+    panel.hidden = true;
+    panel.classList.remove("opening");
+  }
+}
+
+function bindTimetable() {
+  const grid = $("#timetable");
+  if (!grid) return;
+
+  grid.addEventListener("click", (event) => {
+    const block = event.target.closest("[data-tt]");
+    if (block) {
+      const entry = (state.timetable || []).find((e) => e.id === block.dataset.tt);
+      if (entry) openTtEditor(entry);
+      return;
+    }
+    // 빈 칸을 누르면 그 요일·시각으로 새로 추가
+    const col = event.target.closest(".tt-col");
+    if (!col) return;
+    const rect = col.getBoundingClientRect();
+    const pxPerMin = 0.9;
+    let startHour = TT_START_HOUR;
+    (state.timetable || []).forEach((e) => {
+      startHour = Math.min(startHour, Math.floor(ttMinutes(e.start) / 60));
+    });
+    const minutes = Math.floor((event.clientY - rect.top) / pxPerMin / 30) * 30 + startHour * 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+    openTtEditor(null, { day: Number(col.dataset.day), start: fmt(minutes), end: fmt(minutes + 90) });
+  });
+
+  $("#ttEditorClose")?.addEventListener("click", closeTtEditor);
+  $("#ttColors")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-color]");
+    if (!btn) return;
+    $("#ttForm").elements.color.value = btn.dataset.color;
+    $("#ttColors").querySelectorAll(".tt-color").forEach((b) => b.classList.toggle("on", b === btn));
+  });
+
+  $("#timetableSat")?.addEventListener("change", (event) => {
+    state.ttShowSat = event.target.checked;
+    renderTimetable();
+  });
+
+  $("#ttForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try {
+      const res = await api("/api/timetable/save", { method: "POST", body: JSON.stringify(payload) });
+      state.timetable = res.entries || [];
+      showToast(payload.id ? "시간표를 수정했습니다." : "시간표에 추가했습니다.");
+      closeTtEditor();
+      renderTimetable();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  $("#ttDeleteButton")?.addEventListener("click", async () => {
+    const id = $("#ttForm").elements.id.value;
+    if (!id || !window.confirm("이 수업을 시간표에서 지울까요?")) return;
+    try {
+      const res = await api("/api/timetable/delete", { method: "POST", body: JSON.stringify({ id }) });
+      state.timetable = res.entries || [];
+      showToast("시간표에서 지웠습니다.");
+      closeTtEditor();
+      renderTimetable();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  // 수강 과목을 시간표 후보로 불러오기 (시간은 직접 채워야 함)
+  $("#timetableFromCourses")?.addEventListener("click", () => {
+    const courses = courseSummaries().filter((c) => !(state.selection.hidden || []).includes(c.label));
+    if (!courses.length) {
+      showToast("불러올 과목이 없습니다. 먼저 동기화해 주세요.");
+      return;
+    }
+    const already = new Set((state.timetable || []).map((e) => e.title));
+    const next = courses.find((c) => !already.has(c.label));
+    if (!next) {
+      showToast("수강 과목이 모두 시간표에 있습니다.");
+      return;
+    }
+    openTtEditor(null, {});
+    $("#ttForm").elements.title.value = next.label;
+    showToast(`'${shortText(next.label, 20)}' 시간만 채워 주세요.`);
   });
 }
 
