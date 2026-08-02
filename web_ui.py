@@ -1422,9 +1422,12 @@ def get_status(workspace: UserWorkspace, base_url: str | None = None) -> dict[st
     courses = sorted({item["courseLabel"] for item in files})
     downloaded_log = read_json(workspace.downloaded_files_log, [])
     download_path = get_download_path(workspace, config)
-    downloaded_files = []
-    if download_path.exists():
-        downloaded_files = [item for item in download_path.iterdir() if item.is_file()]
+    # '로컬 저장된 강의자료' 수.
+    # 예전에는 다운로드 폴더의 파일을 전부 셌는데, 이 경로가 사용자의 개인
+    # Downloads 폴더로 잡혀 있으면 앱과 무관한 개인 파일까지 포함돼
+    # 실제 자료 목록(1개)과 화면 표시(54개)가 어긋났다.
+    # 앱이 받은 자료 중 실제로 있는 것만 센다.
+    downloaded_files = [item for item in files if item["status"] == "local"]
 
     required_config = {
         "lms": bool(config.get("LMS_ID") and config.get("LMS_PASSWORD")),

@@ -3656,28 +3656,28 @@ function showMetricPeek(kind) {
   if (!card || !body) return;
   if (body.dataset.filled !== "1") {
     const data = peekRows(kind);
-    body.innerHTML = `
-      <div class="metric-inline-head">
-        <strong>${escapeHtml(data.title)}</strong>
-        ${data.rows.length ? `<span>${data.rows.length}건</span>` : ""}
-      </div>` +
-      (data.rows.length
-        ? data.rows
-            .slice(0, 6)
-            .map(
-              (r) => `
+    const rows = data.rows.length
+      ? data.rows
+          .map(
+            (r) => `
       <div class="peek-row">
         <div class="peek-main">
-          <strong title="${escapeHtml(r.title || "")}">${escapeHtml(shortText(r.title || "", 26))}</strong>
-          <span>${escapeHtml(shortText(r.sub || "", 22))}</span>
+          <strong title="${escapeHtml(r.title || "")}">${escapeHtml(shortText(r.title || "", 24))}</strong>
+          <span>${escapeHtml(shortText(r.sub || "", 20))}</span>
         </div>
         <div class="peek-side">
           <span class="peek-tag ${r.tone}">${escapeHtml(r.tag || "")}</span>
         </div>
       </div>`,
-            )
-            .join("")
-        : `<p class="peek-empty">${escapeHtml(data.empty)}</p>`);
+          )
+          .join("")
+      : `<p class="peek-empty">${escapeHtml(data.empty)}</p>`;
+    body.innerHTML = `
+      <div class="metric-inline-head">
+        <strong>${escapeHtml(data.title)}</strong>
+        ${data.rows.length ? `<span>${data.rows.length}건</span>` : ""}
+      </div>
+      <div class="metric-inline-list">${rows}</div>`;
     body.dataset.filled = "1";
   }
   document.querySelector("#metricsStage")?.classList.add("peek-open");
