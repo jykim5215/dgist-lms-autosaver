@@ -352,17 +352,19 @@ def available_terms(back_years: int = 4) -> list[dict[str, str]]:
 
 
 def current_term_value() -> str:
-    """오늘 기준으로 가장 그럴듯한 학기 코드."""
+    """오늘 기준으로 기본 선택할 학기 코드.
+
+    계절학기(여름·겨울)는 과목이 거의 없어 기본값으로 두면 빈 화면이 된다.
+    정규 학기(1·2학기) 중 지금 수강 중이거나 곧 시작할 쪽을 고른다.
+    """
     from datetime import datetime
 
     now = datetime.now()
-    if now.month <= 2:
-        return f"{now.year - 1}{TERM_CODES['winter']}"
-    if now.month <= 6:
+    if now.month <= 2:  # 1~2월: 곧 시작할 1학기
         return f"{now.year}{TERM_CODES['spring']}"
-    if now.month <= 8:
-        return f"{now.year}{TERM_CODES['summer']}"
-    return f"{now.year}{TERM_CODES['fall']}"
+    if now.month <= 7:  # 3~7월: 1학기
+        return f"{now.year}{TERM_CODES['spring']}"
+    return f"{now.year}{TERM_CODES['fall']}"  # 8~12월: 2학기
 
 
 def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict[str, Any]:

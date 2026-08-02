@@ -4605,91 +4605,129 @@ tbody tr:hover {
 
 
 /* ===== 카드 안쪽에서 천천히 펼쳐지는 상세 =====
-   커서를 올린 카드가 넓어지고, 그 안쪽 오른쪽 여백에 목록이 떠오른다. */
+   카드 본래 레이아웃(아이콘 → 라벨 → 숫자 → 설명)은 그대로 두고,
+   커서를 올렸을 때만 카드가 넓어지면서 오른쪽 안쪽에 목록이 떠오른다. */
 .metrics-stage { display: block; }
 
 .metric-card {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
-  gap: 0;
-  align-items: start;
-  transition: grid-template-columns 0.6s cubic-bezier(0.25, 1, 0.3, 1),
-              gap 0.6s cubic-bezier(0.25, 1, 0.3, 1);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.3s,
+              padding-right 0.55s cubic-bezier(0.25, 1, 0.3, 1);
 }
 
-/* 카드 안 목록 자리 */
+/* 목록은 카드 안 오른쪽에 겹쳐 놓는다 (카드 본문 배치를 건드리지 않음) */
 .metric-inline {
-  grid-column: 2;
-  grid-row: 1 / -1;
-  min-width: 0;
+  position: absolute;
+  top: 14px;
+  right: 15px;
+  bottom: 14px;
+  width: 214px;
   overflow: hidden;
-  align-self: stretch;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity 0.45s ease 0.12s, transform 0.55s cubic-bezier(0.25, 1, 0.3, 1) 0.1s;
 }
 .metric-inline-body {
-  opacity: 0;
-  transform: translateX(-10px);
-  transition: opacity 0.5s ease 0.14s, transform 0.6s cubic-bezier(0.25, 1, 0.3, 1) 0.12s;
   border-left: 1px solid var(--bg-deep);
-  padding-left: 12px;
-  width: 210px;
+  padding-left: 13px;
+  height: 100%;
+  overflow: hidden;
 }
 
-/* 커서를 올린 카드만 넓어진다 */
-.metrics-grid:has(.metric-card:hover) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* 커서를 올린 카드만 두 칸을 차지하며 넓어진다 */
 .metric-card:hover {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr);
-  gap: 14px;
+  grid-column: span 2;
+  padding-right: 244px;
   z-index: 3;
 }
-.metric-card:hover .metric-inline-body { opacity: 1; transform: translateX(0); }
-
-/* 넓어진 카드가 옆 카드를 밀지 않도록 그리드에서 두 칸을 차지 */
-.metrics-grid { position: relative; }
-.metric-card:hover { grid-column: span 2; }
+.metric-card:hover .metric-inline {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
 
 .metric-inline-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
-.metric-inline-head strong { font-size: 12px; }
+.metric-inline-head strong { font-size: 11.5px; }
 .metric-inline-head span { font-size: 10.5px; color: var(--text-faint); }
 
-.metric-card .peek-row { padding: 5px 4px; gap: 8px; }
-.metric-card .peek-main strong { font-size: 11.5px; }
+.metric-card .peek-row { padding: 4px 3px; gap: 8px; }
+.metric-card .peek-main strong { font-size: 11.5px; font-weight: 600; }
 .metric-card .peek-main span { font-size: 10px; }
+.metric-card .peek-empty { font-size: 11px; padding: 8px 2px; }
 
 /* 목록이 위에서부터 하나씩 */
-.metric-card:hover .peek-row { animation: peek-row-in 0.45s ease both; }
-.metric-card:hover .peek-row:nth-child(2) { animation-delay: 0.2s; }
-.metric-card:hover .peek-row:nth-child(3) { animation-delay: 0.26s; }
-.metric-card:hover .peek-row:nth-child(4) { animation-delay: 0.32s; }
-.metric-card:hover .peek-row:nth-child(5) { animation-delay: 0.38s; }
-.metric-card:hover .peek-row:nth-child(n + 6) { animation-delay: 0.44s; }
+.metric-card:hover .peek-row { animation: peek-row-in 0.4s ease both; }
+.metric-card:hover .peek-row:nth-child(2) { animation-delay: 0.18s; }
+.metric-card:hover .peek-row:nth-child(3) { animation-delay: 0.24s; }
+.metric-card:hover .peek-row:nth-child(4) { animation-delay: 0.3s; }
+.metric-card:hover .peek-row:nth-child(5) { animation-delay: 0.36s; }
+.metric-card:hover .peek-row:nth-child(n + 6) { animation-delay: 0.42s; }
 
-@media (max-width: 1000px) {
-  /* 좁으면 카드가 넓어지는 대신 아래로 펼쳐진다 */
-  .metric-card,
+/* 좁은 화면에서는 넓히지 않고 그대로 둔다 (카드가 작아 겹치면 읽기 어려움) */
+@media (max-width: 1100px) {
   .metric-card:hover {
-    grid-template-columns: minmax(0, 1fr);
     grid-column: auto;
+    padding-right: 17px;
   }
-  .metric-inline { grid-column: 1; grid-row: auto; }
-  .metric-inline-body {
-    border-left: none;
-    border-top: 1px solid var(--bg-deep);
-    padding-left: 0;
-    padding-top: 8px;
-    min-width: 0;
-    transform: translateY(-6px);
-  }
-  .metric-card:hover .metric-inline-body { transform: translateY(0); }
+  .metric-inline { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .metric-card, .metric-inline-body { transition: none; }
+  .metric-card, .metric-inline { transition: none; }
   .metric-card:hover .peek-row { animation: none; }
 }
+
+
+/* ===== 입력칸 기본 모양 =====
+   그동안 input에는 전역 규칙이 없어, 새로 만든 칸이 브라우저 기본 모양으로
+   남아 화면마다 생김새가 달랐다. 클래스 기반 규칙이 우선하므로
+   기존에 따로 꾸며 둔 입력칸은 그대로 유지된다. */
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="url"],
+textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+input[type="url"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* 검색 아이콘이 겹치는 칸은 왼쪽 여백 확보 */
+.catalog-search input,
+.compose-files-search input {
+  padding-left: 30px;
+}
+.catalog-search .icon,
+.compose-files-search .icon {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.catalog-search { display: flex; align-items: center; }
+.catalog-search input { width: 100%; }
