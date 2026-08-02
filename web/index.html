@@ -161,39 +161,34 @@
               <div class="metrics-stage" id="metricsStage">
                 <div class="metrics-grid" aria-label="요약 상태">
                 <article class="metric-card" data-goto="deadlines" data-peek="deadlines">
+                  <div class="metric-inline"><div class="metric-inline-body" data-inline="deadlines"></div></div>
                   <div class="metric-icon coral"><span class="icon" data-icon="calendar"></span></div>
                   <span class="metric-label">임박한 마감</span>
                   <strong id="metricDeadlines">0</strong>
                   <small id="metricDeadlinesNote">7일 이내 미제출</small>
                 </article>
                 <article class="metric-card" data-goto="files" data-peek="files">
+                  <div class="metric-inline"><div class="metric-inline-body" data-inline="files"></div></div>
                   <div class="metric-icon blue"><span class="icon" data-icon="file"></span></div>
                   <span class="metric-label">전체 자료</span>
                   <strong id="metricFiles">0</strong>
                   <small id="metricFilesNote">목록 불러오는 중</small>
                 </article>
                 <article class="metric-card" data-goto="courses" data-peek="courses">
+                  <div class="metric-inline"><div class="metric-inline-body" data-inline="courses"></div></div>
                   <div class="metric-icon amber"><span class="icon" data-icon="book"></span></div>
                   <span class="metric-label">강의</span>
                   <strong id="metricCourses">0</strong>
                   <small id="metricCoursesNote">분류된 과목</small>
                 </article>
                 <article class="metric-card" data-peek="drive">
+                  <div class="metric-inline"><div class="metric-inline-body" data-inline="drive"></div></div>
                   <div class="metric-icon green"><span class="icon" data-icon="cloud"></span></div>
                   <span class="metric-label">Drive</span>
                   <strong id="metricLocal">대기</strong>
                   <small id="metricDriveNote">Drive 준비 상태</small>
                 </article>
                 </div>
-
-                <!-- 카드에 커서를 올리면 오른쪽에서 상세가 미끄러져 나온다 -->
-                <aside class="metric-peek" id="metricPeek" hidden aria-live="polite">
-                  <div class="metric-peek-head">
-                    <strong id="metricPeekTitle"></strong>
-                    <span id="metricPeekCount"></span>
-                  </div>
-                  <div class="metric-peek-body" id="metricPeekBody"></div>
-                </aside>
               </div>
 
               <!-- 주간 시간표 -->
@@ -223,6 +218,11 @@
                 <!-- 개설과목 검색 -->
                 <section class="catalog-panel" id="catalogPanel" hidden>
                   <div class="catalog-head">
+                    <select id="catalogTerm" aria-label="학기 선택"></select>
+                    <select id="catalogLevel" aria-label="과정 선택">
+                      <option value="under">학부</option>
+                      <option value="grad">대학원</option>
+                    </select>
                     <div class="catalog-search">
                       <span class="icon" data-icon="search"></span>
                       <input type="search" id="catalogSearch" placeholder="과목명·교수·학수번호로 검색" autocomplete="off" />

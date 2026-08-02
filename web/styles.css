@@ -656,46 +656,8 @@ body {
 .tt-editor { margin-top: 12px; border-radius: var(--radius); border: 1px solid var(--border); }
 
 /* 카드 묶음 + 오른쪽 미리보기 패널 */
-.metrics-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 0fr;
-  gap: 0;
-  align-items: start;
-  /* 천천히 부드럽게 펼쳐지도록 */
-  transition: grid-template-columns 0.62s cubic-bezier(0.25, 1, 0.3, 1),
-              gap 0.62s cubic-bezier(0.25, 1, 0.3, 1);
-}
-.metrics-stage.peek-open {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.52fr);
-  gap: 13px;
-}
 
-.metric-peek {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  min-width: 0;
-  opacity: 0;
-  transform: translateX(-16px);
-  /* 살짝 늦게 시작해 여백에서 천천히 떠오르는 느낌 */
-  transition: opacity 0.5s ease 0.12s, transform 0.6s cubic-bezier(0.25, 1, 0.3, 1) 0.1s;
-}
-.metric-peek[hidden] { display: none; }
-.metrics-stage.peek-open .metric-peek { opacity: 1; transform: translateX(0); }
 
-.metric-peek-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 11px 13px 9px;
-  border-bottom: 1px solid var(--bg-deep);
-}
-.metric-peek-head strong { font-size: 13px; }
-.metric-peek-head span { font-size: 11px; color: var(--text-faint); }
-.metric-peek-body { padding: 4px 6px 8px; max-height: 260px; overflow-y: auto; }
 
 .peek-row {
   display: flex;
@@ -757,9 +719,6 @@ body {
   transition: grid-template-columns 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* 패널이 열려 자리가 좁아지면 2x2로 접는다 */
-.metrics-stage.peek-open .metrics-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 /* 좁은 화면에서는 미리보기를 아래로 */
 @media (max-width: 1000px) {
   .metrics-stage,
@@ -4642,4 +4601,95 @@ tbody tr:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .metrics-stage.peek-open .peek-row { animation: none; }
+}
+
+
+/* ===== 카드 안쪽에서 천천히 펼쳐지는 상세 =====
+   커서를 올린 카드가 넓어지고, 그 안쪽 오른쪽 여백에 목록이 떠오른다. */
+.metrics-stage { display: block; }
+
+.metric-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
+  gap: 0;
+  align-items: start;
+  transition: grid-template-columns 0.6s cubic-bezier(0.25, 1, 0.3, 1),
+              gap 0.6s cubic-bezier(0.25, 1, 0.3, 1);
+}
+
+/* 카드 안 목록 자리 */
+.metric-inline {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  align-self: stretch;
+}
+.metric-inline-body {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 0.5s ease 0.14s, transform 0.6s cubic-bezier(0.25, 1, 0.3, 1) 0.12s;
+  border-left: 1px solid var(--bg-deep);
+  padding-left: 12px;
+  width: 210px;
+}
+
+/* 커서를 올린 카드만 넓어진다 */
+.metrics-grid:has(.metric-card:hover) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metric-card:hover {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr);
+  gap: 14px;
+  z-index: 3;
+}
+.metric-card:hover .metric-inline-body { opacity: 1; transform: translateX(0); }
+
+/* 넓어진 카드가 옆 카드를 밀지 않도록 그리드에서 두 칸을 차지 */
+.metrics-grid { position: relative; }
+.metric-card:hover { grid-column: span 2; }
+
+.metric-inline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.metric-inline-head strong { font-size: 12px; }
+.metric-inline-head span { font-size: 10.5px; color: var(--text-faint); }
+
+.metric-card .peek-row { padding: 5px 4px; gap: 8px; }
+.metric-card .peek-main strong { font-size: 11.5px; }
+.metric-card .peek-main span { font-size: 10px; }
+
+/* 목록이 위에서부터 하나씩 */
+.metric-card:hover .peek-row { animation: peek-row-in 0.45s ease both; }
+.metric-card:hover .peek-row:nth-child(2) { animation-delay: 0.2s; }
+.metric-card:hover .peek-row:nth-child(3) { animation-delay: 0.26s; }
+.metric-card:hover .peek-row:nth-child(4) { animation-delay: 0.32s; }
+.metric-card:hover .peek-row:nth-child(5) { animation-delay: 0.38s; }
+.metric-card:hover .peek-row:nth-child(n + 6) { animation-delay: 0.44s; }
+
+@media (max-width: 1000px) {
+  /* 좁으면 카드가 넓어지는 대신 아래로 펼쳐진다 */
+  .metric-card,
+  .metric-card:hover {
+    grid-template-columns: minmax(0, 1fr);
+    grid-column: auto;
+  }
+  .metric-inline { grid-column: 1; grid-row: auto; }
+  .metric-inline-body {
+    border-left: none;
+    border-top: 1px solid var(--bg-deep);
+    padding-left: 0;
+    padding-top: 8px;
+    min-width: 0;
+    transform: translateY(-6px);
+  }
+  .metric-card:hover .metric-inline-body { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-card, .metric-inline-body { transition: none; }
+  .metric-card:hover .peek-row { animation: none; }
 }

@@ -1879,7 +1879,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/course-catalog":
             try:
                 import timetable_import
-                self.send_json(timetable_import.fetch_dgist_catalog())
+                params = parse_qs(parsed.query)
+                self.send_json(
+                    timetable_import.fetch_dgist_catalog(
+                        year_term=(params.get("term", [""])[0] or ""),
+                        undergraduate=(params.get("level", ["under"])[0] != "grad"),
+                    )
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/course-terms":
+            try:
+                import timetable_import
+                self.send_json(
+                    {
+                        "ok": True,
+                        "terms": timetable_import.available_terms(),
+                        "current": timetable_import.current_term_value(),
+                    }
+                )
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

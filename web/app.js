@@ -1902,6 +1902,7 @@ function renderAll() {
   renderHealth();
   renderQuicklinks();
   renderTimetable();
+  invalidateMetricPeek();
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -3471,22 +3472,28 @@ function bindTimetable() {
   $("#timetableFromCatalog")?.addEventListener("click", async () => {
     const panel = $("#catalogPanel");
     panel.hidden = false;
-    if (!state.catalog) {
-      $("#catalogStatus").textContent = "개설과목을 가져오는 중… (30초쯤)";
-      $("#catalogList").innerHTML = "";
+    // 학기 목록을 아직 안 채웠으면 채운다
+    const termSel = $("#catalogTerm");
+    if (termSel && !termSel.options.length) {
       try {
-        const data = await api("/api/course-catalog");
-        state.catalog = data.courses || [];
-        $("#catalogStatus").textContent = `${data.withTime}개 과목에 시간 정보 있음`;
+        const t = await api("/api/course-terms");
+        termSel.innerHTML = t.terms.map((x) => `<option value="${x.value}">${escapeHtml(x.label)}</option>`).join("");
+        termSel.value = t.current;
       } catch (error) {
-        $("#catalogStatus").textContent = "";
-        $("#catalogList").innerHTML = `<p class="catalog-empty">${escapeHtml(error.message)}</p>`;
-        return;
+        /* 목록을 못 가져와도 검색은 기본 학기로 동작 */
       }
     }
-    renderCatalog();
+    await loadCatalog();
     $("#catalogSearch").focus();
   });
+
+  const reload = () => {
+    state.catalog = null;
+    loadCatalog();
+  };
+  $("#catalogTerm")?.addEventListener("change", reload);
+  $("#catalogLevel")?.addEventListener("change", reload);
+
   $("#catalogClose")?.addEventListener("click", () => ($("#catalogPanel").hidden = true));
   $("#catalogSearch")?.addEventListener("input", renderCatalog);
   $("#catalogList")?.addEventListener("click", async (event) => {
@@ -3514,6 +3521,28 @@ function bindTimetable() {
       showToast(error.message);
     }
   });
+}
+
+async function loadCatalog() {
+  const term = $("#catalogTerm")?.value || "";
+  const level = $("#catalogLevel")?.value || "under";
+  const key = `${term}|${level}`;
+  if (state.catalog && state.catalogKey === key) {
+    renderCatalog();
+    return;
+  }
+  $("#catalogStatus").textContent = "개설과목을 가져오는 중… (30초쯤)";
+  $("#catalogList").innerHTML = "";
+  try {
+    const data = await api(`/api/course-catalog?term=${encodeURIComponent(term)}&level=${level}`);
+    state.catalog = data.courses || [];
+    state.catalogKey = key;
+    $("#catalogStatus").textContent = `${data.withTime}개 과목`;
+    renderCatalog();
+  } catch (error) {
+    $("#catalogStatus").textContent = "";
+    $("#catalogList").innerHTML = `<p class="catalog-empty">${escapeHtml(error.message)}</p>`;
+  }
 }
 
 function renderCatalog() {
@@ -3622,48 +3651,44 @@ function peekRows(kind) {
 }
 
 function showMetricPeek(kind) {
-  const panel = $("#metricPeek");
-  const stage = $("#metricsStage");
-  if (!panel || !stage) return;
-  const data = peekRows(kind);
-  $("#metricPeekTitle").textContent = data.title;
-  $("#metricPeekCount").textContent = data.rows.length ? `${data.rows.length}건` : "";
-  $("#metricPeekBody").innerHTML = data.rows.length
-    ? data.rows
-        .map(
-          (r) => `
+  const card = document.querySelector(`[data-peek="${kind}"]`);
+  const body = card?.querySelector(`[data-inline="${kind}"]`);
+  if (!card || !body) return;
+  if (body.dataset.filled !== "1") {
+    const data = peekRows(kind);
+    body.innerHTML = `
+      <div class="metric-inline-head">
+        <strong>${escapeHtml(data.title)}</strong>
+        ${data.rows.length ? `<span>${data.rows.length}건</span>` : ""}
+      </div>` +
+      (data.rows.length
+        ? data.rows
+            .slice(0, 6)
+            .map(
+              (r) => `
       <div class="peek-row">
         <div class="peek-main">
-          <strong title="${escapeHtml(r.title || "")}">${escapeHtml(shortText(r.title || "", 34))}</strong>
-          <span>${escapeHtml(shortText(r.sub || "", 30))}</span>
+          <strong title="${escapeHtml(r.title || "")}">${escapeHtml(shortText(r.title || "", 26))}</strong>
+          <span>${escapeHtml(shortText(r.sub || "", 22))}</span>
         </div>
         <div class="peek-side">
           <span class="peek-tag ${r.tone}">${escapeHtml(r.tag || "")}</span>
-          ${r.extra ? `<em>${escapeHtml(r.extra)}</em>` : ""}
         </div>
       </div>`,
-        )
-        .join("")
-    : `<p class="peek-empty">${escapeHtml(data.empty)}</p>`;
-
-  panel.hidden = false;
-  void panel.offsetWidth;
-  stage.classList.add("peek-open");
+            )
+            .join("")
+        : `<p class="peek-empty">${escapeHtml(data.empty)}</p>`);
+    body.dataset.filled = "1";
+  }
+  document.querySelector("#metricsStage")?.classList.add("peek-open");
 }
 
 function hideMetricPeek() {
-  const panel = $("#metricPeek");
-  const stage = $("#metricsStage");
-  if (!panel || !stage) return;
-  stage.classList.remove("peek-open");
-  window.clearTimeout(state._peekTimer);
-  state._peekTimer = window.setTimeout(() => {
-    if (!stage.classList.contains("peek-open")) panel.hidden = true;
-  }, 320);
+  document.querySelector("#metricsStage")?.classList.remove("peek-open");
 }
 
 function bindMetricPeek() {
-  const stage = $("#metricsStage");
+  const stage = document.querySelector("#metricsStage");
   if (!stage) return;
   stage.querySelectorAll("[data-peek]").forEach((card) => {
     const open = () => {
@@ -3676,10 +3701,11 @@ function bindMetricPeek() {
       state._peekLeave = window.setTimeout(hideMetricPeek, 180);
     });
   });
-  // 패널 위로 커서가 올라가면 유지
-  const panel = $("#metricPeek");
-  panel?.addEventListener("mouseenter", () => window.clearTimeout(state._peekLeave));
-  panel?.addEventListener("mouseleave", hideMetricPeek);
+}
+
+/* 데이터가 바뀌면 카드 안 목록을 다시 만들게 표시 */
+function invalidateMetricPeek() {
+  document.querySelectorAll("[data-inline]").forEach((el) => (el.dataset.filled = ""));
 }
 
 /* ===== 상단 진행 표시 =====

@@ -243,7 +243,18 @@ def import_timetable_image(image_base64: str, mime: str = "image/png") -> dict[s
     return {"ok": True, "entries": entries, "count": len(entries)}
 
 
-async def _fetch_dgist(timeout_ms: int = 45000) -> list[dict[str, Any]]:
+# 조직분류 코드
+ORG_UNDERGRAD = "CMN12.03"   # 대학(학부)
+ORG_GRADUATE = "CMN12.02"    # 대학원
+
+# 학기 코드
+TERM_CODES = {"spring": "CMN17.10", "summer": "CMN17.11", "fall": "CMN17.20", "winter": "CMN17.21"}
+TERM_LABELS = {"CMN17.10": "1학기", "CMN17.11": "여름학기", "CMN17.20": "2학기", "CMN17.21": "겨울학기"}
+
+
+async def _fetch_dgist(
+    year_term: str = "", org: str = ORG_UNDERGRAD, timeout_ms: int = 45000
+) -> list[dict[str, Any]]:
     from playwright.async_api import async_playwright
 
     async with async_playwright() as pw:
@@ -251,9 +262,39 @@ async def _fetch_dgist(timeout_ms: int = 45000) -> list[dict[str, Any]]:
         try:
             page = await browser.new_page()
             await page.goto(DGIST_CATALOG_URL, wait_until="networkidle", timeout=timeout_ms)
-            # 표가 채워질 때까지 기다린다 (조회 결과가 자동으로 실린다)
+            # 조회 조건을 걸고 다시 검색한다.
+            # 화면에 보이는 쪽(...Dcd2)을 반드시 설정해야 필터가 먹는다.
+            await page.evaluate(
+                """([org, yearTerm]) => {
+                    // 조직분류(학부/대학원)는 change를 보내야 반영된다.
+                    // 화면에 보이는 쪽(...Dcd2)까지 함께 설정해야 한다.
+                    const setWithChange = (name, val) => {
+                        const el = document.querySelector(`[name=${name}]`);
+                        if (!el || !val) return;
+                        el.value = val;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    };
+                    setWithChange('searchOrgnClsfDcd1', org);
+                    setWithChange('searchOrgnClsfDcd2', org);
+
+                }""",
+                [org, year_term],
+            )
+            await page.wait_for_timeout(900)
+            # 학기는 반대다. change를 보내면 사이트 핸들러가 '현재 학기'로 되돌리므로
+            # 값만 넣고, 조직 변경 핸들러가 되돌리지 못하도록 검색 직전에 설정한다.
+            await page.evaluate(
+                """(yearTerm) => {
+                    const term = document.querySelector('[name=selectYearTerm]');
+                    if (term && yearTerm) term.value = yearTerm;
+                }""",
+                year_term,
+            )
+            await page.click("#btn_Search")
+            await page.wait_for_timeout(4000)
+            # 표가 채워질 때까지
             await page.wait_for_function(
-                "() => [...document.querySelectorAll('table')].some(t => t.rows.length > 20)",
+                "() => [...document.querySelectorAll('table')].some(t => t.rows.length > 3)",
                 timeout=timeout_ms,
             )
             return await page.evaluate(
@@ -291,9 +332,48 @@ async def _fetch_dgist(timeout_ms: int = 45000) -> list[dict[str, Any]]:
             await browser.close()
 
 
-def fetch_dgist_catalog() -> dict[str, Any]:
-    """DGIST 개설과목 목록을 가져와 요일·시간까지 풀어 놓는다."""
-    rows = asyncio.run(_fetch_dgist())
+def available_terms(back_years: int = 4) -> list[dict[str, str]]:
+    """선택 가능한 학기 목록 (최근 것부터)."""
+    from datetime import datetime
+
+    this_year = datetime.now().year
+    out = []
+    for year in range(this_year, this_year - back_years, -1):
+        for key in ("fall", "summer", "spring"):
+            code = TERM_CODES[key]
+            out.append(
+                {
+                    "value": f"{year}{code}",
+                    "label": f"{year}년 {TERM_LABELS[code]}",
+                    "year": str(year),
+                }
+            )
+    return out
+
+
+def current_term_value() -> str:
+    """오늘 기준으로 가장 그럴듯한 학기 코드."""
+    from datetime import datetime
+
+    now = datetime.now()
+    if now.month <= 2:
+        return f"{now.year - 1}{TERM_CODES['winter']}"
+    if now.month <= 6:
+        return f"{now.year}{TERM_CODES['spring']}"
+    if now.month <= 8:
+        return f"{now.year}{TERM_CODES['summer']}"
+    return f"{now.year}{TERM_CODES['fall']}"
+
+
+def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict[str, Any]:
+    """DGIST 개설과목 목록을 가져와 요일·시간까지 풀어 놓는다.
+
+    year_term: '2026CMN17.10' 형태. 비우면 오늘 기준 학기.
+    undergraduate: True면 학부(대학) 과목만.
+    """
+    year_term = (year_term or "").strip() or current_term_value()
+    org = ORG_UNDERGRAD if undergraduate else ORG_GRADUATE
+    rows = asyncio.run(_fetch_dgist(year_term=year_term, org=org))
     courses = []
     for row in rows:
         slots = parse_dgist_slots(row.get("when", ""))
@@ -316,5 +396,7 @@ def fetch_dgist_catalog() -> dict[str, Any]:
         "ok": True,
         "count": len(courses),
         "withTime": len(with_time),
+        "yearTerm": year_term,
+        "undergraduate": undergraduate,
         "courses": courses,
     }
