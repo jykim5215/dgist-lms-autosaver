@@ -2994,7 +2994,7 @@ const SCHOOL_LINKS = [
   { name: "전자도서관", desc: "자료 검색·열람실", url: "https://library.dgist.ac.kr", icon: "book", primary: true },
   { name: "공식 홈페이지", desc: "공지·학사일정", url: "https://www.dgist.ac.kr", icon: "layout" },
   { name: "교과목 검색", desc: "개설 과목 조회", url: "https://welcome.dgist.ac.kr", icon: "search" },
-  { name: "생활관", desc: "기숙사 신청·공지", url: "https://dorm.dgist.ac.kr", icon: "folder" },
+  { name: "비슬빌리지", desc: "생활관 신청·공지", url: "https://dorm.dgist.ac.kr", icon: "folder", primary: true },
   { name: "통합인증", desc: "계정·비밀번호", url: "https://auth.dgist.ac.kr", icon: "settings" },
   { name: "IT 서비스", desc: "전산 문의·요청", url: "https://easyit.dgist.ac.kr", icon: "help" },
   { name: "DGIST Scholar", desc: "연구 성과", url: "https://scholar.dgist.ac.kr", icon: "sparkle" },
