@@ -30,6 +30,7 @@ UPDATE_FILES = [
     "lms_crawler.py",
     "drive_uploader.py",
     "calendar_sync.py",
+    "timetable_import.py",
     "email_reader.py",
     "email_notifier.py",
     "ai_summarizer.py",

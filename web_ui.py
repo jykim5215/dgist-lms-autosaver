@@ -1876,6 +1876,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/timetable":
             self.send_json(get_timetable(workspace))
             return
+        if route == "/api/course-catalog":
+            try:
+                import timetable_import
+                self.send_json(timetable_import.fetch_dgist_catalog())
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if route == "/api/storage":
             self.send_json(get_storage(workspace))
             return
@@ -2164,6 +2171,47 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             payload = self.read_body_json()
             saved = save_upload_selection(workspace, payload)
             self.send_json({"ok": True, **saved})
+            return
+        if route == "/api/timetable/import-image":
+            try:
+                import timetable_import
+                payload = self.read_body_json()
+                result = timetable_import.import_timetable_image(
+                    str(payload.get("image", "")), str(payload.get("mime", "image/png"))
+                )
+                self.send_json(result)
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/timetable/import-link":
+            try:
+                import timetable_import
+                payload = self.read_body_json()
+                self.send_json(timetable_import.import_everytime(str(payload.get("url", ""))))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/timetable/bulk":
+            try:
+                payload = self.read_body_json()
+                entries = payload.get("entries", [])
+                if not isinstance(entries, list) or not entries:
+                    raise ValueError("추가할 수업이 없습니다.")
+                if payload.get("replace"):
+                    workspace.timetable_path.write_text(
+                        json.dumps({"entries": [], "semester": ""}, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                saved = 0
+                for item in entries:
+                    try:
+                        save_timetable_entry(workspace, item)
+                        saved += 1
+                    except ValueError:
+                        continue
+                self.send_json({"ok": True, "saved": saved, **get_timetable(workspace)})
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if route == "/api/timetable/save":
             try:

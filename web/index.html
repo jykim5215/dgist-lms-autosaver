@@ -208,11 +208,32 @@
                       <input type="checkbox" id="timetableSat" />
                       <span>토요일</span>
                     </label>
-                    <button class="button compact ghost" id="timetableFromCourses" type="button">
-                      수강 과목 불러오기
+                    <button class="button compact ghost" id="timetableImportImage" type="button" title="에브리타임 시간표를 캡처해서 넣기">
+                      <span class="icon" data-icon="file"></span>
+                      이미지로 가져오기
                     </button>
+                    <button class="button compact ghost" id="timetableFromCatalog" type="button" title="DGIST 개설과목에서 찾아 넣기">
+                      <span class="icon" data-icon="search"></span>
+                      개설과목 검색
+                    </button>
+                    <input type="file" id="timetableImageInput" accept="image/*" hidden />
                   </div>
                 </div>
+
+                <!-- 개설과목 검색 -->
+                <section class="catalog-panel" id="catalogPanel" hidden>
+                  <div class="catalog-head">
+                    <div class="catalog-search">
+                      <span class="icon" data-icon="search"></span>
+                      <input type="search" id="catalogSearch" placeholder="과목명·교수·학수번호로 검색" autocomplete="off" />
+                    </div>
+                    <span id="catalogStatus"></span>
+                    <button class="icon-button" id="catalogClose" type="button" aria-label="닫기">
+                      <span class="icon" data-icon="x"></span>
+                    </button>
+                  </div>
+                  <div class="catalog-list" id="catalogList"></div>
+                </section>
                 <div class="timetable-wrap">
                   <div class="timetable" id="timetable"></div>
                 </div>

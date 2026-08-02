@@ -3437,23 +3437,116 @@ function bindTimetable() {
     }
   });
 
-  // 수강 과목을 시간표 후보로 불러오기 (시간은 직접 채워야 함)
-  $("#timetableFromCourses")?.addEventListener("click", () => {
-    const courses = courseSummaries().filter((c) => !(state.selection.hidden || []).includes(c.label));
-    if (!courses.length) {
-      showToast("불러올 과목이 없습니다. 먼저 동기화해 주세요.");
-      return;
+  // 시간표 캡처 이미지로 가져오기
+  $("#timetableImportImage")?.addEventListener("click", () => $("#timetableImageInput").click());
+  $("#timetableImageInput")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      showToast("이미지를 읽는 중… (10초쯤 걸려요)");
+      const image = await fileToBase64(file);
+      const res = await api("/api/timetable/import-image", {
+        method: "POST",
+        body: JSON.stringify({ image, mime: file.type || "image/png" }),
+      });
+      const replace =
+        (state.timetable || []).length > 0 &&
+        window.confirm(
+          `${res.count}개 수업을 찾았습니다.\n\n확인: 기존 시간표를 지우고 새로 넣기\n취소: 기존에 이어서 추가하기`,
+        );
+      const saved = await api("/api/timetable/bulk", {
+        method: "POST",
+        body: JSON.stringify({ entries: res.entries, replace }),
+      });
+      state.timetable = saved.entries || [];
+      renderTimetable();
+      showToast(`${saved.saved}개 수업을 넣었습니다. 시간이 어긋나면 눌러서 고쳐 주세요.`);
+    } catch (error) {
+      showToast(error.message);
     }
-    const already = new Set((state.timetable || []).map((e) => e.title));
-    const next = courses.find((c) => !already.has(c.label));
-    if (!next) {
-      showToast("수강 과목이 모두 시간표에 있습니다.");
-      return;
-    }
-    openTtEditor(null, {});
-    $("#ttForm").elements.title.value = next.label;
-    showToast(`'${shortText(next.label, 20)}' 시간만 채워 주세요.`);
   });
+
+  // DGIST 개설과목에서 찾아 넣기
+  $("#timetableFromCatalog")?.addEventListener("click", async () => {
+    const panel = $("#catalogPanel");
+    panel.hidden = false;
+    if (!state.catalog) {
+      $("#catalogStatus").textContent = "개설과목을 가져오는 중… (30초쯤)";
+      $("#catalogList").innerHTML = "";
+      try {
+        const data = await api("/api/course-catalog");
+        state.catalog = data.courses || [];
+        $("#catalogStatus").textContent = `${data.withTime}개 과목에 시간 정보 있음`;
+      } catch (error) {
+        $("#catalogStatus").textContent = "";
+        $("#catalogList").innerHTML = `<p class="catalog-empty">${escapeHtml(error.message)}</p>`;
+        return;
+      }
+    }
+    renderCatalog();
+    $("#catalogSearch").focus();
+  });
+  $("#catalogClose")?.addEventListener("click", () => ($("#catalogPanel").hidden = true));
+  $("#catalogSearch")?.addEventListener("input", renderCatalog);
+  $("#catalogList")?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-add-course]");
+    if (!btn) return;
+    const course = (state.catalog || [])[Number(btn.dataset.addCourse)];
+    if (!course || !course.slots.length) return;
+    const entries = course.slots.map((s) => ({
+      title: course.title,
+      day: s.day,
+      start: s.start,
+      end: s.end,
+      room: s.room,
+      color: TT_COLORS[(state.timetable || []).length % TT_COLORS.length],
+    }));
+    try {
+      const saved = await api("/api/timetable/bulk", {
+        method: "POST",
+        body: JSON.stringify({ entries }),
+      });
+      state.timetable = saved.entries || [];
+      renderTimetable();
+      showToast(`'${shortText(course.title, 20)}' 추가했습니다.`);
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+}
+
+function renderCatalog() {
+  const list = $("#catalogList");
+  if (!list) return;
+  const q = ($("#catalogSearch")?.value || "").trim().toLowerCase();
+  const rows = (state.catalog || [])
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => c.slots.length)
+    .filter(
+      ({ c }) =>
+        !q ||
+        c.title.toLowerCase().includes(q) ||
+        (c.professor || "").toLowerCase().includes(q) ||
+        (c.courseNo || "").toLowerCase().includes(q),
+    )
+    .slice(0, 40);
+
+  list.innerHTML = rows.length
+    ? rows
+        .map(
+          ({ c, i }) => `
+      <div class="catalog-row">
+        <div class="catalog-main">
+          <strong title="${escapeHtml(c.title)}">${escapeHtml(shortText(c.title, 38))}</strong>
+          <span>${escapeHtml(c.courseNo)}${c.professor ? " · " + escapeHtml(shortText(c.professor, 18)) : ""}${c.credit ? " · " + escapeHtml(c.credit) + "학점" : ""}</span>
+          <em>${c.slots.map((s) => `${"월화수목금토"[s.day]} ${s.start}~${s.end}`).join(", ")}</em>
+        </div>
+        <button type="button" class="catalog-add" data-add-course="${i}">＋</button>
+      </div>`,
+        )
+        .join("")
+    : `<p class="catalog-empty">${q ? "검색 결과가 없습니다." : "시간 정보가 있는 과목이 없습니다."}</p>`;
 }
 
 /* ===== 대시보드: 카드에 커서를 올리면 오른쪽에 상세가 뜬다 ===== */
