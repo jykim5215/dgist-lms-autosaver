@@ -115,7 +115,19 @@ function statusLabel(status) {
 }
 
 /* ===== 뷰 전환 ===== */
+/* 화면 전환은 View Transitions API로 감싼다.
+   예전 화면이 즉시 사라지고 새 화면이 튀어나오는 대신,
+   둘이 겹쳐서 부드럽게 이어진다. 미지원 브라우저는 그냥 바로 바뀐다. */
 function switchView(view) {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (state.view === view || reduce || !document.startViewTransition) {
+    applyView(view);
+    return;
+  }
+  document.startViewTransition(() => applyView(view));
+}
+
+function applyView(view) {
   state.view = view;
   // 메일 쓰기는 메일함(view-emails) 셸을 공유하되 작성 pane을 연다
   const isCompose = view === "compose";
@@ -143,6 +155,9 @@ function switchView(view) {
   });
   // 메일함은 Gmail식 집중 모드: 사이드바 축소 + 우측 로그 레일 숨김
   document.querySelector(".app-shell").classList.toggle("mail-focus", shellView === "emails");
+  // 사이드바 폭이 바뀐 뒤에 재야 알약이 엉뚱한 크기로 남지 않는다.
+  // 폭 변화는 애니메이션이라 ResizeObserver가 그동안 계속 맞춰 준다.
+  moveNavPill();
 }
 
 /* ===== 마감일 헬퍼 ===== */
@@ -3873,11 +3888,20 @@ function nowStatus(at, entries) {
     return { state: "weekend", title: "주말", sub: "푹 쉬어요" };
   }
 
+  const nextUp = today.find((e) => ttMinutes(e.start) > minutes);
+  const detail = {
+    today,
+    next: nextUp,
+    left: today.filter((e) => ttMinutes(e.end) > minutes).length,
+  };
+
   const live = today.find((e) => minutes >= ttMinutes(e.start) && minutes < ttMinutes(e.end));
   if (live) {
     const start = ttMinutes(live.start);
     const end = ttMinutes(live.end);
     return {
+      detail,
+      now: live,
       state: "class",
       tone: live.color || "coral",
       title: live.title,
@@ -3891,6 +3915,7 @@ function nowStatus(at, entries) {
     const gap = ttMinutes(next.start) - minutes;
     if (gap <= 30) {
       return {
+        detail,
         state: "soon",
         tone: next.color || "coral",
         title: next.title,
@@ -3900,14 +3925,15 @@ function nowStatus(at, entries) {
     // 아직 첫 수업 전이면 '공강'이 아니라 '수업 전'이다.
     const started = minutes >= ttMinutes(today[0].start);
     return {
+      detail,
       state: started ? "gap" : "before",
       title: started ? "공강" : "수업 전",
       sub: `${next.start} ${shortText(next.title, 10)}`,
     };
   }
 
-  if (today.length) return { state: "done", title: "오늘 수업 끝", sub: "고생했어요" };
-  return { state: "free", title: "오늘 수업 없음", sub: "여유로운 하루" };
+  if (today.length) return { detail, state: "done", title: "오늘 수업 끝", sub: "고생했어요" };
+  return { detail, state: "free", title: "오늘 수업 없음", sub: "여유로운 하루" };
 }
 
 /* 휴대폰에서는 사이드바가 아래쪽 탭바로 바뀌고 로고 자리가 사라진다.
@@ -3926,6 +3952,84 @@ function placeNowBar() {
   bar.classList.toggle("nowbar-compact", NOW_MOBILE.matches);
 }
 
+/** 펼쳤을 때 보이는 세부 내용. 접혀 있으면 그리지 않는다. */
+function renderNowDetail(info, at) {
+  const box = $("#nowDetailBody");
+  if (!box) return;
+  const d = info.detail;
+  const rows = [];
+
+  if (info.now) {
+    rows.push(nowDetailRow("지금", info.now, `${info.now.start} – ${info.now.end}`, info.tone));
+  }
+  if (d?.next) {
+    const gap = ttMinutes(d.next.start) - (at.getHours() * 60 + at.getMinutes());
+    rows.push(nowDetailRow("다음", d.next, `${d.next.start} · ${nowUntilText(gap)}`, d.next.color));
+  }
+  if (!rows.length) {
+    rows.push(`<p class="nowbar-detail-empty">${escapeHtml(info.sub || "오늘은 예정된 수업이 없어요")}</p>`);
+  }
+  if (d?.today?.length) {
+    rows.push(
+      `<div class="nowbar-detail-foot">오늘 ${d.today.length}개 · 남은 수업 ${d.left}개</div>`,
+    );
+  }
+
+  const html = rows.join("");
+  if (box.dataset.html !== html) {
+    box.dataset.html = html;
+    box.innerHTML = html;
+  }
+}
+
+function nowDetailRow(label, entry, when, tone) {
+  return `
+    <div class="nowbar-detail-row">
+      <span class="nowbar-detail-bar tone-${escapeHtml(tone || "coral")}"></span>
+      <div class="nowbar-detail-main">
+        <em>${escapeHtml(label)}</em>
+        <strong title="${escapeHtml(entry.title || "")}">${escapeHtml(entry.title || "")}</strong>
+        <span>${escapeHtml([when, entry.room].filter(Boolean).join(" · "))}</span>
+      </div>
+    </div>`;
+}
+
+/* 메뉴 활성 표시를 항목마다 새로 그리지 않고, 알약 하나를 옮긴다.
+   그래야 메뉴 사이 이동이 끊기지 않고 이어져 보인다. */
+function moveNavPill() {
+  const pill = $("#navPill");
+  const active = document.querySelector(".nav-item.active");
+  if (!pill) return;
+  if (!active) {
+    pill.style.opacity = "0";
+    return;
+  }
+  const list = pill.parentElement;
+  const a = active.getBoundingClientRect();
+  const l = list.getBoundingClientRect();
+  if (!a.height) {
+    pill.style.opacity = "0";
+    return;
+  }
+  pill.style.opacity = "1";
+  pill.style.width = `${a.width}px`;
+  pill.style.height = `${a.height}px`;
+  pill.style.transform = `translate(${a.left - l.left}px, ${a.top - l.top}px)`;
+}
+
+
+function bindNowBar() {
+  const bar = $("#nowBar");
+  const toggle = $("#nowToggle");
+  if (!bar || !toggle) return;
+  toggle.addEventListener("click", () => {
+    const open = !bar.classList.contains("nowbar-open");
+    bar.classList.toggle("nowbar-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    if (open) renderNowBar();
+  });
+}
+
 function renderNowBar() {
   const bar = $("#nowBar");
   if (!bar) return;
@@ -3937,7 +4041,13 @@ function renderNowBar() {
   const hh = String(at.getHours()).padStart(2, "0");
   const mm = String(at.getMinutes()).padStart(2, "0");
   const time = $("#nowTime");
-  if (time && time.textContent !== `${hh}:${mm}`) time.textContent = `${hh}:${mm}`;
+  // 초는 별도 <i>라, 분이 바뀔 때만 앞부분을 다시 쓴다.
+  if (time && time.firstChild && time.firstChild.nodeValue !== `${hh}:${mm}`) {
+    time.firstChild.nodeValue = `${hh}:${mm}`;
+  }
+  const sec = $("#nowSec");
+  const ss = `:${String(at.getSeconds()).padStart(2, "0")}`;
+  if (sec && sec.textContent !== ss) sec.textContent = ss;
   const date = $("#nowDate");
   const dateText = `${at.getMonth() + 1}월 ${at.getDate()}일 ${NOW_WEEKDAY[at.getDay()]}`;
   if (date && date.textContent !== dateText) date.textContent = dateText;
@@ -3954,6 +4064,8 @@ function renderNowBar() {
   const sub = $("#nowSub");
   if (sub && sub.textContent !== (info.sub || "")) sub.textContent = info.sub || "";
 
+  if (bar.classList.contains("nowbar-open")) renderNowDetail(info, at);
+
   const track = $("#nowTrack");
   const fill = $("#nowFill");
   if (track && fill) {
@@ -3969,7 +4081,13 @@ bindInterestChips();
 initTheme();
 initRail();
 setHeroGreeting();
+bindNowBar();
 renderNowBar();
+moveNavPill();
+window.addEventListener("resize", moveNavPill);
+// 사이드바가 접히고 펴지는 동안에도 알약이 따라붙게 한다
+const navList = document.querySelector(".nav-list");
+if (navList && window.ResizeObserver) new ResizeObserver(moveNavPill).observe(navList);
 // 시계라 1초마다. 상태 계산은 가볍고, 값이 그대로면 DOM을 건드리지 않는다.
 window.setInterval(renderNowBar, 1000);
 refreshAll();

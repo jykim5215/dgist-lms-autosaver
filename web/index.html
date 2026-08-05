@@ -11,26 +11,33 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="주요 메뉴">
         <div class="brand">
-          <!-- 나우바: 지금 시각과 현재 수업 상태 -->
+          <!-- 나우바: 지금 시각과 현재 수업 상태. 누르면 초·세부 내용까지 펼쳐진다 -->
           <div class="nowbar" id="nowBar" data-state="idle">
-            <div class="nowbar-clock">
-              <span class="nowbar-time" id="nowTime">--:--</span>
-              <span class="nowbar-date" id="nowDate">불러오는 중</span>
-            </div>
-            <div class="nowbar-live">
-              <span class="nowbar-dot" aria-hidden="true"></span>
-              <div class="nowbar-text">
-                <strong id="nowTitle">시간표 확인 중</strong>
-                <span id="nowSub"></span>
+            <button class="nowbar-face" id="nowToggle" type="button" aria-expanded="false" aria-controls="nowDetail">
+              <div class="nowbar-clock">
+                <span class="nowbar-time" id="nowTime">--:--<i class="nowbar-sec" id="nowSec"></i></span>
+                <span class="nowbar-date" id="nowDate">불러오는 중</span>
               </div>
-            </div>
-            <div class="nowbar-track" id="nowTrack" hidden>
-              <div class="nowbar-fill" id="nowFill"></div>
+              <div class="nowbar-live">
+                <span class="nowbar-dot" aria-hidden="true"></span>
+                <div class="nowbar-text">
+                  <strong id="nowTitle">시간표 확인 중</strong>
+                  <span id="nowSub"></span>
+                </div>
+              </div>
+              <div class="nowbar-track" id="nowTrack" hidden>
+                <div class="nowbar-fill" id="nowFill"></div>
+              </div>
+            </button>
+            <!-- 펼침 영역: grid 0fr→1fr 로 접히므로 자식은 반드시 하나 -->
+            <div class="nowbar-detail" id="nowDetail">
+              <div class="nowbar-detail-inner" id="nowDetailBody"></div>
             </div>
           </div>
         </div>
 
         <nav class="nav-list">
+          <span class="nav-pill" id="navPill" aria-hidden="true"></span>
           <span class="nav-group-label">LMS</span>
           <button class="nav-item active" type="button" data-view="dashboard">
             <span class="icon" data-icon="layout"></span>
@@ -79,7 +86,6 @@
             <span id="sidebarSchedule">예약 시간 불러오는 중</span>
           </div>
         </div>
-        <p class="copyright">© 2026 DGIST 기초학부 26학번<br />오정민 · 김유준. All rights reserved.</p>
       </aside>
 
       <main class="main">
