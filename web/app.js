@@ -3560,6 +3560,17 @@ async function loadCatalog() {
   }
 }
 
+/** 검색 대상 문자열. 한 번 만들어 두고 다시 쓴다. */
+function catalogHaystack(c) {
+  if (c._hay === undefined) {
+    c._hay = [c.title, c.titleEn, c.professor, c.professorEn, c.courseNo, c.dept, c.classification]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
+  return c._hay;
+}
+
 function renderCatalog() {
   const list = $("#catalogList");
   if (!list) return;
@@ -3567,13 +3578,9 @@ function renderCatalog() {
   const rows = (state.catalog || [])
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => c.slots.length)
-    .filter(
-      ({ c }) =>
-        !q ||
-        c.title.toLowerCase().includes(q) ||
-        (c.professor || "").toLowerCase().includes(q) ||
-        (c.courseNo || "").toLowerCase().includes(q),
-    )
+    // 한국어로 치든 영어로 치든 걸리게 한다.
+    // (사이트가 기본 영어라 과목명을 두 언어로 함께 받아 둔다)
+    .filter(({ c }) => !q || catalogHaystack(c).includes(q))
     .slice(0, 40);
 
   list.innerHTML = rows.length
@@ -3584,6 +3591,7 @@ function renderCatalog() {
         <div class="catalog-main">
           <strong title="${escapeHtml(c.title)}">${escapeHtml(shortText(c.title, 38))}</strong>
           <span>${escapeHtml(c.courseNo)}${c.professor ? " · " + escapeHtml(shortText(c.professor, 18)) : ""}${c.credit ? " · " + escapeHtml(c.credit) + "학점" : ""}</span>
+          ${c.titleEn ? `<u title="${escapeHtml(c.titleEn)}">${escapeHtml(shortText(c.titleEn, 38))}</u>` : ""}
           <em>${c.slots.map((s) => `${"월화수목금토"[s.day]} ${s.start}~${s.end}`).join(", ")}</em>
         </div>
         <button type="button" class="catalog-add" data-add-course="${i}">＋</button>
