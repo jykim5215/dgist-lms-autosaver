@@ -31,6 +31,7 @@ UPDATE_FILES = [
     "drive_uploader.py",
     "calendar_sync.py",
     "timetable_import.py",
+    "academic_calendar.py",
     "email_reader.py",
     "email_notifier.py",
     "ai_summarizer.py",

@@ -92,6 +92,7 @@ class UserWorkspace:
     health_path: Path
     timetable_path: Path
     shelves_path: Path
+    academic_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -127,6 +128,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         health_path=root / "health.json",
         timetable_path=root / "timetable.json",
         shelves_path=root / "shelves.json",
+        academic_path=root / "academic_calendar.json",
     )
 
 
@@ -1324,6 +1326,44 @@ def delete_timetable_entry(workspace: UserWorkspace, entry_id: str) -> dict[str,
     return {"ok": True, "entries": remaining}
 
 
+def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, refresh: bool = False) -> dict[str, Any]:
+    """DGIST 학사일정. 자주 바뀌지 않으니 하루 한 번만 받아 온다."""
+    import academic_calendar
+
+    year = int(year or datetime.now().year)
+    cache = read_json(workspace.academic_path, {}) or {}
+    entry = cache.get(str(year)) if isinstance(cache, dict) else None
+    fresh_enough = False
+    if entry and not refresh:
+        try:
+            fetched = datetime.fromisoformat(entry.get("fetchedAt", ""))
+            fresh_enough = (datetime.now() - fetched).total_seconds() < 86400
+        except ValueError:
+            fresh_enough = False
+    if entry and fresh_enough:
+        return {"ok": True, "year": year, "cached": True, **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+
+    result = academic_calendar.fetch_academic_calendar(year)
+    if not result.get("ok"):
+        # 새로 못 받으면 오래된 캐시라도 돌려준다
+        if entry:
+            return {"ok": True, "year": year, "cached": True, "stale": True,
+                    **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+        return result
+
+    if not isinstance(cache, dict):
+        cache = {}
+    cache[str(year)] = {
+        "count": result.get("count", 0),
+        "events": result.get("events", []),
+        "fetchedAt": datetime.now().isoformat(timespec="seconds"),
+    }
+    workspace.academic_path.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return result
+
+
 def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     """사용자가 캘린더에서 직접 만든 일정 목록."""
     data = read_json(workspace.my_events_path, [])
@@ -1878,6 +1918,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/timetable":
             self.send_json(get_timetable(workspace))
+            return
+        if route == "/api/academic-calendar":
+            year = params.get("year", [""])[0]
+            refresh = params.get("refresh", [""])[0] == "1"
+            try:
+                self.send_json(
+                    get_academic_calendar(workspace, int(year) if year else None, refresh)
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "events": [], "message": str(exc)})
             return
         if route == "/api/course-catalog":
             try:

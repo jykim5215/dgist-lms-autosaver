@@ -2350,6 +2350,25 @@ tbody tr:hover {
   padding: 4px 0 2px;
 }
 
+/* 전체 보기: 항목이 많아 묶어서 보여 준다 */
+.quicklinks:has(.quicklink-group) {
+  display: block;
+  padding: 0;
+}
+.quicklink-group + .quicklink-group { margin-top: 16px; }
+.quicklink-group h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.quicklink-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 9px;
+}
+
 .quicklink {
   display: flex;
   align-items: center;
@@ -4667,6 +4686,12 @@ tbody tr:hover {
 .cal-chip.cal-deadline { background: var(--red-soft); color: var(--red); }
 .cal-chip.cal-event { background: var(--accent-soft); color: var(--accent-strong); }
 .cal-chip.cal-done { background: var(--green-soft); color: var(--green); }
+/* 학사일정: 학교가 정한 일정이라 눈에 덜 띄게 */
+.cal-chip.cal-academic {
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
 .cal-more {
   font-size: 10px;
   color: var(--text-faint);

@@ -59,6 +59,7 @@ const state = {
   calMonth: null, // {y, m}
   calSelected: null,
   myEvents: [],
+  academic: [],
   fileMode: "list",
   openFolders: {},
   shelves: [],
@@ -1953,6 +1954,24 @@ function calendarItems() {
       allDay: !e.time,
     });
   });
+  // 학교 학사일정 (수강신청·성적확인 같은 것)
+  (state.academic || []).forEach((e) => {
+    // 기간 일정은 시작일부터 종료일까지 매일 표시한다
+    const start = new Date(`${e.start}T00:00`);
+    const end = new Date(`${e.end || e.start}T00:00`);
+    if (Number.isNaN(start.getTime())) return;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      items.push({
+        date: new Date(d),
+        title: e.title,
+        sub: e.kind === "공통" ? "학사일정" : `학사일정 · ${e.kind}`,
+        kind: "academic",
+        allDay: true,
+      });
+      // 너무 긴 기간이 달력을 덮지 않도록 한 달까지만
+      if ((d - start) / 86400000 > 31) break;
+    }
+  });
   return items;
 }
 
@@ -2209,6 +2228,18 @@ async function refreshAll() {
       api("/api/timetable").catch(() => ({ entries: [] })),
     ]);
     state.myEvents = myEvents.events || [];
+    // 학사일정은 하루 한 번만 받아오면 되므로 첫 로드 때만 요청한다
+    if (!state.academicLoaded) {
+      state.academicLoaded = true;
+      api("/api/academic-calendar")
+        .then((res) => {
+          state.academic = res.events || [];
+          if (state.view === "calendar") renderCalendar();
+        })
+        .catch(() => {
+          /* 학교 홈페이지가 응답하지 않아도 앱은 그대로 쓴다 */
+        });
+    }
     state.timetable = timetable.entries || [];
     loadShelves();
     state.status = status;
@@ -3010,19 +3041,67 @@ function initTheme() {
 
 /* ===== 학교 사이트 바로가기 =====
    주소는 DGIST 공식 홈페이지에 실제로 걸려 있는 링크에서 확인한 것들이다. */
+const BOARD_BASE = "https://stuecm.dgist.ac.kr/s/potal_board";
+const STUD = "https://stud.dgist.ac.kr";
+const DGIST = "https://www.dgist.ac.kr";
+
 const SCHOOL_LINKS = [
-  { name: "LMS", desc: "강의·과제", url: "https://lms.dgist.ac.kr", icon: "book", primary: true },
-  { name: "학생 포탈", desc: "수강·성적·증명", url: "https://my.dgist.ac.kr", icon: "layout", primary: true },
-  { name: "웹메일", desc: "학교 메일", url: "https://mail.dgist.ac.kr", icon: "mail", primary: true },
-  { name: "전자도서관", desc: "자료 검색·열람실", url: "https://library.dgist.ac.kr", icon: "book", primary: true },
-  { name: "공식 홈페이지", desc: "공지·학사일정", url: "https://www.dgist.ac.kr", icon: "layout" },
-  { name: "교과목 검색", desc: "개설 과목 조회", url: "https://welcome.dgist.ac.kr", icon: "search" },
-  { name: "비슬빌리지", desc: "생활관 신청·공지", url: "https://dorm.dgist.ac.kr", icon: "folder", primary: true },
-  { name: "통합인증", desc: "계정·비밀번호", url: "https://auth.dgist.ac.kr", icon: "settings" },
-  { name: "IT 서비스", desc: "전산 문의·요청", url: "https://easyit.dgist.ac.kr", icon: "help" },
-  { name: "DGIST Scholar", desc: "연구 성과", url: "https://scholar.dgist.ac.kr", icon: "sparkle" },
-  { name: "T-market", desc: "교내 장터", url: "https://tmarket.dgist.ac.kr", icon: "grid" },
-  { name: "교직원 포탈", desc: "임직원용", url: "https://portal.dgist.ac.kr", icon: "layout" },
+  // --- 자주 쓰는 것 ---
+  { g: "자주", name: "LMS", desc: "강의·과제", url: "https://lms.dgist.ac.kr", icon: "book", primary: true },
+  { g: "자주", name: "학생 포탈", desc: "수강·성적·증명", url: "https://my.dgist.ac.kr", icon: "layout", primary: true },
+  { g: "자주", name: "웹메일", desc: "학교 메일", url: "https://mail.dgist.ac.kr", icon: "mail", primary: true },
+  { g: "자주", name: "전자도서관", desc: "자료 검색·열람실", url: "https://library.dgist.ac.kr", icon: "book", primary: true },
+  { g: "자주", name: "비슬빌리지", desc: "생활관 신청·공지", url: "https://dorm.dgist.ac.kr", icon: "folder", primary: true },
+  { g: "자주", name: "공식 홈페이지", desc: "공지·소식", url: DGIST, icon: "layout", primary: true },
+
+  // --- 학사 (포탈에서 확인한 실제 주소) ---
+  { g: "학사", name: "학사일정", desc: "연간 학사 일정", url: `${DGIST}/prog/schafsSchdul/kor/sub05_01_01/list.do`, icon: "calendar" },
+  { g: "학사", name: "수강과목조회", desc: "이번 학기 수강 내역", url: `${STUD}/ucr/ucrqTlsnInq/index.do`, icon: "book" },
+  { g: "학사", name: "학기 성적조회", desc: "이번 학기 성적", url: `${STUD}/ugd/ugdqMrksInq/index.do`, icon: "layout" },
+  { g: "학사", name: "전체 성적조회", desc: "누적 성적·평점", url: `${STUD}/ugd/ugdqMrksTotInq/index.do`, icon: "layout" },
+  { g: "학사", name: "졸업 시뮬레이션", desc: "졸업 요건 확인", url: `${STUD}/ugt/ugtrSimuHis/index.do`, icon: "sparkle" },
+  { g: "학사", name: "장학금 지급현황", desc: "수혜 내역", url: `${STUD}/uss/ussqScafeeInq/index.do`, icon: "grid" },
+  { g: "학사", name: "학적변동 신청", desc: "휴학·복학", url: `${STUD}/usr/usreSchgAplyStud/index.do`, icon: "edit" },
+  { g: "학사", name: "개인정보 관리", desc: "주소·연락처", url: `${STUD}/usr/usreShregBodyCorr/index.do`, icon: "settings" },
+  { g: "학사", name: "증명서 발급", desc: "재학·성적증명", url: "https://certi.dgist.ac.kr/icerti", icon: "file" },
+  { g: "학사", name: "개설과목 조회", desc: "시간표 짜기", url: "https://welcome.dgist.ac.kr/ucs/ucsqProfRespSbjtInq/index.do", icon: "search" },
+
+  // --- 게시판 (포탈 게시판 코드는 실제 페이지에서 확인) ---
+  { g: "게시판", name: "학생게시판", desc: "최신 게시물", url: `${BOARD_BASE}/_0031/listBbs.do`, icon: "grid" },
+  { g: "게시판", name: "학사공지", desc: "학사팀 공지", url: `${BOARD_BASE}/_0014/listBbs.do`, icon: "alert" },
+  { g: "게시판", name: "학생지원", desc: "학생지원팀", url: `${BOARD_BASE}/_0004/listBbs.do`, icon: "help" },
+  { g: "게시판", name: "기초학부 바로바로", desc: "기초학부 안내", url: `${BOARD_BASE}/_0010/listBbs.do`, icon: "book" },
+  { g: "게시판", name: "식단표", desc: "학식 메뉴", url: `${BOARD_BASE}/_0008/listBbs.do`, icon: "grid" },
+  { g: "게시판", name: "장학 안내", desc: "장학 공지", url: `${BOARD_BASE}/_0161/listBbs.do`, icon: "sparkle" },
+  { g: "게시판", name: "진로 지원", desc: "채용·인턴", url: `${BOARD_BASE}/_0162/listBbs.do`, icon: "edit" },
+  { g: "게시판", name: "글로벌 프로그램", desc: "교환·해외", url: `${BOARD_BASE}/_0160/listBbs.do`, icon: "layout" },
+  { g: "게시판", name: "전문연/병무", desc: "병역 안내", url: `${BOARD_BASE}/_0163/listBbs.do`, icon: "alert" },
+  { g: "게시판", name: "세미나 공지", desc: "학술 세미나", url: `${BOARD_BASE}/_0002/listBbs.do`, icon: "calendar" },
+  { g: "게시판", name: "학생단체", desc: "동아리·학생회", url: `${BOARD_BASE}/_0168/listBbs.do`, icon: "grid" },
+  { g: "게시판", name: "전화번호부", desc: "부서 연락처", url: `${BOARD_BASE}/_0007/listBbs.do`, icon: "help" },
+
+  // --- 안내 문서 ---
+  { g: "안내", name: "학사안내", desc: "교육과정·수강신청", url: `${DGIST}/kor/sub05_01_02_01.do`, icon: "book" },
+  { g: "안내", name: "학적안내", desc: "휴학·복학 규정", url: `${DGIST}/kor/sub05_01_03_01.do`, icon: "file" },
+  { g: "안내", name: "장학안내", desc: "장학 제도", url: `${DGIST}/kor/sub05_01_04_01.do`, icon: "sparkle" },
+  { g: "안내", name: "병무안내", desc: "병역 제도", url: `${DGIST}/kor/sub05_01_07_01.do`, icon: "alert" },
+
+  // --- 기타 ---
+  { g: "기타", name: "통합인증", desc: "계정·비밀번호", url: "https://auth.dgist.ac.kr", icon: "settings" },
+  { g: "기타", name: "EASY IT", desc: "전산 문의·요청", url: "https://easyit.dgist.ac.kr", icon: "help" },
+  { g: "기타", name: "OFFICE 365", desc: "학교 계정 오피스", url: "https://www.office.com", icon: "grid" },
+  { g: "기타", name: "저작도구", desc: "commons", url: "https://commons.dgist.ac.kr", icon: "edit" },
+  { g: "기타", name: "T-market", desc: "교내 장터", url: "https://tmarket.dgist.ac.kr", icon: "grid" },
+  { g: "기타", name: "인권교육연수원", desc: "법정의무교육", url: "https://dgist.ac.kr/humanrights/", icon: "help" },
+  { g: "기타", name: "DGIST Scholar", desc: "연구 성과", url: "https://scholar.dgist.ac.kr", icon: "sparkle" },
+  { g: "기타", name: "안전보안관리", desc: "실험실 안전", url: "https://safety.dgist.ac.kr", icon: "alert" },
+  { g: "기타", name: "전자연구노트", desc: "연구 기록", url: "https://ern.dgist.ac.kr", icon: "file" },
+  { g: "기타", name: "산학협력단", desc: "과제·협력", url: `${DGIST}/ouic/index.do`, icon: "layout" },
+  { g: "기타", name: "지식재산관리", desc: "DIPS", url: "https://dips.dgist.ac.kr", icon: "file" },
+  { g: "기타", name: "연구인프라(D-HUB)", desc: "장비 예약", url: "https://dhub.dgist.ac.kr", icon: "grid" },
+  { g: "기타", name: "DGIST 아카이브", desc: "기록물", url: "https://archives.dgist.ac.kr", icon: "folder" },
+  { g: "기타", name: "수강통계", desc: "졸업생 수강 통계", url: "https://portal.dgist.ac.kr/sta/staMain/index.do", icon: "layout" },
+  { g: "기타", name: "교직원 포탈", desc: "임직원용", url: "https://portal.dgist.ac.kr", icon: "layout" },
 ];
 
 function renderQuicklinks() {
@@ -3030,6 +3109,33 @@ function renderQuicklinks() {
   if (!wrap) return;
   const showAll = !!state.showAllLinks;
   const items = showAll ? SCHOOL_LINKS : SCHOOL_LINKS.filter((l) => l.primary);
+
+  const card = (l) => `
+      <a class="quicklink" href="${escapeHtml(l.url)}" target="_blank" rel="noreferrer"
+         data-link="${escapeHtml(l.url)}" title="${escapeHtml(l.url)}">
+        <span class="quicklink-icon"><span class="icon" data-icon="${l.icon}"></span></span>
+        <span class="quicklink-text">
+          <strong>${escapeHtml(l.name)}</strong>
+          <span>${escapeHtml(l.desc)}</span>
+        </span>
+      </a>`;
+
+  if (showAll) {
+    // 수가 많아 묶지 않으면 찾기 어렵다
+    const order = ["자주", "학사", "게시판", "안내", "기타"];
+    wrap.innerHTML = order
+      .map((g) => {
+        const rows = SCHOOL_LINKS.filter((l) => l.g === g);
+        if (!rows.length) return "";
+        return `<div class="quicklink-group"><h3>${escapeHtml(g)}</h3>
+          <div class="quicklink-grid">${rows.map(card).join("")}</div></div>`;
+      })
+      .join("");
+    installIcons(wrap);
+    const t2 = $("#toggleQuicklinks");
+    if (t2) t2.textContent = "자주 쓰는 것만";
+    return;
+  }
 
   wrap.innerHTML = items
     .map(
