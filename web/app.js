@@ -3831,11 +3831,146 @@ function setHeroGreeting() {
   $("#heroTitle").textContent = greeting;
 }
 
+/* ===== 나우바 =====
+   사이드바 위쪽에서 지금 시각과 '무슨 수업 중인지'를 보여준다.
+   애플 라이브 액티비티처럼, 지금 필요한 한 줄만 남긴다. */
+const NOW_WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 오늘이 시간표의 몇 번째 요일인지 (0=월 … 6=일) */
+function nowDayIndex(d) {
+  return d.getDay() === 0 ? 6 : d.getDay() - 1;
+}
+
+function nowRemainText(min) {
+  if (min < 1) return "곧 끝나요";
+  if (min < 60) return `${min}분 남음`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}시간 ${m}분 남음` : `${h}시간 남음`;
+}
+
+function nowUntilText(min) {
+  if (min < 1) return "곧 시작";
+  if (min < 60) return `${min}분 뒤`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}시간 ${m}분 뒤` : `${h}시간 뒤`;
+}
+
+/** 지금 상태를 계산한다. 렌더와 분리해 두어야 검증하기 쉽다. */
+function nowStatus(at, entries) {
+  const day = nowDayIndex(at);
+  const minutes = at.getHours() * 60 + at.getMinutes();
+  const today = (entries || [])
+    .filter((e) => Number(e.day) === day)
+    .sort((a, b) => ttMinutes(a.start) - ttMinutes(b.start));
+
+  if (!entries || !entries.length) {
+    return { state: "empty", title: "시간표가 비어 있어요", sub: "대시보드에서 추가할 수 있어요" };
+  }
+  // 토요일에 수업이 있으면 주말로 치지 않는다.
+  if (day === 6 || (day === 5 && !today.length)) {
+    return { state: "weekend", title: "주말", sub: "푹 쉬어요" };
+  }
+
+  const live = today.find((e) => minutes >= ttMinutes(e.start) && minutes < ttMinutes(e.end));
+  if (live) {
+    const start = ttMinutes(live.start);
+    const end = ttMinutes(live.end);
+    return {
+      state: "class",
+      tone: live.color || "coral",
+      title: live.title,
+      sub: [live.room, nowRemainText(end - minutes)].filter(Boolean).join(" · "),
+      progress: Math.min(1, Math.max(0, (minutes - start) / Math.max(1, end - start))),
+    };
+  }
+
+  const next = today.find((e) => ttMinutes(e.start) > minutes);
+  if (next) {
+    const gap = ttMinutes(next.start) - minutes;
+    if (gap <= 30) {
+      return {
+        state: "soon",
+        tone: next.color || "coral",
+        title: next.title,
+        sub: [nowUntilText(gap), next.room].filter(Boolean).join(" · "),
+      };
+    }
+    // 아직 첫 수업 전이면 '공강'이 아니라 '수업 전'이다.
+    const started = minutes >= ttMinutes(today[0].start);
+    return {
+      state: started ? "gap" : "before",
+      title: started ? "공강" : "수업 전",
+      sub: `${next.start} ${shortText(next.title, 10)}`,
+    };
+  }
+
+  if (today.length) return { state: "done", title: "오늘 수업 끝", sub: "고생했어요" };
+  return { state: "free", title: "오늘 수업 없음", sub: "여유로운 하루" };
+}
+
+/* 휴대폰에서는 사이드바가 아래쪽 탭바로 바뀌고 로고 자리가 사라진다.
+   나우바는 계속 보여야 하므로 상단바로 옮겨 준다. */
+const NOW_MOBILE = window.matchMedia("(max-width: 760px)");
+
+function placeNowBar() {
+  const bar = $("#nowBar");
+  const topbar = document.querySelector(".topbar");
+  const brand = document.querySelector(".brand");
+  if (!bar || !topbar || !brand) return;
+  const target = NOW_MOBILE.matches ? topbar : brand;
+  if (bar.parentElement !== target) {
+    target.insertBefore(bar, NOW_MOBILE.matches ? topbar.firstChild : null);
+  }
+  bar.classList.toggle("nowbar-compact", NOW_MOBILE.matches);
+}
+
+function renderNowBar() {
+  const bar = $("#nowBar");
+  if (!bar) return;
+  // matchMedia change 이벤트가 항상 오는 건 아니라, 매 틱마다 자리를 확인한다.
+  // 이미 제자리면 DOM을 건드리지 않으므로 비용이 없다.
+  placeNowBar();
+  const at = new Date();
+
+  const hh = String(at.getHours()).padStart(2, "0");
+  const mm = String(at.getMinutes()).padStart(2, "0");
+  const time = $("#nowTime");
+  if (time && time.textContent !== `${hh}:${mm}`) time.textContent = `${hh}:${mm}`;
+  const date = $("#nowDate");
+  const dateText = `${at.getMonth() + 1}월 ${at.getDate()}일 ${NOW_WEEKDAY[at.getDay()]}`;
+  if (date && date.textContent !== dateText) date.textContent = dateText;
+
+  const info = nowStatus(at, state.timetable);
+  if (bar.dataset.state !== info.state) bar.dataset.state = info.state;
+  bar.dataset.tone = info.tone || "";
+
+  const title = $("#nowTitle");
+  if (title && title.textContent !== info.title) {
+    title.textContent = info.title;
+    title.title = info.title;
+  }
+  const sub = $("#nowSub");
+  if (sub && sub.textContent !== (info.sub || "")) sub.textContent = info.sub || "";
+
+  const track = $("#nowTrack");
+  const fill = $("#nowFill");
+  if (track && fill) {
+    const show = typeof info.progress === "number";
+    if (track.hidden === show) track.hidden = !show;
+    if (show) fill.style.width = `${Math.round(info.progress * 100)}%`;
+  }
+}
+
 installIcons();
 bindEvents();
 bindInterestChips();
 initTheme();
 initRail();
 setHeroGreeting();
+renderNowBar();
+// 시계라 1초마다. 상태 계산은 가볍고, 값이 그대로면 DOM을 건드리지 않는다.
+window.setInterval(renderNowBar, 1000);
 refreshAll();
 window.setInterval(refreshAll, 3500);

@@ -145,21 +145,157 @@ body {
 }
 
 .brand {
+  display: block;
+  padding: 0;
+}
+
+/* ===== 나우바 =====
+   지금 시각 + 현재 수업. 애플 라이브 액티비티처럼
+   둥근 캡슐 하나에 필요한 것만 담는다. */
+.nowbar {
+  position: relative;
+  border-radius: 18px;
+  padding: 13px 14px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  isolation: isolate;
+}
+/* 수업 중일 때 과목 색이 은은하게 배어 나온다 */
+.nowbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  background: linear-gradient(150deg, var(--now-accent, transparent) 0%, transparent 72%);
+  transition: opacity 0.6s ease;
+}
+.nowbar[data-state="class"]::before,
+.nowbar[data-state="soon"]::before { opacity: 0.26; }
+
+.nowbar[data-tone="coral"]  { --now-accent: #d97757; }
+.nowbar[data-tone="blue"]   { --now-accent: #5b7da8; }
+.nowbar[data-tone="green"]  { --now-accent: #5e8b5e; }
+.nowbar[data-tone="amber"]  { --now-accent: #b8860b; }
+.nowbar[data-tone="violet"] { --now-accent: #7c6bab; }
+.nowbar[data-tone="teal"]   { --now-accent: #3f8f8a; }
+
+.nowbar-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nowbar-time {
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  /* 숫자 폭을 고정해야 초마다 글자가 흔들리지 않는다 */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.nowbar-date {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.nowbar-live {
   display: flex;
   align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  min-width: 0;
+}
+.nowbar-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background 0.4s ease;
+}
+.nowbar[data-state="class"] .nowbar-dot { background: #4ba36b; }
+.nowbar[data-state="soon"] .nowbar-dot { background: #d9a441; }
+/* 수업 중일 때만 숨을 쉰다 */
+.nowbar[data-state="class"] .nowbar-dot { animation: nowbar-pulse 2.4s ease-in-out infinite; }
+@keyframes nowbar-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(75, 163, 107, 0.5); }
+  50%      { opacity: 0.75; box-shadow: 0 0 0 4px rgba(75, 163, 107, 0); }
+}
+
+.nowbar-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nowbar-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nowbar-text span {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nowbar-text span:empty { display: none; }
+
+.nowbar-track {
+  margin-top: 10px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+.nowbar-track[hidden] { display: none; }
+.nowbar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--now-accent, var(--text-faint));
+  transition: width 1s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nowbar-dot { animation: none !important; }
+  .nowbar-fill { transition: none; }
+}
+
+/* 휴대폰: 상단바로 옮겨져 한 줄짜리 가로 형태가 된다 */
+.nowbar-compact {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: 14px;
+}
+.nowbar-compact .nowbar-clock {
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
-  padding: 2px 8px 6px;
+  gap: 0;
 }
-
-/* 붕어빵 로고만 (배경·글씨 없이) */
-.brand-fish {
-  width: 76px;
-  height: auto;
-  display: block;
-  /* 원본이 작아 흐려 보이지 않도록 또렷하게 */
-  image-rendering: -webkit-optimize-contrast;
+.nowbar-compact .nowbar-time { font-size: 21px; }
+.nowbar-compact .nowbar-date { font-size: 9.5px; }
+.nowbar-compact .nowbar-live { margin-top: 0; flex: 1; min-width: 0; }
+/* 가로형에서는 진행률을 아래 테두리처럼 깐다 */
+.nowbar-compact .nowbar-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  height: 2px;
+  border-radius: 0;
+  background: transparent;
 }
-
 
 
 /* ===== 붕어빵 로고 파츠 ===== */
@@ -3727,8 +3863,15 @@ tbody tr:hover {
 
 .app-shell.mail-focus .nav-item { position: relative; }
 
-.app-shell.mail-focus .brand { justify-content: center; }
-.app-shell.mail-focus .brand-fish { width: 40px; }
+/* 메일 집중 모드에서는 사이드바가 72px로 줄어든다.
+   나우바는 시각과 점만 남긴 세로 형태로 접는다. */
+.app-shell.mail-focus .nowbar { padding: 10px 6px; border-radius: 14px; text-align: center; }
+.app-shell.mail-focus .nowbar-clock { flex-direction: column; align-items: center; gap: 2px; }
+.app-shell.mail-focus .nowbar-time { font-size: 17px; }
+.app-shell.mail-focus .nowbar-date,
+.app-shell.mail-focus .nowbar-text { display: none; }
+.app-shell.mail-focus .nowbar-live { justify-content: center; margin-top: 6px; }
+.app-shell.mail-focus .nowbar-track { margin-top: 7px; }
 
 .app-shell.mail-focus .right-rail { display: none; }
 .app-shell.mail-focus .topbar { display: none; }

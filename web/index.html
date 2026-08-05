@@ -11,7 +11,23 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="주요 메뉴">
         <div class="brand">
-          <img class="brand-fish" src="/brand-fish.png" alt="붕어빵" />
+          <!-- 나우바: 지금 시각과 현재 수업 상태 -->
+          <div class="nowbar" id="nowBar" data-state="idle">
+            <div class="nowbar-clock">
+              <span class="nowbar-time" id="nowTime">--:--</span>
+              <span class="nowbar-date" id="nowDate">불러오는 중</span>
+            </div>
+            <div class="nowbar-live">
+              <span class="nowbar-dot" aria-hidden="true"></span>
+              <div class="nowbar-text">
+                <strong id="nowTitle">시간표 확인 중</strong>
+                <span id="nowSub"></span>
+              </div>
+            </div>
+            <div class="nowbar-track" id="nowTrack" hidden>
+              <div class="nowbar-fill" id="nowFill"></div>
+            </div>
+          </div>
         </div>
 
         <nav class="nav-list">
