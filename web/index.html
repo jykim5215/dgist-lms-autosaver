@@ -142,6 +142,15 @@
                 <p id="heroSubtitle">LMS의 새 자료를 모아 Drive에 정리하고, 다가오는 과제 마감을 한눈에 봅니다.</p>
               </div>
 
+              <!-- 학사일정 중 놓치면 큰 것(수강신청·성적확인)만 크게 -->
+              <section class="dday-banner" id="ddayBanner" hidden>
+                <div class="dday-count"><strong id="ddayNum">D-0</strong></div>
+                <div class="dday-body">
+                  <strong id="ddayTitle"></strong>
+                  <span id="ddayWhen"></span>
+                </div>
+              </section>
+
               <!-- 조용한 실패 방지: 며칠째 동기화가 안 되거나 연속 실패하면 알림 -->
               <section class="alert-banner health-banner" id="healthBanner" hidden>
                 <div class="alert-icon"><span class="icon" data-icon="alert"></span></div>
@@ -169,6 +178,17 @@
               </section>
 
               <!-- 학교 사이트 바로가기 -->
+              <section class="panel" aria-labelledby="noticeTitle">
+                <div class="panel-header">
+                  <div>
+                    <h2 id="noticeTitle">학교 공지</h2>
+                    <p>공식 홈페이지의 일반공지·보도자료·채용정보</p>
+                  </div>
+                  <button class="button compact ghost" id="refreshNotices" type="button">새로고침</button>
+                </div>
+                <div class="notice-list" id="noticeList"></div>
+              </section>
+
               <section class="panel quicklinks-panel" aria-labelledby="quicklinksTitle">
                 <div class="panel-header">
                   <div>
@@ -356,6 +376,14 @@
                     <input type="checkbox" id="holidayToggle" checked />
                     <span>공휴일</span>
                   </label>
+                  <label class="holiday-toggle" title="대학원 전용 학사일정을 숨깁니다">
+                    <input type="checkbox" id="academicUnderOnly" />
+                    <span>학부만</span>
+                  </label>
+                  <button class="button compact ghost" id="syncAcademicButton" type="button" title="학사일정을 구글 캘린더에 올립니다">
+                    <span class="icon" data-icon="sync"></span>
+                    학사일정 동기화
+                  </button>
                   <button class="button compact ghost" id="gcalConnectButton" type="button" title="Google 캘린더로 내보내기(.ics)">
                     <span class="icon" data-icon="calendar"></span>
                     구글 캘린더
@@ -367,6 +395,7 @@
                 <span><i class="dot cal-event"></i> 메일 일정</span>
                 <span><i class="dot cal-done"></i> 제출 완료</span>
                 <span><i class="dot cal-mine"></i> 내 일정</span>
+                <span><i class="dot cal-academic"></i> 학사일정</span>
               </div>
               <!-- 달력 + 오른쪽 상세 패널 (날짜를 누르면 달력이 왼쪽으로 좁아지며 패널이 빠져나옴) -->
               <div class="calendar-stage" id="calendarStage">

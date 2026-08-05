@@ -60,6 +60,8 @@ const state = {
   calSelected: null,
   myEvents: [],
   academic: [],
+  notices: [],
+  academicUnderOnly: true,
   fileMode: "list",
   openFolders: {},
   shelves: [],
@@ -1955,7 +1957,9 @@ function calendarItems() {
     });
   });
   // 학교 학사일정 (수강신청·성적확인 같은 것)
-  (state.academic || []).forEach((e) => {
+  (state.academic || [])
+    .filter((e) => !state.academicUnderOnly || e.kind !== "대학원")
+    .forEach((e) => {
     // 기간 일정은 시작일부터 종료일까지 매일 표시한다
     const start = new Date(`${e.start}T00:00`);
     const end = new Date(`${e.end || e.start}T00:00`);
@@ -2231,9 +2235,11 @@ async function refreshAll() {
     // 학사일정은 하루 한 번만 받아오면 되므로 첫 로드 때만 요청한다
     if (!state.academicLoaded) {
       state.academicLoaded = true;
+      loadNotices(false);
       api("/api/academic-calendar")
         .then((res) => {
           state.academic = res.events || [];
+          renderDday();
           if (state.view === "calendar") renderCalendar();
         })
         .catch(() => {
@@ -4132,6 +4138,116 @@ function moveNavPill() {
 }
 
 
+/* ===== 학사일정 D-day =====
+   놓치면 큰 것만 골라 대시보드 맨 위에 크게 띄운다. */
+const DDAY_KEYWORDS = ["수강신청", "성적확인", "수강신청 변경", "복학신청", "학위수여", "등록"];
+
+function renderDday() {
+  const box = $("#ddayBanner");
+  if (!box) return;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const next = (state.academic || [])
+    .filter((e) => !state.academicUnderOnly || e.kind !== "대학원")
+    .filter((e) => DDAY_KEYWORDS.some((k) => e.title.includes(k)))
+    .map((e) => ({ e, start: new Date(`${e.start}T00:00`), end: new Date(`${e.end || e.start}T00:00`) }))
+    .filter((x) => !Number.isNaN(x.start.getTime()) && x.end >= today)
+    .sort((a, b) => a.start - b.start)[0];
+
+  if (!next) {
+    box.hidden = true;
+    return;
+  }
+  const days = Math.round((next.start - today) / 86400000);
+  const running = days <= 0;
+  box.hidden = false;
+  box.dataset.soon = String(!running && days <= 7);
+  $("#ddayNum").textContent = running ? "진행 중" : `D-${days}`;
+  $("#ddayTitle").textContent = next.e.title;
+  const fmt = (d) => `${d.getMonth() + 1}.${d.getDate()}`;
+  $("#ddayWhen").textContent =
+    next.e.start === next.e.end
+      ? fmt(next.start)
+      : `${fmt(next.start)} ~ ${fmt(next.end)}`;
+}
+
+/* ===== 학교 공지 ===== */
+function renderNotices() {
+  const list = $("#noticeList");
+  if (!list) return;
+  const items = (state.notices || []).slice(0, 10);
+  if (!items.length) {
+    list.innerHTML = `<p class="notice-empty">공지를 불러오는 중이에요.</p>`;
+    return;
+  }
+  list.innerHTML = items
+    .map(
+      (n) => `
+      <a class="notice-row" href="${escapeHtml(n.url)}" data-link="${escapeHtml(n.url)}" target="_blank" rel="noreferrer">
+        <span class="notice-board">${escapeHtml(n.board)}</span>
+        <span class="notice-title" title="${escapeHtml(n.title)}">${escapeHtml(n.title)}</span>
+        <span class="notice-date">${escapeHtml(n.date)}</span>
+      </a>`,
+    )
+    .join("");
+}
+
+function loadNotices(refresh) {
+  return api(`/api/notices${refresh ? "?refresh=1" : ""}`)
+    .then((res) => {
+      state.notices = res.items || [];
+      renderNotices();
+      if (refresh) showToast(`공지 ${state.notices.length}건을 새로 받았어요.`);
+    })
+    .catch(() => {
+      /* 학교 홈페이지가 응답하지 않아도 앱은 그대로 쓴다 */
+    });
+}
+
+function bindAcademic() {
+  $("#refreshNotices")?.addEventListener("click", () => loadNotices(true));
+
+  const underOnly = $("#academicUnderOnly");
+  if (underOnly) {
+    try {
+      // 학부생 기준이라 처음엔 켜 둔다. 한 번 끄면 그 선택을 기억한다.
+      const saved = localStorage.getItem("autosaver-academic-under");
+      state.academicUnderOnly = saved === null ? true : saved === "1";
+    } catch (error) {
+      state.academicUnderOnly = true;
+    }
+    underOnly.checked = !!state.academicUnderOnly;
+    underOnly.addEventListener("change", () => {
+      state.academicUnderOnly = underOnly.checked;
+      try {
+        localStorage.setItem("autosaver-academic-under", underOnly.checked ? "1" : "0");
+      } catch (error) {
+        /* 무시 */
+      }
+      renderCalendar();
+      renderDday();
+    });
+  }
+
+  $("#syncAcademicButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const res = await api("/api/gcal/sync-academic", {
+        method: "POST",
+        body: JSON.stringify({ undergraduateOnly: !!state.academicUnderOnly }),
+      });
+      showToast(res.ok ? `'${res.calendar}'에 ${res.message}` : res.message || "동기화하지 못했어요.");
+    } catch (error) {
+      showToast(error.message || "동기화하지 못했어요.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+
 function bindNowBar() {
   const bar = $("#nowBar");
   const toggle = $("#nowToggle");
@@ -4196,6 +4312,7 @@ initTheme();
 initRail();
 setHeroGreeting();
 bindNowBar();
+bindAcademic();
 renderNowBar();
 moveNavPill();
 window.addEventListener("resize", moveNavPill);

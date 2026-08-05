@@ -93,6 +93,7 @@ class UserWorkspace:
     timetable_path: Path
     shelves_path: Path
     academic_path: Path
+    notices_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -129,6 +130,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         timetable_path=root / "timetable.json",
         shelves_path=root / "shelves.json",
         academic_path=root / "academic_calendar.json",
+        notices_path=root / "notices.json",
     )
 
 
@@ -1364,6 +1366,38 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     return result
 
 
+def get_notices(workspace: UserWorkspace, refresh: bool = False) -> dict[str, Any]:
+    """학교 공지. 로그인 없이 볼 수 있는 게시판만 모은다.
+
+    자주 새로고침하면 학교 서버에 부담이라 1시간 캐시를 둔다.
+    """
+    import notice_board
+
+    cache = read_json(workspace.notices_path, {}) or {}
+    if not refresh and isinstance(cache, dict) and cache.get("items"):
+        try:
+            fetched = datetime.fromisoformat(cache.get("fetchedAt", ""))
+            if (datetime.now() - fetched).total_seconds() < 3600:
+                return {"ok": True, "cached": True, **{k: v for k, v in cache.items() if k != "fetchedAt"}}
+        except ValueError:
+            pass
+
+    result = notice_board.fetch_all()
+    if not result.get("ok"):
+        # 새로 못 받으면 지난 것이라도 보여 준다
+        if isinstance(cache, dict) and cache.get("items"):
+            return {"ok": True, "cached": True, "stale": True,
+                    **{k: v for k, v in cache.items() if k != "fetchedAt"}}
+        return result
+
+    workspace.notices_path.write_text(
+        json.dumps({**result, "fetchedAt": datetime.now().isoformat(timespec="seconds")},
+                   ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return result
+
+
 def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     """사용자가 캘린더에서 직접 만든 일정 목록."""
     data = read_json(workspace.my_events_path, [])
@@ -1919,6 +1953,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/timetable":
             self.send_json(get_timetable(workspace))
             return
+        if route == "/api/notices":
+            try:
+                self.send_json(
+                    get_notices(workspace, params.get("refresh", [""])[0] == "1")
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "items": [], "message": str(exc)})
+            return
         if route == "/api/academic-calendar":
             year = params.get("year", [""])[0]
             refresh = params.get("refresh", [""])[0] == "1"
@@ -2345,6 +2387,32 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 if not event_id:
                     raise ValueError("삭제할 일정을 찾을 수 없습니다.")
                 self.send_json(delete_my_event(workspace, event_id))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/gcal/sync-academic":
+            try:
+                import calendar_sync
+
+                config = read_config(workspace)
+                if not workspace.token_path.exists():
+                    raise RuntimeError("먼저 설정에서 구글 계정을 연결해 주세요.")
+                if not calendar_sync.has_calendar_scope(str(workspace.token_path)):
+                    raise RuntimeError(
+                        "구글 캘린더 권한이 없습니다. 설정에서 구글 계정을 다시 연결해 주세요."
+                    )
+                payload = self.read_body_json() or {}
+                data = get_academic_calendar(workspace, payload.get("year"))
+                events = data.get("events", [])
+                # 학부만 보기로 해 뒀으면 대학원 전용 일정은 올리지 않는다
+                if payload.get("undergraduateOnly"):
+                    events = [e for e in events if e.get("kind") != "대학원"]
+                result = calendar_sync.sync_academic_events(
+                    events,
+                    calendar_name=config.get("GCAL_ACADEMIC_NAME", "DGIST 학사일정"),
+                    token_path=str(workspace.token_path),
+                )
+                self.send_json(result)
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

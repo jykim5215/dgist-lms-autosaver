@@ -210,3 +210,86 @@ def sync_email_events(
         "calendar": calendar_name or DEFAULT_CALENDAR_NAME,
         "message": f"새 일정 {created}건, 갱신 {updated}건" + (f", 실패 {skipped}건" if skipped else ""),
     }
+
+
+ACADEMIC_CALENDAR_NAME = "DGIST 학사일정"
+
+
+def _build_academic_event(item: dict) -> dict[str, Any] | None:
+    """학사일정 한 건을 구글 캘린더 종일 일정으로."""
+    title = (item.get("title") or "").strip()
+    start = (item.get("start") or "").strip()
+    if not title or not start:
+        return None
+    end = (item.get("end") or start).strip()
+    # 구글의 종일 일정은 end가 '다음 날'이어야 마지막 날까지 칠해진다.
+    try:
+        end_date = _dt.date.fromisoformat(end) + _dt.timedelta(days=1)
+    except ValueError:
+        return None
+    kind = (item.get("kind") or "").strip()
+    return {
+        "summary": title,
+        "description": f"DGIST 학사일정{f' · {kind}' if kind else ''}\n붕어빵이 자동으로 넣었습니다.",
+        "start": {"date": start},
+        "end": {"date": end_date.isoformat()},
+        "extendedProperties": {"private": {"autosaverKey": f"acad-{item.get('id') or start}"}},
+    }
+
+
+def sync_academic_events(
+    events: Iterable[dict],
+    calendar_name: str | None = None,
+    token_path: str | None = None,
+) -> dict[str, Any]:
+    """학사일정을 전용 캘린더에 upsert 한다.
+
+    메일 일정과 섞이면 지저분해서 별도 캘린더를 쓴다.
+    """
+    items = list(events or [])
+    name = calendar_name or ACADEMIC_CALENDAR_NAME
+    if not items:
+        return {"ok": True, "created": 0, "updated": 0, "skipped": 0,
+                "calendar": name, "message": "동기화할 학사일정이 없습니다."}
+
+    service = get_calendar_service(token_path)
+    calendar_id = find_or_create_calendar(service, name)
+
+    created = updated = skipped = 0
+    for item in items:
+        body = _build_academic_event(item)
+        if not body:
+            skipped += 1
+            continue
+        key = body["extendedProperties"]["private"]["autosaverKey"]
+        try:
+            existing = (
+                service.events()
+                .list(
+                    calendarId=calendar_id,
+                    privateExtendedProperty=f"autosaverKey={key}",
+                    showDeleted=False,
+                    maxResults=1,
+                )
+                .execute()
+                .get("items", [])
+            )
+            if existing:
+                service.events().update(
+                    calendarId=calendar_id, eventId=existing[0]["id"], body=body
+                ).execute()
+                updated += 1
+            else:
+                service.events().insert(calendarId=calendar_id, body=body).execute()
+                created += 1
+        except Exception:
+            skipped += 1
+
+    return {
+        "ok": True,
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "calendar": name,
+        "message": f"새 일정 {created}건, 갱신 {updated}건" + (f", 실패 {skipped}건" if skipped else ""),
+    }
