@@ -5169,3 +5169,74 @@ textarea:focus {
   .notice-row { grid-template-columns: 60px minmax(0, 1fr); }
   .notice-date { grid-column: 2; font-size: 10.5px; }
 }
+
+
+/* ===== 대시보드 편집 ===== */
+.hero-panel { position: relative; }
+.dash-edit-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+/* 꺼 둔 블록은 평소엔 안 보이고, 편집 중에는 흐리게 보여야 다시 켤 수 있다 */
+.dash-off { display: none; }
+.dash-editing .dash-off {
+  display: block;
+  opacity: 0.42;
+  filter: saturate(0.5);
+}
+
+.dash-editing [data-block] {
+  position: relative;
+  outline: 1px dashed var(--border);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+  cursor: grab;
+}
+.dash-editing [data-block]:active { cursor: grabbing; }
+/* 편집 중에는 안쪽 버튼·입력이 눌리지 않게 (조작 줄만 살린다) */
+.dash-editing [data-block] > :not(.dash-bar) { pointer-events: none; }
+.dash-editing [data-block] .dash-bar { pointer-events: auto; }
+
+.dash-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+.dash-grip { color: var(--text-faint); font-size: 12px; letter-spacing: -2px; cursor: grab; }
+.dash-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-btn {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  cursor: pointer;
+}
+.dash-btn:hover { background: var(--surface-soft); color: var(--text); }
+.dash-btn.on { border-color: var(--accent); color: var(--accent-strong); }
+
+.dash-dragging { opacity: 0.5; }
+.dash-over { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-editing [data-block] { transition: none; }
+}

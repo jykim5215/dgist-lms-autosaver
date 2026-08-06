@@ -138,12 +138,16 @@
             <!-- ===== 대시보드 ===== -->
             <section class="view" id="view-dashboard">
               <div class="hero-panel">
+                <button class="button compact ghost dash-edit-toggle" id="dashEditToggle" type="button">
+                  <span class="icon" data-icon="edit"></span>
+                  <span id="dashEditLabel">화면 편집</span>
+                </button>
                 <h1 id="heroTitle">안녕하세요 👋</h1>
                 <p id="heroSubtitle">LMS의 새 자료를 모아 Drive에 정리하고, 다가오는 과제 마감을 한눈에 봅니다.</p>
               </div>
 
               <!-- 학사일정 중 놓치면 큰 것(수강신청·성적확인)만 크게 -->
-              <section class="dday-banner" id="ddayBanner" hidden>
+              <section class="dday-banner" id="ddayBanner" hidden data-block="dday" data-block-label="학사일정 D-day">
                 <div class="dday-count"><strong id="ddayNum">D-0</strong></div>
                 <div class="dday-body">
                   <strong id="ddayTitle"></strong>
@@ -178,7 +182,7 @@
               </section>
 
               <!-- 학교 사이트 바로가기 -->
-              <section class="panel" aria-labelledby="noticeTitle">
+              <section class="panel" aria-labelledby="noticeTitle" data-block="notices" data-block-label="학교 공지">
                 <div class="panel-header">
                   <div>
                     <h2 id="noticeTitle">학교 공지</h2>
@@ -189,7 +193,7 @@
                 <div class="notice-list" id="noticeList"></div>
               </section>
 
-              <section class="panel quicklinks-panel" aria-labelledby="quicklinksTitle">
+              <section class="panel quicklinks-panel" aria-labelledby="quicklinksTitle" data-block="links" data-block-label="학교 사이트 바로가기">
                 <div class="panel-header">
                   <div>
                     <h2 id="quicklinksTitle">학교 사이트 바로가기</h2>
@@ -200,7 +204,7 @@
                 <div class="quicklinks" id="quicklinks"></div>
               </section>
 
-              <div class="metrics-stage" id="metricsStage">
+              <div class="metrics-stage" id="metricsStage" data-block="metrics" data-block-label="요약 카드">
                 <div class="metrics-grid" aria-label="요약 상태">
                 <article class="metric-card" data-goto="deadlines" data-peek="deadlines">
                   <div class="metric-icon coral"><span class="icon" data-icon="calendar"></span></div>
@@ -234,7 +238,7 @@
               </div>
 
               <!-- 주간 시간표 -->
-              <section class="panel timetable-panel" aria-labelledby="timetableTitle">
+              <section class="panel timetable-panel" aria-labelledby="timetableTitle" data-block="timetable" data-block-label="주간 시간표">
                 <div class="panel-header">
                   <div>
                     <h2 id="timetableTitle">주간 시간표</h2>
@@ -335,7 +339,7 @@
                 </section>
               </section>
 
-              <section class="panel" aria-labelledby="upcomingTitle">
+              <section class="panel" aria-labelledby="upcomingTitle" data-block="upcoming" data-block-label="다가오는 마감">
                 <div class="panel-header">
                   <div>
                     <h2 id="upcomingTitle">다가오는 마감</h2>
@@ -346,7 +350,7 @@
                 <div class="deadline-list" id="upcomingList"></div>
               </section>
 
-              <section class="panel" aria-labelledby="eventsTitle">
+              <section class="panel" aria-labelledby="eventsTitle" data-block="events" data-block-label="다가오는 일정">
                 <div class="panel-header">
                   <div>
                     <h2 id="eventsTitle">다가오는 일정</h2>

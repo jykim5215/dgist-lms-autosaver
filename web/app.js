@@ -2233,19 +2233,7 @@ async function refreshAll() {
     ]);
     state.myEvents = myEvents.events || [];
     // 학사일정은 하루 한 번만 받아오면 되므로 첫 로드 때만 요청한다
-    if (!state.academicLoaded) {
-      state.academicLoaded = true;
-      loadNotices(false);
-      api("/api/academic-calendar")
-        .then((res) => {
-          state.academic = res.events || [];
-          renderDday();
-          if (state.view === "calendar") renderCalendar();
-        })
-        .catch(() => {
-          /* 학교 홈페이지가 응답하지 않아도 앱은 그대로 쓴다 */
-        });
-    }
+    loadAcademic();
     state.timetable = timetable.entries || [];
     loadShelves();
     state.status = status;
@@ -2973,7 +2961,16 @@ function bindEvents() {
       $("#updateStatus").textContent = d.message || "업데이트 완료";
       $("#appVersion").textContent = `v${d.version}`;
       $("#applyUpdateButton").hidden = true;
-      showToast("업데이트 완료! 앱을 껐다 켜면 새 버전이 적용됩니다.");
+      // 파일만 새로 받아도 이미 돌고 있는 파이썬 코드는 예전 것이라,
+      // 재시작하지 않으면 '업데이트했는데 안 바뀐다'가 된다.
+      if (window.confirm("업데이트를 받았습니다. 지금 앱을 다시 시작할까요?\n(다시 시작해야 새 기능이 켜집니다)")) {
+        $("#updateStatus").textContent = "다시 시작하는 중…";
+        api("/api/restart", { method: "POST", body: "{}" }).catch(() => {});
+        // 새 프로세스가 뜰 시간을 준 뒤 새로고침
+        setTimeout(() => window.location.reload(), 3500);
+      } else {
+        showToast("앱을 껐다 켜면 새 버전이 적용됩니다.");
+      }
     } catch (error) {
       $("#updateStatus").textContent = error.message;
     }
@@ -4142,6 +4139,201 @@ function moveNavPill() {
    놓치면 큰 것만 골라 대시보드 맨 위에 크게 띄운다. */
 const DDAY_KEYWORDS = ["수강신청", "성적확인", "수강신청 변경", "복학신청", "학위수여", "등록"];
 
+/* 학사일정·공지 불러오기.
+   학교 홈페이지가 자주 연결을 끊어서, 한 번 실패했다고 그 세션 내내
+   포기해 버리면 화면이 계속 비어 있게 된다. 그래서 성공했을 때만
+   '다 됐다'고 표시하고, 실패하면 1분 뒤에 다시 시도한다. */
+/* ===== 대시보드 편집 =====
+   어떤 것을 어떤 순서로 볼지 화면에서 바로 바꾼다.
+   순서는 DOM 순서를 직접 바꿔서 적용하므로, 각 패널 코드는 건드릴 필요가 없다. */
+const DASH_STORE = "autosaver-dashboard-layout";
+
+function dashBlocks() {
+  return [...document.querySelectorAll("#view-dashboard [data-block]")];
+}
+
+/** 저장된 배치를 읽는다. 새로 생긴 블록은 뒤에 붙는다. */
+function loadDashLayout() {
+  let saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem(DASH_STORE) || "[]");
+  } catch (error) {
+    saved = [];
+  }
+  const present = dashBlocks().map((el) => el.dataset.block);
+  const known = new Set();
+  const layout = [];
+  for (const row of Array.isArray(saved) ? saved : []) {
+    if (row && present.includes(row.key) && !known.has(row.key)) {
+      known.add(row.key);
+      layout.push({ key: row.key, off: !!row.off });
+    }
+  }
+  // 저장된 적 없는(새로 추가된) 블록은 켠 채로 뒤에 붙인다
+  for (const key of present) {
+    if (!known.has(key)) layout.push({ key, off: false });
+  }
+  return layout;
+}
+
+function saveDashLayout() {
+  try {
+    localStorage.setItem(DASH_STORE, JSON.stringify(state.dashLayout || []));
+  } catch (error) {
+    /* 저장 못 해도 이번 실행에는 반영된다 */
+  }
+}
+
+function applyDashLayout() {
+  const view = $("#view-dashboard");
+  if (!view) return;
+  const byKey = new Map(dashBlocks().map((el) => [el.dataset.block, el]));
+  (state.dashLayout || []).forEach((row) => {
+    const el = byKey.get(row.key);
+    if (!el) return;
+    // 순서대로 다시 붙이면 그 순서가 된다
+    view.appendChild(el);
+    el.classList.toggle("dash-off", !!row.off);
+  });
+  renderDashEditor();
+}
+
+/** 편집 모드일 때 각 블록 위에 붙는 조작 줄 */
+function renderDashEditor() {
+  const editing = !!state.dashEditing;
+  $("#view-dashboard")?.classList.toggle("dash-editing", editing);
+  const label = $("#dashEditLabel");
+  if (label) label.textContent = editing ? "편집 끝내기" : "화면 편집";
+
+  const layout = state.dashLayout || [];
+  dashBlocks().forEach((el) => {
+    let bar = el.querySelector(":scope > .dash-bar");
+    if (!editing) {
+      bar?.remove();
+      el.draggable = false;
+      return;
+    }
+    const idx = layout.findIndex((r) => r.key === el.dataset.block);
+    const off = !!layout[idx]?.off;
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.className = "dash-bar";
+      el.prepend(bar);
+    }
+    bar.innerHTML = `
+      <span class="dash-grip" title="끌어서 순서 바꾸기">⋮⋮</span>
+      <span class="dash-name">${escapeHtml(el.dataset.blockLabel || el.dataset.block)}</span>
+      <button type="button" class="dash-btn" data-dash-up title="위로">↑</button>
+      <button type="button" class="dash-btn" data-dash-down title="아래로">↓</button>
+      <button type="button" class="dash-btn ${off ? "" : "on"}" data-dash-toggle title="${off ? "보이기" : "숨기기"}">${off ? "숨김" : "보임"}</button>`;
+    el.draggable = true;
+  });
+}
+
+function moveDashBlock(key, delta) {
+  const layout = state.dashLayout || [];
+  const from = layout.findIndex((r) => r.key === key);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= layout.length) return;
+  const [row] = layout.splice(from, 1);
+  layout.splice(to, 0, row);
+  saveDashLayout();
+  applyDashLayout();
+}
+
+function bindDashEditor() {
+  state.dashLayout = loadDashLayout();
+  applyDashLayout();
+
+  $("#dashEditToggle")?.addEventListener("click", () => {
+    state.dashEditing = !state.dashEditing;
+    renderDashEditor();
+  });
+
+  const view = $("#view-dashboard");
+  if (!view) return;
+
+  view.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-dash-up], [data-dash-down], [data-dash-toggle]");
+    if (!button) return;
+    // 편집 중에는 패널 안의 원래 버튼이 눌리지 않게 한다
+    event.preventDefault();
+    event.stopPropagation();
+    const block = button.closest("[data-block]");
+    const key = block?.dataset.block;
+    if (!key) return;
+    if (button.hasAttribute("data-dash-up")) return moveDashBlock(key, -1);
+    if (button.hasAttribute("data-dash-down")) return moveDashBlock(key, 1);
+    const row = (state.dashLayout || []).find((r) => r.key === key);
+    if (row) {
+      row.off = !row.off;
+      saveDashLayout();
+      applyDashLayout();
+    }
+  });
+
+  /* 끌어서 옮기기 */
+  let dragKey = null;
+  view.addEventListener("dragstart", (event) => {
+    const block = event.target.closest("[data-block]");
+    if (!state.dashEditing || !block) return;
+    dragKey = block.dataset.block;
+    block.classList.add("dash-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    // 파이어폭스는 데이터가 있어야 드래그가 시작된다
+    event.dataTransfer.setData("text/plain", dragKey);
+  });
+  view.addEventListener("dragover", (event) => {
+    if (!dragKey) return;
+    event.preventDefault();
+    const over = event.target.closest("[data-block]");
+    dashBlocks().forEach((el) => el.classList.toggle("dash-over", el === over && el.dataset.block !== dragKey));
+  });
+  view.addEventListener("drop", (event) => {
+    if (!dragKey) return;
+    event.preventDefault();
+    const over = event.target.closest("[data-block]");
+    const layout = state.dashLayout || [];
+    const from = layout.findIndex((r) => r.key === dragKey);
+    const to = over ? layout.findIndex((r) => r.key === over.dataset.block) : -1;
+    if (from >= 0 && to >= 0 && from !== to) {
+      const [row] = layout.splice(from, 1);
+      layout.splice(to, 0, row);
+      saveDashLayout();
+    }
+    dashBlocks().forEach((el) => el.classList.remove("dash-over", "dash-dragging"));
+    dragKey = null;
+    applyDashLayout();
+  });
+  view.addEventListener("dragend", () => {
+    dashBlocks().forEach((el) => el.classList.remove("dash-over", "dash-dragging"));
+    dragKey = null;
+  });
+}
+
+
+function loadAcademic() {
+  if (state.academicLoaded) return;
+  const now = Date.now();
+  if (state.academicTriedAt && now - state.academicTriedAt < 60000) return;
+  state.academicTriedAt = now;
+
+  loadNotices(false);
+  api("/api/academic-calendar")
+    .then((res) => {
+      // 서버가 200으로 {ok:false}를 줄 수 있다. 이때 성공으로 치면 안 된다.
+      if (!res.ok || !(res.events || []).length) return;
+      state.academicLoaded = true;
+      state.academic = res.events;
+      renderDday();
+      if (state.view === "calendar") renderCalendar();
+    })
+    .catch(() => {
+      /* 다음 시도 때 다시 받는다 */
+    });
+}
+
+
 function renderDday() {
   const box = $("#ddayBanner");
   if (!box) return;
@@ -4196,6 +4388,10 @@ function renderNotices() {
 function loadNotices(refresh) {
   return api(`/api/notices${refresh ? "?refresh=1" : ""}`)
     .then((res) => {
+      if (!res.ok && !(res.items || []).length) {
+        if (refresh) showToast(res.message || "공지를 받지 못했어요.");
+        return;
+      }
       state.notices = res.items || [];
       renderNotices();
       if (refresh) showToast(`공지 ${state.notices.length}건을 새로 받았어요.`);
@@ -4313,6 +4509,7 @@ initRail();
 setHeroGreeting();
 bindNowBar();
 bindAcademic();
+bindDashEditor();
 renderNowBar();
 moveNavPill();
 window.addEventListener("resize", moveNavPill);

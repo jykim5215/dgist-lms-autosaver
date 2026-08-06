@@ -1366,6 +1366,29 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     return result
 
 
+def _restart_process() -> None:
+    """같은 명령으로 프로세스를 새로 띄우고 자신은 끝낸다.
+
+    응답이 먼저 나가도록 잠깐 기다린 뒤 실행한다.
+    """
+    import subprocess
+    import sys
+    import time as _time
+
+    _time.sleep(0.8)
+    try:
+        entry = PROJECT_ROOT / "app.py"
+        args = [sys.executable, str(entry)] if entry.exists() else [sys.executable, *sys.argv]
+        creation = 0
+        if os.name == "nt":
+            # 콘솔 창이 새로 뜨지 않게
+            creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(args, cwd=str(PROJECT_ROOT), close_fds=True, creationflags=creation)
+    except Exception:
+        pass
+    os._exit(0)
+
+
 def get_notices(workspace: UserWorkspace, refresh: bool = False) -> dict[str, Any]:
     """학교 공지. 로그인 없이 볼 수 있는 게시판만 모은다.
 
@@ -2190,7 +2213,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 import updater
                 result = updater.apply_update()
                 if result.get("ok"):
-                    result["message"] = f"{result['count']}개 파일을 업데이트했습니다. 앱을 재시작해 주세요."
+                    result["message"] = f"{result['count']}개 파일을 업데이트했습니다. 앱을 재시작하면 적용됩니다."
+                    result["needsRestart"] = True
                 else:
                     result["message"] = "업데이트할 파일을 받지 못했습니다."
                 self.send_json(result)
@@ -2387,6 +2411,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 if not event_id:
                     raise ValueError("삭제할 일정을 찾을 수 없습니다.")
                 self.send_json(delete_my_event(workspace, event_id))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/restart":
+            # 업데이트한 파이썬 코드는 프로세스를 다시 띄워야 반영된다.
+            # (파일만 새로 받아도 이미 메모리에 올라온 모듈은 그대로다)
+            try:
+                self.send_json({"ok": True, "message": "앱을 다시 시작합니다."})
+                threading.Thread(target=_restart_process, daemon=True).start()
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
