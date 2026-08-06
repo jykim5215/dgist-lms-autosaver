@@ -4210,7 +4210,6 @@ function renderDashEditor() {
     let bar = el.querySelector(":scope > .dash-bar");
     if (!editing) {
       bar?.remove();
-      el.draggable = false;
       return;
     }
     const idx = layout.findIndex((r) => r.key === el.dataset.block);
@@ -4226,7 +4225,6 @@ function renderDashEditor() {
       <button type="button" class="dash-btn" data-dash-up title="위로">↑</button>
       <button type="button" class="dash-btn" data-dash-down title="아래로">↓</button>
       <button type="button" class="dash-btn ${off ? "" : "on"}" data-dash-toggle title="${off ? "보이기" : "숨기기"}">${off ? "숨김" : "보임"}</button>`;
-    el.draggable = true;
   });
 }
 
@@ -4272,43 +4270,156 @@ function bindDashEditor() {
     }
   });
 
-  /* 끌어서 옮기기 */
-  let dragKey = null;
-  view.addEventListener("dragstart", (event) => {
-    const block = event.target.closest("[data-block]");
-    if (!state.dashEditing || !block) return;
-    dragKey = block.dataset.block;
-    block.classList.add("dash-dragging");
-    event.dataTransfer.effectAllowed = "move";
-    // 파이어폭스는 데이터가 있어야 드래그가 시작된다
-    event.dataTransfer.setData("text/plain", dragKey);
+  bindDashDrag(view);
+}
+
+/* 손가락(마우스)을 그대로 따라오는 끌어 옮기기.
+   HTML5 dragstart는 고스트 이미지가 따로 떠서 뚝뚝 끊겨 보인다.
+   포인터 이벤트로 직접 옮기고, 자리를 내주는 카드들은 FLIP으로 부드럽게 민다. */
+function bindDashDrag(view) {
+  let drag = null;
+
+  const rectsOf = () => new Map(dashBlocks().map((el) => [el.dataset.block, el.getBoundingClientRect()]));
+
+  /* 순서가 바뀐 뒤, 카드들이 '원래 있던 자리에서 새 자리로' 미끄러지게 한다.
+     requestAnimationFrame으로 두 프레임에 걸쳐 하면 창이 가려졌을 때
+     콜백이 안 와서 카드가 어긋난 채 멈춘다. 애니메이션 API로 한 번에 건다. */
+  const flip = (before) => {
+    dashBlocks().forEach((el) => {
+      if (drag && el === drag.el) return;
+      const was = before.get(el.dataset.block);
+      if (!was) return;
+      const dy = was.top - el.getBoundingClientRect().top;
+      if (!dy) return;
+      el.animate(
+        [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
+        { duration: 260, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
+    });
+  };
+
+  /* 변형이 걸린 상태의 위치를 되읽으면 값이 누적돼 튄다.
+     (창이 가려져 레이아웃이 갱신되지 않으면 오차가 계속 더해진다)
+     그래서 변형을 잠깐 지우고 '원래 자리'를 잰다. */
+  const naturalTop = (el) => {
+    const keep = el.style.transform;
+    el.style.transform = "";
+    const top = el.getBoundingClientRect().top;
+    el.style.transform = keep;
+    return top;
+  };
+
+  view.addEventListener("pointerdown", (event) => {
+    if (!state.dashEditing || event.button !== 0) return;
+    // 조작 줄의 버튼을 누른 것은 드래그가 아니다
+    if (event.target.closest("button")) return;
+    const el = event.target.closest("[data-block]");
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    drag = {
+      el,
+      key: el.dataset.block,
+      grabY: event.clientY,
+      startTop: rect.top,
+      baseTop: rect.top,
+      height: rect.height,
+      offset: 0,
+      moved: false,
+    };
+    el.setPointerCapture(event.pointerId);
   });
-  view.addEventListener("dragover", (event) => {
-    if (!dragKey) return;
-    event.preventDefault();
-    const over = event.target.closest("[data-block]");
-    dashBlocks().forEach((el) => el.classList.toggle("dash-over", el === over && el.dataset.block !== dragKey));
-  });
-  view.addEventListener("drop", (event) => {
-    if (!dragKey) return;
-    event.preventDefault();
-    const over = event.target.closest("[data-block]");
-    const layout = state.dashLayout || [];
-    const from = layout.findIndex((r) => r.key === dragKey);
-    const to = over ? layout.findIndex((r) => r.key === over.dataset.block) : -1;
-    if (from >= 0 && to >= 0 && from !== to) {
-      const [row] = layout.splice(from, 1);
-      layout.splice(to, 0, row);
-      saveDashLayout();
+
+  view.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    if (!drag.moved) {
+      // 살짝 눌린 것만으로 끌리지 않게
+      if (Math.abs(event.clientY - drag.grabY) < 4) return;
+      drag.moved = true;
+      drag.el.classList.add("dash-lift");
+      document.body.classList.add("dash-dragging-now");
     }
-    dashBlocks().forEach((el) => el.classList.remove("dash-over", "dash-dragging"));
-    dragKey = null;
-    applyDashLayout();
+    event.preventDefault();
+
+    // 보이는 위치 = 제자리(baseTop) + offset. 손을 따라가도록 offset을 정한다.
+    drag.offset = event.clientY - drag.grabY + (drag.startTop - drag.baseTop);
+    drag.el.style.transform = `translateY(${drag.offset}px) scale(1.015)`;
+
+    /* 자리 바꾸기는 '바로 옆 카드와 한 칸씩'만 한다.
+       중심이 어느 카드 영역에 들어왔는지로 판단하면, 카드 높이가 제각각일 때
+       한 번에 여러 칸이 건너뛰며 왔다 갔다 한다. */
+    const center = drag.baseTop + drag.offset + drag.height / 2;
+    const layout = state.dashLayout || [];
+    const from = layout.findIndex((r) => r.key === drag.key);
+    if (from < 0) return;
+
+    const nodeOf = (key) => dashBlocks().find((el) => el.dataset.block === key);
+    // 높이가 0인 것(숨겨져 안 보이는 카드)은 건너뛴다
+    const neighbour = (step) => {
+      for (let i = from + step; i >= 0 && i < layout.length; i += step) {
+        const node = nodeOf(layout[i].key);
+        if (node && node.getBoundingClientRect().height > 4) return { i, node };
+      }
+      return null;
+    };
+
+    let to = -1;
+    const up = neighbour(-1);
+    const down = neighbour(1);
+    if (up) {
+      const r = up.node.getBoundingClientRect();
+      if (center < r.top + r.height / 2) to = up.i;
+    }
+    if (to < 0 && down) {
+      const r = down.node.getBoundingClientRect();
+      if (center > r.top + r.height / 2) to = down.i;
+    }
+    if (to < 0) return;
+
+    const before = rectsOf();
+    const [row] = layout.splice(from, 1);
+    layout.splice(to, 0, row);
+    // DOM 순서만 바꾼다 (조작 줄을 다시 그리면 끌던 것이 끊긴다)
+    const nodes = new Map(dashBlocks().map((el) => [el.dataset.block, el]));
+    layout.forEach((r) => {
+      const node = nodes.get(r.key);
+      if (node) view.appendChild(node);
+    });
+    flip(before);
+    // 자리가 바뀌었으니 '제자리'를 다시 재고, 손 위치는 그대로 유지한다
+    drag.baseTop = naturalTop(drag.el);
+    drag.offset = event.clientY - drag.grabY + (drag.startTop - drag.baseTop);
+    drag.el.style.transform = `translateY(${drag.offset}px) scale(1.015)`;
   });
-  view.addEventListener("dragend", () => {
-    dashBlocks().forEach((el) => el.classList.remove("dash-over", "dash-dragging"));
-    dragKey = null;
-  });
+
+  const finish = (event) => {
+    if (!drag) return;
+    const el = drag.el;
+    const wasMoved = drag.moved;
+    if (wasMoved) {
+      // 손을 놓으면 제자리로 미끄러져 들어간다.
+      // 먼저 인라인 transform을 지워 '제자리'로 만들고, 그 차이를 애니메이션으로 메운다.
+      const from = el.style.transform;
+      el.style.transform = "";
+      el.classList.remove("dash-lift");
+      el.animate(
+        [{ transform: from }, { transform: "none" }],
+        { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
+      document.body.classList.remove("dash-dragging-now");
+      saveDashLayout();
+      renderDashEditor();
+    }
+    try {
+      el.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      /* 이미 놓였으면 무시 */
+    }
+    drag = null;
+  };
+
+  view.addEventListener("pointerup", finish);
+  view.addEventListener("pointercancel", finish);
 }
 
 

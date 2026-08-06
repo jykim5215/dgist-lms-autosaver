@@ -5193,6 +5193,8 @@ textarea:focus {
   outline-offset: 3px;
   border-radius: var(--radius);
   cursor: grab;
+  /* 휴대폰에서 끌 때 화면이 같이 스크롤되지 않게 */
+  touch-action: none;
 }
 .dash-editing [data-block]:active { cursor: grabbing; }
 /* 편집 중에는 안쪽 버튼·입력이 눌리지 않게 (조작 줄만 살린다) */
@@ -5234,9 +5236,27 @@ textarea:focus {
 .dash-btn:hover { background: var(--surface-soft); color: var(--text); }
 .dash-btn.on { border-color: var(--accent); color: var(--accent-strong); }
 
-.dash-dragging { opacity: 0.5; }
-.dash-over { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* 끌어 올린 카드: 살짝 떠오르고 그림자가 진다 */
+.dash-lift {
+  z-index: 5;
+  cursor: grabbing;
+  box-shadow: 0 14px 30px -10px rgba(31, 30, 29, 0.32);
+  border-radius: var(--radius);
+  /* 끄는 동안에는 transition이 없어야 손을 그대로 따라온다 */
+  transition: none !important;
+}
+/* 끄는 중에는 글자가 잡히지 않게 */
+body.dash-dragging-now { user-select: none; }
+body.dash-dragging-now * { cursor: grabbing !important; }
+
+/* 휴대폰에서는 손가락으로 누를 만큼 키운다 */
+@media (max-width: 760px) {
+  .dash-bar { gap: 8px; padding: 6px 8px; }
+  .dash-btn { min-width: 40px; min-height: 34px; font-size: 12px; }
+  .dash-grip { font-size: 14px; padding: 0 2px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .dash-editing [data-block] { transition: none; }
+  .dash-lift { box-shadow: none; }
 }
