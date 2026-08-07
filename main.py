@@ -35,13 +35,24 @@ async def run_job():
     skipped_count = 0
     excluded_count = 0
 
+    # 다운로드 경로가 개인 Downloads 폴더로 잡혀 있을 수 있다.
+    # 폴더 안의 파일을 전부 훑으면 앱과 무관한 개인 파일(문서, 설치 파일,
+    # 심지어 client_secret 같은 비밀키)까지 Drive로 올라간다.
+    # 그래서 '앱이 직접 받아 기록해 둔 파일'만 올린다.
+    personal_count = 0
+
     if os.path.exists(DOWNLOAD_PATH):
         for file_name in os.listdir(DOWNLOAD_PATH):
             file_path = os.path.join(DOWNLOAD_PATH, file_name)
             if not os.path.isfile(file_path):
                 continue
 
-            meta = file_metadata.get(file_name, {})
+            meta = file_metadata.get(file_name)
+            if not meta:
+                # 앱이 받은 기록이 없는 파일 = 사용자 개인 파일. 절대 올리지 않는다.
+                personal_count += 1
+                continue
+
             course_name = meta.get('course', '기타')
             folder_path = meta.get('folder_path', [])
             drive_file_name = meta.get('original_name', file_name)
@@ -58,7 +69,10 @@ async def run_job():
             elif result:
                 uploaded_count += 1
 
-    print(f"[Drive 동기화 완료] 신규 {uploaded_count}개 업로드, 기존 {skipped_count}개 스킵, 선택 제외 {excluded_count}개")
+    summary = f"[Drive 동기화 완료] 신규 {uploaded_count}개 업로드, 기존 {skipped_count}개 스킵, 선택 제외 {excluded_count}개"
+    if personal_count:
+        summary += f", 앱과 무관한 개인 파일 {personal_count}개는 건드리지 않음"
+    print(summary)
 
     # 5. 이메일 알림
     if new_files:
