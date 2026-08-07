@@ -3404,6 +3404,9 @@ function renderTimetable() {
 
   grid.style.setProperty("--tt-days", String(dayCount));
   grid.style.setProperty("--tt-height", `${totalMin * pxPerMin}px`);
+  // 미리보기가 같은 좌표계를 쓰도록 남겨 둔다
+  grid.dataset.startHour = String(startHour);
+  grid.dataset.pxPerMin = String(pxPerMin);
 
   const hourRows = [];
   for (let h = startHour; h < endHour; h += 1) {
@@ -3444,6 +3447,9 @@ function renderTimetable() {
       <div class="tt-cols">${cols.join("")}</div>
     </div>`;
 
+  // 커서를 올려 둔 과목이 있으면 그 자리에 미리보기를 얹는다
+  renderTtPreview();
+
   const hint = $("#timetableHint");
   if (hint) {
     hint.textContent = entries.length
@@ -3451,6 +3457,66 @@ function renderTimetable() {
       : "빈 칸을 누르면 과목을 넣을 수 있어요.";
   }
 }
+
+/* ===== 개설과목 미리보기 =====
+   목록의 과목에 커서를 올리면 시간표 위에 '들어갈 자리'를 흐리게 보여 준다.
+   이미 있는 수업과 겹치면 그 수업을 빨갛게 표시해, 넣으면 대체된다는 걸 알린다. */
+function ttOverlaps(slot, entry) {
+  if (Number(entry.day) !== Number(slot.day)) return false;
+  // 끝시각과 시작시각이 같은 건 겹친 게 아니다
+  return ttMinutes(slot.start) < ttMinutes(entry.end) && ttMinutes(entry.start) < ttMinutes(slot.end);
+}
+
+/** 새로 넣을 슬롯들과 겹치는 기존 수업 */
+function ttConflicts(slots) {
+  return (state.timetable || []).filter((e) => slots.some((s) => ttOverlaps(s, e)));
+}
+
+function renderTtPreview() {
+  const grid = $("#timetable");
+  const course = state.ttPreview;
+  if (!grid) return;
+  grid.querySelectorAll(".tt-ghost").forEach((el) => el.remove());
+  grid.querySelectorAll(".tt-block.will-replace").forEach((el) => el.classList.remove("will-replace"));
+  if (!course) return;
+
+  const startHour = Number(grid.dataset.startHour || 9);
+  const pxPerMin = Number(grid.dataset.pxPerMin || 0.9);
+
+  const clash = new Set(ttConflicts(course.slots).map((e) => e.id));
+  clash.forEach((id) => {
+    grid.querySelector(`[data-tt="${CSS.escape(id)}"]`)?.classList.add("will-replace");
+  });
+
+  course.slots.forEach((s) => {
+    const col = grid.querySelector(`.tt-col[data-day="${s.day}"]`);
+    if (!col) return;
+    const top = (ttMinutes(s.start) - startHour * 60) * pxPerMin;
+    const height = Math.max(22, (ttMinutes(s.end) - ttMinutes(s.start)) * pxPerMin);
+    const ghost = document.createElement("div");
+    ghost.className = `tt-ghost tone-${course.color || "coral"}${clash.size ? " clash" : ""}`;
+    ghost.style.top = `${top}px`;
+    ghost.style.height = `${height}px`;
+    ghost.innerHTML = `<strong>${escapeHtml(shortText(course.title, 16))}</strong>
+      <em>${escapeHtml(s.start)}~${escapeHtml(s.end)}</em>`;
+    col.appendChild(ghost);
+  });
+
+  const hint = $("#timetableHint");
+  if (hint) {
+    hint.textContent = clash.size
+      ? `'${shortText(course.title, 16)}'을(를) 넣으면 겹치는 ${clash.size}개 수업이 지워집니다.`
+      : `'${shortText(course.title, 16)}'이(가) 여기에 들어갑니다.`;
+  }
+}
+
+function setTtPreview(course) {
+  if (state.ttPreview === course) return;
+  state.ttPreview = course;
+  renderTtPreview();
+  if (!course) renderTimetable();
+}
+
 
 function openTtEditor(entry = null, preset = {}) {
   const panel = $("#ttEditor");
@@ -3618,7 +3684,22 @@ function bindTimetable() {
   $("#catalogTerm")?.addEventListener("change", reload);
   $("#catalogLevel")?.addEventListener("change", reload);
 
-  $("#catalogClose")?.addEventListener("click", () => ($("#catalogPanel").hidden = true));
+  $("#catalogClose")?.addEventListener("click", () => {
+    $("#catalogPanel").hidden = true;
+    setTtPreview(null);
+  });
+
+  // 과목에 커서를 올리면 시간표에 들어갈 자리를 미리 보여 준다
+  const list = $("#catalogList");
+  list?.addEventListener("pointerover", (event) => {
+    const row = event.target.closest("[data-course-index]");
+    if (!row) return;
+    const course = (state.catalog || [])[Number(row.dataset.courseIndex)];
+    if (course && course.slots.length) {
+      setTtPreview({ ...course, color: TT_COLORS[(state.timetable || []).length % TT_COLORS.length] });
+    }
+  });
+  list?.addEventListener("pointerleave", () => setTtPreview(null));
   $("#catalogSearch")?.addEventListener("input", renderCatalog);
   $("#catalogList")?.addEventListener("click", async (event) => {
     const btn = event.target.closest("[data-add-course]");
@@ -3633,14 +3714,27 @@ function bindTimetable() {
       room: s.room,
       color: TT_COLORS[(state.timetable || []).length % TT_COLORS.length],
     }));
+    // 시간이 겹치는 기존 수업은 새 것으로 대체한다
+    const clash = ttConflicts(course.slots);
     try {
+      for (const old of clash) {
+        await api("/api/timetable/delete", {
+          method: "POST",
+          body: JSON.stringify({ id: old.id }),
+        });
+      }
       const saved = await api("/api/timetable/bulk", {
         method: "POST",
         body: JSON.stringify({ entries }),
       });
       state.timetable = saved.entries || [];
+      setTtPreview(null);
       renderTimetable();
-      showToast(`'${shortText(course.title, 20)}' 추가했습니다.`);
+      showToast(
+        clash.length
+          ? `'${shortText(course.title, 18)}' 추가 · 겹치던 ${clash.length}개를 대체했습니다.`
+          : `'${shortText(course.title, 20)}' 추가했습니다.`,
+      );
     } catch (error) {
       showToast(error.message);
     }
@@ -3696,7 +3790,7 @@ function renderCatalog() {
     ? rows
         .map(
           ({ c, i }) => `
-      <div class="catalog-row">
+      <div class="catalog-row" data-course-index="${i}">
         <div class="catalog-main">
           <strong title="${escapeHtml(c.title)}">${escapeHtml(shortText(c.title, 38))}</strong>
           <span>${escapeHtml(c.courseNo)}${c.professor ? " · " + escapeHtml(shortText(c.professor, 18)) : ""}${c.credit ? " · " + escapeHtml(c.credit) + "학점" : ""}</span>

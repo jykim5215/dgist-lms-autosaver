@@ -864,6 +864,45 @@ body {
   text-overflow: ellipsis;
 }
 
+/* 들어갈 자리 미리보기 */
+.tt-ghost {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  pointer-events: none;
+  opacity: 0.55;
+  border: 2px dashed rgba(255, 255, 255, 0.75);
+  z-index: 2;
+  animation: tt-ghost-in 0.18s ease-out;
+}
+.tt-ghost strong {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-ghost em { font-size: 9.5px; font-style: normal; opacity: 0.9; }
+@keyframes tt-ghost-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 0.55; transform: scale(1); }
+}
+
+/* 겹쳐서 지워질 기존 수업 */
+.tt-block.will-replace {
+  outline: 2px solid var(--red);
+  outline-offset: -2px;
+  opacity: 0.4;
+  filter: saturate(0.4);
+}
+
 /* 시간표 색 */
 .tone-coral  { background: #d97757; }
 .tone-blue   { background: #5b7da8; }

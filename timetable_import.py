@@ -11,7 +11,12 @@
 from __future__ import annotations
 
 import asyncio
+import http.cookiejar
+import json
 import re
+import time
+import urllib.parse
+import urllib.request
 from typing import Any
 
 DAY_TO_INDEX = {
@@ -252,114 +257,88 @@ TERM_CODES = {"spring": "CMN17.10", "summer": "CMN17.11", "fall": "CMN17.20", "w
 TERM_LABELS = {"CMN17.10": "1학기", "CMN17.11": "여름학기", "CMN17.20": "2학기", "CMN17.21": "겨울학기"}
 
 
-# 표 머리글은 언어에 따라 달라진다. 한국어일 때는 과목명도 한국어로 나온다.
-DGIST_HEADERS = {
-    "en": {
-        "year": "학년도", "term": "학기", "dept": "Department", "no": "CourseNumber",
-        "section": "Section", "title": "Course Title", "prof": "Instructor",
-        "credit": "Credit", "when": "Day/Time/Class Room", "classification": "Classification",
-    },
-    "ko": {
-        "year": "학년도", "term": "학기", "dept": "개설전공", "no": "과목번호",
-        "section": "분반", "title": "교과목명", "prof": "담당교수",
-        "credit": "학점", "when": "요일/교시/강의실", "classification": "이수구분",
-    },
-}
-
-# 표를 읽어 오는 코드. 언어별 머리글 이름만 바꿔 끼운다.
-_SCRAPE_JS = """(names) => {
-    const tables = [...document.querySelectorAll('table')];
-    const hdrTable = tables.find(t => t.querySelectorAll('th').length > 5);
-    const big = tables.find(t => t.rows.length > 20);
-    if (!hdrTable || !big) return [];
-    const headers = [...hdrTable.querySelectorAll('th')].map(h => h.textContent.trim());
-    const idx = {};
-    for (const [key, label] of Object.entries(names)) idx[key] = headers.indexOf(label);
-    const rows = [];
-    [...big.rows].forEach(r => {
-        const c = [...r.cells].map(x => x.textContent.trim());
-        const pick = (k) => (idx[k] >= 0 ? (c[idx[k]] || '') : '');
-        if (!c.length || !pick('title')) return;
-        rows.push({
-            year: pick('year'), term: pick('term'), dept: pick('dept'),
-            courseNo: pick('no'), section: pick('section'), title: pick('title'),
-            professor: pick('prof'), credit: pick('credit'),
-            when: pick('when'), classification: pick('classification')
-        });
-    });
-    return rows;
-}"""
+# 개설과목 목록은 화면을 그리기 전에 이 주소로 JSON을 받아 온다.
+# (검색 버튼을 눌렀을 때 실제로 나가는 요청을 확인해 알아냈다)
+# 브라우저를 띄우지 않아도 되므로 60~90초 걸리던 것이 2초면 끝난다.
+DGIST_LIST_URL = "https://welcome.dgist.ac.kr/ucs/ucsqProfRespSbjtInq/list.do"
 
 
-async def _run_dgist_search(page, year_term: str, org: str, timeout_ms: int) -> None:
-    """조회 조건을 걸고 검색 버튼을 누른다."""
-    # 화면에 보이는 쪽(...Dcd2)을 반드시 설정해야 필터가 먹는다.
-    await page.evaluate(
-        """(org) => {
-            // 조직분류(학부/대학원)는 change를 보내야 반영된다.
-            // 화면에 보이는 쪽(...Dcd2)까지 함께 설정해야 한다.
-            const setWithChange = (name, val) => {
-                const el = document.querySelector(`[name=${name}]`);
-                if (!el || !val) return;
-                el.value = val;
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            };
-            setWithChange('searchOrgnClsfDcd1', org);
-            setWithChange('searchOrgnClsfDcd2', org);
-        }""",
-        org,
+# 교육과정 연도(searchCuriShyy)는 과정마다 다르다. 값이 맞지 않으면 0건이 온다.
+# 학부는 2024, 대학원은 2011 (사이트에서 실제로 확인)
+CURI_SHYY = {ORG_UNDERGRAD: "2024", ORG_GRADUATE: "2011"}
+
+
+def _dgist_query(opener, lang: str, year_term: str, org: str, timeout: int = 25) -> list[dict[str, Any]]:
+    """개설과목 JSON 한 번 받기. lang은 'ko' 또는 'en'."""
+    body = urllib.parse.urlencode(
+        {
+            "pageNum": "1", "pageSize": "99999", "sortName": "", "sortOrder": "",
+            "commonMenuId": "", "commonProgramId": "UcsqProfRespSbjtInq", "dummytext": "",
+            "searchLang": lang, "selectCdDiv": "", "searchOrgnClsfDcd": org,
+            "strDiv": "", "langPssbFlag": "Y",
+            "searchOrgnClsfDcd1": org, "searchOrgnClsfDcd2": org,
+            "selectYearTerm": year_term,
+            "searchCuriShyy": CURI_SHYY.get(org, "2024"),
+            "searchSust": "",
+            "searchCors": "", "searchCptnDcd": "", "searchSbjtDetaDcd": "",
+            "searchSbNo": "", "searchNm": "", "searchSPnt": "", "searchEPnt": "",
+            "searchProfNm": "",
+            # 표(jqGrid)가 함께 보내는 값들. 빠지면 빈 결과가 온다.
+            "_search": "false", "nd": str(int(time.time() * 1000)),
+            "rows": "99999", "page": "1", "sidx": "", "sord": "asc",
+        }
+    ).encode()
+    req = urllib.request.Request(
+        DGIST_LIST_URL,
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        },
     )
-    await page.wait_for_timeout(900)
-    # 학기는 반대다. change를 보내면 사이트 핸들러가 '현재 학기'로 되돌리므로
-    # 값만 넣고, 조직 변경 핸들러가 되돌리지 못하도록 검색 직전에 설정한다.
-    await page.evaluate(
-        """(yearTerm) => {
-            const term = document.querySelector('[name=selectYearTerm]');
-            if (term && yearTerm) term.value = yearTerm;
-        }""",
-        year_term,
-    )
-    await page.click("#btn_Search")
-    await page.wait_for_timeout(4000)
-    await page.wait_for_function(
-        "() => [...document.querySelectorAll('table')].some(t => t.rows.length > 3)",
-        timeout=timeout_ms,
-    )
+    with opener.open(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    return data.get("user") or []
 
 
-async def _fetch_dgist(
+def _fetch_dgist(
     year_term: str = "", org: str = ORG_UNDERGRAD, timeout_ms: int = 45000
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(한국어 목록, 영어 목록)을 돌려준다.
 
-    사이트는 기본이 영어라 과목명이 'Introduction to…'로 나온다.
-    KOR 버튼을 누르면 같은 표가 한국어(교과목명·담당교수)로 바뀌므로,
-    한 번의 접속에서 두 언어를 모두 읽어 검색에 함께 쓴다.
+    사이트가 쓰는 JSON 주소를 그대로 부른다. 먼저 화면을 한 번 열어
+    세션 쿠키를 받아야 결과가 나온다.
     """
-    from playwright.async_api import async_playwright
+    timeout = max(10, int(timeout_ms / 1000))
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    opener.addheaders = [("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")]
+    opener.open(DGIST_CATALOG_URL, timeout=timeout).read()
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        try:
-            page = await browser.new_page()
-            await page.goto(DGIST_CATALOG_URL, wait_until="networkidle", timeout=timeout_ms)
+    def rows(lang: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "year": r.get("SHYY", ""),
+                "term": r.get("SHTM_DCD", ""),
+                "dept": r.get("ASGN_SUST_NM", ""),
+                "courseNo": r.get("SBJT_NO", ""),
+                "section": r.get("CLSS_NO", ""),
+                "title": r.get("SBJT_NM", ""),
+                "professor": r.get("PROF_NM", ""),
+                "credit": r.get("PNT", ""),
+                "when": r.get("TLSN_TIME", ""),
+                "classification": r.get("CPTN_NM", ""),
+            }
+            for r in _dgist_query(opener, lang, year_term, org, timeout)
+        ]
 
-            await _run_dgist_search(page, year_term, org, timeout_ms)
-            english = await page.evaluate(_SCRAPE_JS, DGIST_HEADERS["en"])
-
-            # 한국어로 전환한 뒤 같은 조건으로 다시 검색한다.
-            korean: list[dict[str, Any]] = []
-            try:
-                await page.click("#koBtn")
-                await page.wait_for_timeout(2500)
-                await _run_dgist_search(page, year_term, org, timeout_ms)
-                korean = await page.evaluate(_SCRAPE_JS, DGIST_HEADERS["ko"])
-            except Exception:
-                # 한국어 전환이 실패해도 영어 목록만으로 동작해야 한다.
-                korean = []
-            return korean, english
-        finally:
-            await browser.close()
+    korean = rows("ko")
+    try:
+        english = rows("en")
+    except Exception:
+        # 영어 이름은 검색 보조용이라, 없어도 한국어만으로 동작한다.
+        english = []
+    return korean, english
 
 
 def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict[str, Any]:
@@ -370,7 +349,8 @@ def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict
     """
     year_term = (year_term or "").strip() or current_term_value()
     org = ORG_UNDERGRAD if undergraduate else ORG_GRADUATE
-    korean, english = asyncio.run(_fetch_dgist(year_term=year_term, org=org))
+    # 이제 브라우저를 안 쓰므로 그냥 부른다
+    korean, english = _fetch_dgist(year_term=year_term, org=org)
 
     # 같은 과목을 두 언어로 맞춰 둔다. 과목번호+분반이면 한 과목으로 정해진다.
     def key_of(row: dict[str, Any]) -> str:

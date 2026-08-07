@@ -94,6 +94,7 @@ class UserWorkspace:
     shelves_path: Path
     academic_path: Path
     notices_path: Path
+    catalog_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -131,6 +132,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         shelves_path=root / "shelves.json",
         academic_path=root / "academic_calendar.json",
         notices_path=root / "notices.json",
+        catalog_path=root / "course_catalog.json",
     )
 
 
@@ -1366,6 +1368,39 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     return result
 
 
+def get_course_catalog(
+    workspace: UserWorkspace, year_term: str, undergraduate: bool, refresh: bool = False
+) -> dict[str, Any]:
+    """개설과목 목록. 학기 중에는 거의 바뀌지 않으니 하루 캐시를 둔다."""
+    import timetable_import
+
+    key = f"{year_term or 'auto'}|{'under' if undergraduate else 'grad'}"
+    cache = read_json(workspace.catalog_path, {}) or {}
+    entry = cache.get(key) if isinstance(cache, dict) else None
+    if entry and not refresh:
+        try:
+            fetched = datetime.fromisoformat(entry.get("fetchedAt", ""))
+            if (datetime.now() - fetched).total_seconds() < 86400:
+                return {"cached": True, **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+        except ValueError:
+            pass
+
+    result = timetable_import.fetch_dgist_catalog(
+        year_term=year_term, undergraduate=undergraduate
+    )
+    if result.get("ok") and result.get("courses"):
+        if not isinstance(cache, dict):
+            cache = {}
+        cache[key] = {**result, "fetchedAt": datetime.now().isoformat(timespec="seconds")}
+        workspace.catalog_path.write_text(
+            json.dumps(cache, ensure_ascii=False), encoding="utf-8"
+        )
+    elif entry:
+        # 새로 못 받으면 지난 것이라도 보여 준다
+        return {"cached": True, "stale": True, **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+    return result
+
+
 def _restart_process() -> None:
     """같은 명령으로 프로세스를 새로 띄우고 자신은 끝낸다.
 
@@ -1996,12 +2031,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/course-catalog":
             try:
-                import timetable_import
-                params = parse_qs(parsed.query)
                 self.send_json(
-                    timetable_import.fetch_dgist_catalog(
+                    get_course_catalog(
+                        workspace,
                         year_term=(params.get("term", [""])[0] or ""),
                         undergraduate=(params.get("level", ["under"])[0] != "grad"),
+                        refresh=params.get("refresh", [""])[0] == "1",
                     )
                 )
             except Exception as exc:
