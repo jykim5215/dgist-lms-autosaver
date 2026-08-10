@@ -582,10 +582,20 @@
                       </div>
                     </div>
                     <div class="mail-read-scroll">
-                      <h1 id="readSubject"></h1>
-                      <p class="read-meta" id="readMeta"></p>
-                      <p class="read-summary" id="readSummary" hidden></p>
-                      <div class="read-body" id="readBody"></div>
+                      <!-- 읽기 영역은 글줄이 너무 길어지지 않게 폭을 묶는다 -->
+                      <article class="read-doc">
+                        <h1 id="readSubject"></h1>
+                        <div class="read-from">
+                          <span class="read-avatar" id="readAvatar" aria-hidden="true"></span>
+                          <div class="read-from-main">
+                            <strong id="readSender"></strong>
+                            <span id="readAddress"></span>
+                          </div>
+                          <time id="readDate"></time>
+                        </div>
+                        <p class="read-summary" id="readSummary" hidden></p>
+                        <div class="read-body" id="readBody"></div>
+                      </article>
                     </div>
                   </div>
 

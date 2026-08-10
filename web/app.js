@@ -559,7 +559,13 @@ function openEmailDetail(mail) {
   chip.textContent = `${icon} ${mail.category || "기타"}`;
   $("#readSubject").textContent = mail.subject;
   const date = mail.date ? formatEmailDate(mail.date) : "";
-  $("#readMeta").textContent = `${mail.fromName || mail.fromEmail} <${mail.fromEmail}>${date ? " · " + date : ""}`;
+  const sender = mail.fromName || mail.fromEmail || "";
+  $("#readSender").textContent = sender;
+  // 이름이 곧 주소면 두 번 쓰지 않는다
+  $("#readAddress").textContent = sender === mail.fromEmail ? "" : mail.fromEmail || "";
+  $("#readDate").textContent = date;
+  const avatar = $("#readAvatar");
+  avatar.textContent = (sender.trim()[0] || "?").toUpperCase();
 
   const summary = $("#readSummary");
   if (mail.summary && mail.summary !== mail.subject) {
@@ -2041,25 +2047,22 @@ function calendarItems() {
     });
   });
   // 학교 학사일정 (수강신청·성적확인 같은 것)
+  // 하루짜리만 칸 안의 칩으로 넣는다.
+  // 여러 날에 걸친 것은 calendarSpans()가 이어진 막대로 그린다.
   (state.academic || [])
     .filter((e) => !state.academicUnderOnly || e.kind !== "대학원")
     .forEach((e) => {
-    // 기간 일정은 시작일부터 종료일까지 매일 표시한다
-    const start = new Date(`${e.start}T00:00`);
-    const end = new Date(`${e.end || e.start}T00:00`);
-    if (Number.isNaN(start.getTime())) return;
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const start = new Date(`${e.start}T00:00`);
+      if (Number.isNaN(start.getTime())) return;
+      if ((e.end || e.start) !== e.start) return;
       items.push({
-        date: new Date(d),
+        date: start,
         title: e.title,
         sub: e.kind === "공통" ? "학사일정" : `학사일정 · ${e.kind}`,
         kind: "academic",
         allDay: true,
       });
-      // 너무 긴 기간이 달력을 덮지 않도록 한 달까지만
-      if ((d - start) / 86400000 > 31) break;
-    }
-  });
+    });
   return items;
 }
 
@@ -2093,6 +2096,15 @@ function renderCalendar() {
     .map((w, i) => `<div class="cal-weekday ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</div>`)
     .join("");
   for (let i = 0; i < startDow; i += 1) html += `<div class="cal-cell empty"></div>`;
+
+  // 여러 날에 걸친 학사일정을 이어진 막대로
+  const { segments, laneCount } = calendarSpans(y, m, startDow, daysInMonth);
+  const spansByDay = new Map();
+  segments.forEach((seg) => {
+    const list = spansByDay.get(seg.day) || [];
+    list.push(seg);
+    spansByDay.set(seg.day, list);
+  });
   // 삼성 캘린더처럼 칸 안에 일정 제목을 간략히 표시 (넘치면 +N)
   const MAX_CHIPS = 3;
   for (let d = 1; d <= daysInMonth; d += 1) {
@@ -2112,10 +2124,23 @@ function renderCalendar() {
     const holiday = state.showHolidays ? holidayName(y, m + 1, d) : null;
     // 일요일·공휴일은 빨강, 토요일은 파랑
     const dayTone = holiday || dow === 0 ? "sun" : dow === 6 ? "sat" : "";
+    const week = Math.floor((startDow + d - 1) / 7);
+    const lanes = laneCount.get(week) || 0;
+    const bars = (spansByDay.get(d) || [])
+      .map(
+        (seg) => `
+        <span class="cal-span kind-${escapeHtml(seg.kind || "공통")}${seg.openStart ? " open-start" : ""}${seg.openEnd ? " open-end" : ""}"
+              style="--span:${seg.length}; --lane:${seg.lane}"
+              title="${escapeHtml(seg.title)} (${escapeHtml(seg.start)} ~ ${escapeHtml(seg.end)})">
+          ${escapeHtml(seg.title)}
+        </span>`,
+      )
+      .join("");
     html += `
-      <div class="cal-cell ${isToday(d) ? "today" : ""} ${state.calSelected === d ? "selected" : ""} ${dayTone}" data-day="${d}">
+      <div class="cal-cell ${isToday(d) ? "today" : ""} ${state.calSelected === d ? "selected" : ""} ${dayTone}" data-day="${d}" style="--lanes:${lanes}">
         <span class="cal-daynum">${d}</span>
         ${holiday ? `<span class="cal-holiday" title="${escapeHtml(holiday)}">${escapeHtml(shortText(holiday, 7))}</span>` : ""}
+        ${bars}
         <span class="cal-chips">${chips}${more}</span>
       </div>`;
   }
@@ -2125,6 +2150,80 @@ function renderCalendar() {
   // 선택된 날짜(없으면 오늘 또는 첫 일정일) 상세 목록
   renderCalendarDayList(byDay);
 }
+
+/* ===== 여러 날에 걸친 일정을 막대로 잇기 =====
+   날마다 같은 제목을 반복해 찍으면 달력이 지저분하다.
+   다른 캘린더들처럼 시작일부터 종료일까지 하나의 막대로 잇는다.
+   달력은 7칸 그리드라, 주가 바뀌는 지점에서 막대를 끊어 이어 붙인다. */
+function calendarSpans(year, month, startDow, daysInMonth) {
+  const events = (state.academic || [])
+    .filter((e) => !state.academicUnderOnly || e.kind !== "대학원")
+    .filter((e) => (e.end || e.start) !== e.start);
+
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month, daysInMonth);
+  const segments = [];
+
+  events.forEach((e) => {
+    const s = new Date(`${e.start}T00:00`);
+    const t2 = new Date(`${e.end}T00:00`);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(t2.getTime())) return;
+    // 이번 달에 걸치는 부분만
+    const from = s < monthStart ? monthStart : s;
+    const to = t2 > monthEnd ? monthEnd : t2;
+    if (from > to) return;
+
+    let day = from.getDate();
+    const lastDay = to.getDate();
+    while (day <= lastDay) {
+      const idx = startDow + day - 1;
+      const week = Math.floor(idx / 7);
+      const col = idx % 7;
+      // 이 주에서 몇 칸까지 이어지는지
+      const room = 7 - col;
+      const length = Math.min(room, lastDay - day + 1);
+      segments.push({
+        week,
+        col,
+        day,
+        length,
+        title: e.title,
+        kind: e.kind,
+        // 잘려서 이어지는 쪽은 모서리를 각지게 해 '계속됨'을 보인다
+        openStart: day > from.getDate() || s < monthStart,
+        openEnd: day + length - 1 < lastDay || t2 > monthEnd,
+        start: e.start,
+        end: e.end,
+      });
+      day += length;
+    }
+  });
+
+  // 같은 주에서 겹치지 않도록 층(lane)을 나눈다
+  const lanesByWeek = new Map();
+  segments.sort((a, b) => a.week - b.week || a.col - b.col || b.length - a.length);
+  segments.forEach((seg) => {
+    const used = lanesByWeek.get(seg.week) || [];
+    let lane = 0;
+    while (
+      used.some(
+        (u) => u.lane === lane && seg.col < u.col + u.length && u.col < seg.col + seg.length,
+      )
+    ) {
+      lane += 1;
+    }
+    seg.lane = lane;
+    used.push(seg);
+    lanesByWeek.set(seg.week, used);
+  });
+
+  const laneCount = new Map();
+  lanesByWeek.forEach((list, week) => {
+    laneCount.set(week, Math.max(...list.map((s) => s.lane)) + 1);
+  });
+  return { segments, laneCount };
+}
+
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -2280,7 +2379,7 @@ function renderCalendarDayList(byDay) {
         <div class="cal-item" ${it.mailId ? `data-mailid="${it.mailId}"` : ""}>
           <span class="cal-item-date">${it.date.getMonth() + 1}/${it.date.getDate()} ${String(it.date.getHours()).padStart(2, "0")}:${String(it.date.getMinutes()).padStart(2, "0")}</span>
           <span class="dot cal-${it.kind}"></span>
-          <div class="cal-item-main"><strong>${escapeHtml(shortText(it.title, 46))}</strong><span>${escapeHtml(shortText(it.sub || "", 34))}</span></div>
+          <div class="cal-item-main"><strong>${escapeHtml(it.title)}</strong><span>${escapeHtml(it.sub || "")}</span></div>
         </div>`,
           )
           .join("")
@@ -2296,7 +2395,7 @@ function renderCalendarDayList(byDay) {
       <div class="cal-item" ${it.mailId ? `data-mailid="${it.mailId}"` : ""}>
         <span class="cal-item-date">${String(it.date.getHours()).padStart(2, "0")}:${String(it.date.getMinutes()).padStart(2, "0")}</span>
         <span class="dot cal-${it.kind}"></span>
-        <div class="cal-item-main"><strong>${escapeHtml(shortText(it.title, 46))}</strong><span>${escapeHtml(shortText(it.sub || "", 34))}</span></div>
+        <div class="cal-item-main"><strong>${escapeHtml(it.title)}</strong><span>${escapeHtml(it.sub || "")}</span></div>
       </div>`,
       )
       .join("");
@@ -4174,12 +4273,36 @@ function nowUntilText(min) {
 }
 
 /** 지금 상태를 계산한다. 렌더와 분리해 두어야 검증하기 쉽다. */
-function nowStatus(at, entries) {
+function nowStatus(at, entries, semester) {
   const day = nowDayIndex(at);
   const minutes = at.getHours() * 60 + at.getMinutes();
   const today = (entries || [])
     .filter((e) => Number(e.day) === day)
     .sort((a, b) => ttMinutes(a.start) - ttMinutes(b.start));
+
+  const nextUp = today.find((e) => ttMinutes(e.start) > minutes);
+  const detail = {
+    today,
+    next: nextUp,
+    left: today.filter((e) => ttMinutes(e.end) > minutes).length,
+  };
+
+  /* 학기가 시작하지 않았거나 끝났으면 방학이다.
+     이때는 시간표가 있어도 수업이 없으므로 먼저 걸러 낸다. */
+  if (semester && semester.label && semester.state !== "during") {
+    if (semester.state === "before") {
+      return {
+        detail,
+        state: "vacation",
+        title: "방학",
+        sub:
+          semester.daysUntil === 0
+            ? `${semester.label} 오늘 개강`
+            : `${semester.label} 개강 D-${semester.daysUntil}`,
+      };
+    }
+    return { detail, state: "vacation", title: "방학", sub: `${semester.label} 종료` };
+  }
 
   if (!entries || !entries.length) {
     return { state: "empty", title: "시간표가 비어 있어요", sub: "대시보드에서 추가할 수 있어요" };
@@ -4188,13 +4311,6 @@ function nowStatus(at, entries) {
   if (day === 6 || (day === 5 && !today.length)) {
     return { state: "weekend", title: "주말", sub: "푹 쉬어요" };
   }
-
-  const nextUp = today.find((e) => ttMinutes(e.start) > minutes);
-  const detail = {
-    today,
-    next: nextUp,
-    left: today.filter((e) => ttMinutes(e.end) > minutes).length,
-  };
 
   const live = today.find((e) => minutes >= ttMinutes(e.start) && minutes < ttMinutes(e.end));
   if (live) {
@@ -4812,7 +4928,7 @@ function renderNowBar() {
   const dateText = `${at.getMonth() + 1}월 ${at.getDate()}일 ${NOW_WEEKDAY[at.getDay()]}`;
   if (date && date.textContent !== dateText) date.textContent = dateText;
 
-  const info = nowStatus(at, state.timetable);
+  const info = nowStatus(at, state.timetable, state.semester);
   if (bar.dataset.state !== info.state) bar.dataset.state = info.state;
   bar.dataset.tone = info.tone || "";
 

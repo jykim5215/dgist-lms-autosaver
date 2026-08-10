@@ -291,6 +291,8 @@ body {
   transition: background 0.4s ease;
 }
 .nowbar[data-state="class"] .nowbar-dot { background: #4ba36b; }
+/* 방학은 쉬는 때라 조용한 색으로 */
+.nowbar[data-state="vacation"] .nowbar-dot { background: #7c93b8; }
 .nowbar[data-state="soon"] .nowbar-dot { background: #d9a441; }
 /* 수업 중일 때만 숨을 쉰다 */
 .nowbar[data-state="class"] .nowbar-dot { animation: nowbar-pulse 2.4s ease-in-out infinite; }
@@ -1259,7 +1261,7 @@ select:focus {
 .briefing-text {
   margin: 0 0 7px;
   font-family: var(--font-serif);
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.65;
   color: var(--text);
 }
@@ -1286,7 +1288,7 @@ select:focus {
   display: flex;
   align-items: baseline;
   gap: 9px;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .briefing-highlights li::before {
@@ -1416,14 +1418,14 @@ select:focus {
 
 .news-headline {
   font-family: var(--font-serif);
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.45;
   letter-spacing: -0.01em;
 }
 
 .news-card.featured .news-headline {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .news-subject {
@@ -1597,7 +1599,7 @@ select:focus {
 
 .email-dialog-head h2 {
   font-family: var(--font-serif);
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.4;
   margin: 0 0 6px;
   word-break: break-word;
@@ -1620,7 +1622,7 @@ select:focus {
 
 .email-dialog-summary {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent-strong);
   background: var(--accent-soft);
@@ -3631,7 +3633,7 @@ tbody tr:hover {
   .mail-folders button {
     white-space: nowrap;
     padding: 6px 11px;
-    font-size: 12px;
+    font-size: 12.5px;
   }
   .mail-compose-btn,
   .mail-refresh {
@@ -3639,7 +3641,7 @@ tbody tr:hover {
     flex: none;
     white-space: nowrap;
     padding: 7px 12px;
-    font-size: 12px;
+    font-size: 12.5px;
   }
   .mail-main { min-width: 0; }
   .mail-pane { min-width: 0; }
@@ -4009,7 +4011,7 @@ tbody tr:hover {
 }
 
 .app-shell.mail-focus .nav-item .nav-badge {
-  font-size: 10px;
+  font-size: 11px;
   position: absolute;
   top: 4px;
   right: 12px;
@@ -4143,7 +4145,7 @@ tbody tr:hover {
   background: var(--surface);
   color: var(--text-soft);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   border-radius: var(--radius-sm);
   padding: 9px;
   cursor: pointer;
@@ -4188,12 +4190,12 @@ tbody tr:hover {
 .mail-header-row h1 {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 .mail-header-row span {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-faint);
 }
 
@@ -4299,7 +4301,7 @@ tbody tr:hover {
 
 .mail-act:hover { background: var(--border); color: var(--text); }
 .mail-act.danger:hover { background: var(--red-soft); color: var(--red); }
-.mail-act .icon { width: 15px; height: 15px; }
+.mail-act .icon { width: 17px; height: 17px; }
 
 .list-actions { margin-left: 0; }
 
@@ -4538,38 +4540,77 @@ tbody tr:hover {
 /* 뒤로가기 아이콘은 좌우 반전(reply 아이콘 재사용) */
 #readBackButton .icon, #closeComposeDialog .icon { transform: scaleX(1); }
 
-.mail-read-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 22px 26px 44px;
+.mail-read-scroll { flex: 1; overflow-y: auto; padding: 26px 26px 56px; }
+
+/* 글줄이 길면 눈이 다음 줄을 못 찾는다. 읽기 좋은 폭으로 묶는다. */
+.read-doc { max-width: 68ch; margin: 0 auto; }
+
+/* 보낸 사람 줄 */
+.read-from {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
 }
+.read-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+.read-from-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.read-from-main strong {
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.read-from-main span {
+  font-size: 11.5px; color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.read-from-main span:empty { display: none; }
+.read-from time { flex: none; font-size: 11.5px; color: var(--text-faint); }
 .mail-read-scroll h1 {
   font-family: var(--font-serif);
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 600;
-  margin: 8px 0 6px;
-  line-height: 1.4;
-  word-break: break-word;
+  margin: 0 0 16px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 .read-meta { margin: 0 0 4px; font-size: 12.5px; color: var(--text-faint); }
+/* 요약은 본문을 읽기 전 참고용이라 본문보다 조용해야 한다.
+   예전에는 굵은 강조색이라 본문보다 더 튀었다. */
 .read-summary {
-  margin: 10px 0;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 9px;
-  padding: 10px 13px;
+  margin: 0 0 22px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 11px 14px;
 }
 .read-summary[hidden] { display: none; }
 .read-body {
-  margin-top: 14px;
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 15px;
+  /* 한글은 줄 간격이 넉넉해야 읽힌다 */
+  line-height: 1.85;
   color: var(--text);
   white-space: pre-wrap;
-  word-break: break-word;
+  /* break-word는 단어를 아무 데서나 자른다. 넘칠 때만 자르게 한다. */
+  overflow-wrap: break-word;
 }
+.read-body a { color: var(--accent-strong); overflow-wrap: anywhere; }
 
 /* 작성 pane */
 #mailComposePane form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -4663,13 +4704,15 @@ tbody tr:hover {
   flex-direction: column;
   gap: 5px;
   cursor: pointer;
-  border: 1px solid transparent;
-  transition: background 0.12s, border-color 0.12s;
+  /* 테두리를 border로 주면 안쪽 폭이 줄어, 여러 칸을 덮는 막대가
+     마지막 칸 끝에 못 미친다. 레이아웃에 영향 없는 그림자로 그린다. */
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: background 0.12s, box-shadow 0.12s;
 }
 .cal-cell:not(.empty):hover { background: var(--surface-soft); }
 .cal-cell.empty { cursor: default; }
 .cal-cell.today { background: var(--accent-soft); }
-.cal-cell.selected { border-color: var(--accent); }
+.cal-cell.selected { box-shadow: inset 0 0 0 1px var(--accent); }
 .cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
 .cal-cell.today .cal-daynum { color: var(--accent-strong); font-weight: 800; }
 
@@ -4754,7 +4797,18 @@ tbody tr:hover {
 .cal-item[data-mailid]:hover { background: var(--surface-soft); border-radius: 8px; }
 .cal-item-date { font-size: 12px; color: var(--text-faint); width: 78px; flex: none; }
 .cal-item-main { min-width: 0; }
-.cal-item-main strong { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 자세히 보기에서는 이름을 끝까지 보여 준다. 길면 줄을 넘긴다. */
+.cal-item-main strong {
+  display: block;
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.cal-item-main span {
+  display: block;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .cal-item-main span { display: block; font-size: 11.5px; color: var(--text-faint); }
 .cal-empty { color: var(--text-faint); font-size: 13px; padding: 12px 0; }
 
@@ -4776,20 +4830,27 @@ tbody tr:hover {
   animation: none;
 }
 
+/* 두 화면이 같은 시간에 겹쳐 보이면 글자가 두 겹으로 비쳐 지저분하다.
+   나가는 화면을 먼저 완전히 지운 뒤에 새 화면을 들인다. */
 ::view-transition-old(appview) {
-  animation: appview-out 0.26s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: appview-out 0.12s linear both;
 }
 ::view-transition-new(appview) {
-  animation: appview-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: appview-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
 }
-/* 겹치는 동안 둘 다 그려지므로, 나가는 쪽을 살짝 먼저 비운다 */
+/* 화면 높이가 크게 다르면 이 틀이 늘었다 줄었다 하면서 덜컥거린다.
+   틀은 그냥 새 크기로 두고, 안쪽만 부드럽게 바꾼다. */
+::view-transition-group(appview) {
+  animation-duration: 0.12s;
+  animation-timing-function: linear;
+}
 @keyframes appview-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(-6px) scale(0.995); }
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 @keyframes appview-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.99); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* View Transitions를 못 쓰는 경우에만 쓰이는 예비 애니메이션.
@@ -4805,19 +4866,20 @@ tbody tr:hover {
   }
 }
 
-/* 화면 안 카드들이 한꺼번에 튀지 않고 차례로 자리를 잡는다 */
+/* 카드 계단 애니메이션은 화면 전환 효과와 겹쳐 두 번 움직이는 느낌을 준다.
+   View Transitions를 쓸 수 있으면 전환 효과 하나로 충분하다. */
 @keyframes panel-settle {
   from { opacity: 0; transform: translateY(9px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-/* 앞의 몇 개만 차례로 들어온다.
-   화면 안 카드 전부에 걸면(특히 both로 남겨 두면) 무겁다. */
-.view:not([hidden]) > *:nth-child(-n + 4) {
-  animation: panel-settle 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+@supports not (view-transition-name: none) {
+  .view:not([hidden]) > *:nth-child(-n + 4) {
+    animation: panel-settle 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .view:not([hidden]) > *:nth-child(2) { animation-delay: 0.04s; }
+  .view:not([hidden]) > *:nth-child(3) { animation-delay: 0.08s; }
+  .view:not([hidden]) > *:nth-child(4) { animation-delay: 0.11s; }
 }
-.view:not([hidden]) > *:nth-child(2) { animation-delay: 0.04s; }
-.view:not([hidden]) > *:nth-child(3) { animation-delay: 0.08s; }
-.view:not([hidden]) > *:nth-child(4) { animation-delay: 0.11s; }
 
 /* 목록 → 읽기/작성: 오른쪽에서 미끄러지듯 */
 @keyframes pane-enter-right {
@@ -4868,7 +4930,7 @@ tbody tr:hover {
   .app-shell.mail-focus #view-emails { height: auto; }
   /* 탭바는 계속 보이게 */
   .app-shell.mail-focus .sidebar { display: flex; }
-  .app-shell.mail-focus .nav-item { font-size: 10.5px; }
+  .app-shell.mail-focus .nav-item { font-size: 11px; }
   .app-shell.mail-focus .nav-item .icon { width: 19px; height: 19px; }
   .app-shell.mail-focus .brand { display: none; }
 
@@ -5322,4 +5384,61 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   border-color: var(--accent);
   color: var(--accent-strong);
   background: var(--accent-soft);
+}
+
+
+/* ===== 여러 날에 걸친 일정 (이어진 막대) =====
+   달력은 7칸 그리드(칸 사이 6px)라, N칸을 덮으려면
+   칸 너비 N개 + 그 사이 간격 (N-1)개만큼 넓혀야 한다. */
+.cal-cell { position: relative; }
+.cal-span {
+  position: absolute;
+  left: 4px;
+  top: calc(24px + var(--lane, 0) * 17px);
+  width: calc(var(--span, 1) * 100% + (var(--span, 1) - 1) * 6px - 8px);
+  height: 15px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  /* 점 일정(칩)과 구분되도록 한 톤 낮게 깐다 */
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+}
+/* 주가 바뀌어 잘린 쪽은 모서리를 각지게 해 '계속 이어짐'을 보인다 */
+.cal-span.open-start { border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cal-span.open-end { border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+
+/* 대상에 따라 톤을 살짝 달리해 구분한다 */
+.cal-span.kind-공통 {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  color: var(--accent-strong);
+}
+.cal-span.kind-대학 {
+  background: color-mix(in srgb, var(--blue, #5b7da8) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--blue, #5b7da8) 30%, var(--border));
+  color: color-mix(in srgb, var(--blue, #5b7da8) 75%, var(--text));
+}
+.cal-span.kind-대학원 {
+  background: var(--surface-soft);
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+/* 막대가 깔린 만큼 칩을 아래로 밀어 겹치지 않게 */
+.cal-chips { margin-top: calc(var(--lanes, 0) * 17px); }
+
+@media (max-width: 640px) {
+  .cal-span { height: 13px; font-size: 9px; top: calc(20px + var(--lane, 0) * 15px); }
+  .cal-chips { margin-top: calc(var(--lanes, 0) * 15px); }
 }
