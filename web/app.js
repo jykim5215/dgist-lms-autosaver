@@ -123,11 +123,27 @@ function statusLabel(status) {
    둘이 겹쳐서 부드럽게 이어진다. 미지원 브라우저는 그냥 바로 바뀐다. */
 function switchView(view) {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (state.view === view || reduce || !document.startViewTransition) {
+  // 창이 가려져 있으면 화면을 그릴 필요가 없으니 전환 효과도 건너뛴다
+  const canAnimate =
+    !!document.startViewTransition && !reduce && !document.hidden && state.view !== view;
+  if (!canAnimate) {
     applyView(view);
     return;
   }
-  document.startViewTransition(() => applyView(view));
+
+  /* 전환 콜백은 브라우저가 화면을 캡처할 준비가 됐을 때 불린다.
+     창이 가려지거나 바쁘면 늦게 오거나 아예 안 와서 화면이 안 바뀐다.
+     그래서 조금 기다렸는데도 안 불리면 그냥 직접 바꾼다. */
+  let done = false;
+  const apply = () => {
+    if (done) return;
+    done = true;
+    applyView(view);
+  };
+  const transition = document.startViewTransition(apply);
+  transition.finished.catch(() => {});
+  transition.updateCallbackDone.catch(() => {});
+  window.setTimeout(apply, 150);
 }
 
 function applyView(view) {
@@ -161,6 +177,9 @@ function applyView(view) {
   // 사이드바 폭이 바뀐 뒤에 재야 알약이 엉뚱한 크기로 남지 않는다.
   // 폭 변화는 애니메이션이라 ResizeObserver가 그동안 계속 맞춰 준다.
   moveNavPill();
+  // 이 화면에 필요한 것만 그린다 (안 보이는 화면은 그리지 않으므로,
+  // 화면을 바꿀 때 여기서 채워 줘야 한다)
+  renderCurrentView();
 }
 
 /* ===== 마감일 헬퍼 ===== */
@@ -1906,21 +1925,86 @@ function renderTask(task) {
 }
 
 /* ===== 데이터 로드 ===== */
-function renderAll() {
-  renderStatus();
-  renderUpcoming();
-  renderEvents();
-  renderDeadlineFilters();
-  renderDeadlines();
-  renderEmails();
-  renderCalendar();
-  renderCourses();
-  renderCourseFilter();
-  renderFiles();
-  renderHealth();
-  renderQuicklinks();
-  renderTimetable();
-  invalidateMetricPeek();
+/* 3.5초마다 화면 전체를 다시 그리면 목록이 통째로 새로 만들어지면서
+   버벅이고, 커서를 올려 둔 것이나 스크롤 위치도 날아간다.
+   그래서 (1) 값이 실제로 바뀐 부분만 그리고,
+   (2) 지금 보고 있는 화면만 그린다. */
+/* 무엇이 바뀌었는지 재는 '표식'.
+   목록 전체를 JSON으로 만들어 비교하면(메일은 100KB가 넘는다)
+   비교하느라 더 느려진다. 개수와 갱신시각처럼 싼 값만 쓴다. */
+const sig = (...parts) => parts.join("|");
+const listSig = (arr) => (Array.isArray(arr) ? `${arr.length}:${arr[arr.length - 1]?.id || ""}` : "0");
+
+const RENDER_PARTS = [
+  { key: "status", render: renderStatus,
+    of: (s) => sig(s.status?.lastRun, s.status?.running, listSig(s.status?.courses)) },
+  { key: "upcoming", views: ["dashboard"], render: renderUpcoming,
+    of: (s) => sig(s.deadlines?.updatedAt, (s.deadlines?.items || []).length, (s.selection?.hiddenDeadlines || []).length) },
+  { key: "events", views: ["dashboard"], render: renderEvents,
+    of: (s) => sig(s.emails?.updatedAt, (s.myEvents || []).length) },
+  { key: "deadlineFilters", views: ["deadlines"], render: renderDeadlineFilters,
+    of: (s) => sig(s.deadlines?.updatedAt, (s.deadlines?.items || []).length) },
+  { key: "deadlines", views: ["deadlines"], render: renderDeadlines,
+    of: (s) => sig(s.deadlines?.updatedAt, (s.deadlines?.items || []).length,
+      (s.selection?.hiddenDeadlines || []).length, s.search, s.deadlineCourse, s.deadlineStatus) },
+  { key: "emails", views: ["emails", "compose"], render: renderEmails,
+    of: (s) => sig(s.emails?.updatedAt, (s.emails?.emails || []).length, s.emailView, s.emailFolder, s.emailSort, s.search) },
+  { key: "calendar", views: ["calendar"], render: renderCalendar,
+    of: (s) => sig(s.deadlines?.updatedAt, (s.myEvents || []).length, (s.academic || []).length,
+      s.academicUnderOnly, s.calMonth, s.showHolidays) },
+  { key: "courses", views: ["courses"], render: renderCourses,
+    of: (s) => sig(listSig(s.status?.courses), JSON.stringify(s.selection?.courses || {}).length,
+      (s.files || []).length, s.courseEditMode) },
+  { key: "courseFilter", views: ["files"], render: renderCourseFilter,
+    of: (s) => sig((s.files || []).length) },
+  { key: "files", views: ["files"], render: renderFiles,
+    of: (s) => sig((s.files || []).length, s.search, s.fileView, s.fileCourse, s.fileStatus) },
+  { key: "health", render: renderHealth, of: (s) => sig(s.health?.checkedAt, s.health?.level) },
+  { key: "quicklinks", views: ["dashboard"], render: renderQuicklinks, of: (s) => sig(s.quicklinksAll) },
+  { key: "timetable", views: ["dashboard"], render: renderTimetable,
+    of: (s) => sig(listSig(s.timetable), s.ttShowSat) },
+];
+
+const renderSigns = new Map();
+
+function renderAll(force = false) {
+  // 끌어 옮기는 중에는 다시 그리지 않는다. 그리면 잡고 있던 것이 끊긴다.
+  if (!force && document.body.classList.contains("dash-dragging-now")) return;
+
+  let changed = false;
+  for (const part of RENDER_PARTS) {
+    // 지금 안 보는 화면은 값만 기억해 두고, 그 화면으로 갈 때 그린다
+    const visible = !part.views || part.views.includes(state.view);
+    let sign;
+    try {
+      sign = String(part.of(state));
+    } catch (error) {
+      sign = String(Math.random());
+    }
+    const stale = renderSigns.get(part.key) !== sign;
+    if (!force && !stale && renderedViews.has(part.key)) continue;
+    if (!visible) {
+      // 값이 바뀐 건 기록하되, 그리지는 않는다
+      if (stale) renderedViews.delete(part.key);
+      continue;
+    }
+    renderSigns.set(part.key, sign);
+    renderedViews.add(part.key);
+    part.render();
+    changed = true;
+  }
+  if (changed) invalidateMetricPeek();
+}
+
+// 그려 둔 적이 있는 부분 (화면을 바꿔 처음 보일 때는 반드시 한 번 그린다)
+const renderedViews = new Set();
+
+/** 화면을 바꿨을 때, 그 화면에 필요한 것을 그린다 */
+function renderCurrentView() {
+  RENDER_PARTS.forEach((part) => {
+    if (part.views && part.views.includes(state.view)) renderedViews.delete(part.key);
+  });
+  renderAll();
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -3669,6 +3753,8 @@ function bindTimetable() {
         const t = await api("/api/course-terms");
         termSel.innerHTML = t.terms.map((x) => `<option value="${x.value}">${escapeHtml(x.label)}</option>`).join("");
         termSel.value = t.current;
+        // 학사일정으로 알아낸 지금 학기가 있으면 그쪽을 우선한다
+        applySemester();
       } catch (error) {
         /* 목록을 못 가져와도 검색은 기본 학기로 동작 */
       }
@@ -3681,7 +3767,11 @@ function bindTimetable() {
     state.catalog = null;
     loadCatalog();
   };
-  $("#catalogTerm")?.addEventListener("change", reload);
+  $("#catalogTerm")?.addEventListener("change", (event) => {
+    // 직접 고른 뒤에는 학기 자동 맞춤이 되돌리지 않게 한다
+    event.currentTarget.dataset.userPicked = "1";
+    reload();
+  });
   $("#catalogLevel")?.addEventListener("change", reload);
 
   $("#catalogClose")?.addEventListener("click", () => {
@@ -4530,12 +4620,51 @@ function loadAcademic() {
       if (!res.ok || !(res.events || []).length) return;
       state.academicLoaded = true;
       state.academic = res.events;
+      state.semester = res.semester || {};
+      applySemester();
       renderDday();
       if (state.view === "calendar") renderCalendar();
     })
     .catch(() => {
       /* 다음 시도 때 다시 받는다 */
     });
+}
+
+
+/* ===== 학기에 맞춰 시간표를 움직인다 =====
+   학사일정의 개강·종강 날짜로 지금 몇 학기인지 알아내
+   개설과목 기본 학기를 맞추고, 시간표에 지금 몇 주차인지 띄운다. */
+function applySemester() {
+  const sem = state.semester;
+  const badge = $("#timetableSemester");
+  if (!sem || !sem.label) {
+    if (badge) badge.hidden = true;
+    return;
+  }
+
+  if (badge) {
+    badge.hidden = false;
+    if (sem.state === "during") {
+      badge.textContent = `${sem.label} · ${sem.week}주차`;
+      badge.dataset.state = "during";
+    } else if (sem.state === "before") {
+      badge.textContent = `${sem.label} 개강 D-${sem.daysUntil}`;
+      badge.dataset.state = "before";
+    } else {
+      badge.textContent = `${sem.label} 종료`;
+      badge.dataset.state = "after";
+    }
+  }
+
+  // 개설과목 학기를 지금 학기로 맞춘다 (사용자가 직접 고른 뒤에는 두지 않는다)
+  const select = $("#catalogTerm");
+  if (select && sem.code && !select.dataset.userPicked) {
+    const has = [...select.options].some((o) => o.value === sem.code);
+    if (has && select.value !== sem.code) {
+      select.value = sem.code;
+      if (!$("#catalogPanel")?.hidden) loadCatalog();
+    }
+  }
 }
 
 
@@ -4724,4 +4853,22 @@ if (navList && window.ResizeObserver) new ResizeObserver(moveNavPill).observe(na
 // 시계라 1초마다. 상태 계산은 가볍고, 값이 그대로면 DOM을 건드리지 않는다.
 window.setInterval(renderNowBar, 1000);
 refreshAll();
-window.setInterval(refreshAll, 3500);
+/* 예전에는 3.5초마다 9개를 요청하고 화면을 통째로 다시 그렸다.
+   창을 보고 있지 않으면 쉬고, 주기도 늘렸다.
+   작업이 돌고 있을 때만 자주 확인한다. */
+window.setInterval(() => {
+  if (document.hidden) return;
+  const busy = !$("#topProgress")?.hidden;
+  const gap = busy ? 2000 : 12000;
+  if (Date.now() - (refreshAll.last || 0) < gap) return;
+  refreshAll.last = Date.now();
+  refreshAll();
+}, 1000);
+
+// 창으로 돌아오면 바로 한 번 새로 받는다
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    refreshAll.last = Date.now();
+    refreshAll();
+  }
+});

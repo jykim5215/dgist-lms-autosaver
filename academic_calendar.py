@@ -16,7 +16,7 @@ import re
 import time
 import urllib.request
 import zlib
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 CALENDAR_URL = "https://www.dgist.ac.kr/prog/schafsSchdul/kor/sub05_01_01/list.do"
@@ -123,3 +123,69 @@ if __name__ == "__main__":
     print(result["ok"], result.get("count"))
     for item in result["events"][:8]:
         print(" ", item["start"], "~", item["end"], "|", item["kind"], "|", item["title"])
+
+
+# ===== 학기 구간 =====
+# 개강·종강 일정을 찾아 '지금이 몇 학기인지'를 정한다.
+# 시간표·개설과목이 이 값에 맞춰 움직인다.
+_TERM_CODES = {1: "CMN17.10", 2: "CMN17.20"}
+
+
+def semester_windows(events: list[dict]) -> list[dict]:
+    """[{year, term, start, end, label, code}] 를 학기 시작순으로 돌려준다."""
+    opens: dict[tuple[int, int], str] = {}
+    closes: dict[tuple[int, int], str] = {}
+    for ev in events or []:
+        title = ev.get("title", "")
+        m = re.search(r"(\d{4})학년도\s*([12])학기\s*(개강|종강)", title)
+        if not m:
+            continue
+        key = (int(m.group(1)), int(m.group(2)))
+        (opens if m.group(3) == "개강" else closes)[key] = ev.get("start", "")
+
+    windows = []
+    for key in sorted(set(opens) | set(closes)):
+        year, term = key
+        start = opens.get(key, "")
+        end = closes.get(key, "")
+        if not start:
+            continue
+        windows.append(
+            {
+                "year": year,
+                "term": term,
+                "start": start,
+                # 종강이 없으면 개강 + 16주로 본다
+                "end": end or (date.fromisoformat(start) + timedelta(weeks=16)).isoformat(),
+                "label": f"{year}학년도 {term}학기",
+                "code": f"{year}{_TERM_CODES[term]}",
+            }
+        )
+    return windows
+
+
+def current_semester(events: list[dict], today: date | None = None) -> dict:
+    """지금 학기. 방학 중이면 다음 학기를 '곧 시작'으로 알려 준다."""
+    now = today or date.today()
+    windows = semester_windows(events)
+    if not windows:
+        return {}
+
+    for w in windows:
+        start = date.fromisoformat(w["start"])
+        end = date.fromisoformat(w["end"])
+        if start <= now <= end:
+            return {
+                **w,
+                "state": "during",
+                "week": (now - start).days // 7 + 1,
+                "daysLeft": (end - now).days,
+            }
+
+    upcoming = [w for w in windows if date.fromisoformat(w["start"]) > now]
+    if upcoming:
+        nxt = upcoming[0]
+        return {**nxt, "state": "before", "daysUntil": (date.fromisoformat(nxt["start"]) - now).days}
+
+    last = windows[-1]
+    return {**last, "state": "after"}

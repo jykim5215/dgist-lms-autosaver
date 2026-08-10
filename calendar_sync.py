@@ -256,6 +256,7 @@ def sync_academic_events(
     calendar_id = find_or_create_calendar(service, name)
 
     created = updated = skipped = 0
+    last_error = ""
     for item in items:
         body = _build_academic_event(item)
         if not body:
@@ -282,14 +283,22 @@ def sync_academic_events(
             else:
                 service.events().insert(calendarId=calendar_id, body=body).execute()
                 created += 1
-        except Exception:
+        except Exception as exc:
             skipped += 1
+            # 왜 실패했는지 하나는 남긴다. 전부 삼키면 원인을 알 수 없다.
+            if not last_error:
+                last_error = str(exc)
 
+    message = f"새 일정 {created}건, 갱신 {updated}건"
+    if skipped:
+        message += f", 실패 {skipped}건"
+        if last_error:
+            message += f" ({last_error[:120]})"
     return {
-        "ok": True,
+        "ok": created + updated > 0 or not skipped,
         "created": created,
         "updated": updated,
         "skipped": skipped,
         "calendar": name,
-        "message": f"새 일정 {created}건, 갱신 {updated}건" + (f", 실패 {skipped}건" if skipped else ""),
+        "message": message,
     }

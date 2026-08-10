@@ -41,10 +41,12 @@ DRIVE_CREDENTIALS_PATH = Path(
 )
 GOOGLE_OAUTH_PENDING_PATH = AUTOSAVER_ROOT / "oauth_pending.json"
 FALLBACK_COURSE_MAP = PROJECT_ROOT / "file_course_map.json"
-GOOGLE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file"
-GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+from runtime_config import GOOGLE_SCOPES as _GOOGLE_SCOPES
+
+GOOGLE_OAUTH_SCOPE = _GOOGLE_SCOPES[0]
+GOOGLE_CALENDAR_SCOPE = _GOOGLE_SCOPES[1]
 # Drive 업로드 + 캘린더 동기화를 함께 사용하므로 두 권한을 같이 요청한다.
-GOOGLE_OAUTH_SCOPES = [GOOGLE_OAUTH_SCOPE, GOOGLE_CALENDAR_SCOPE]
+GOOGLE_OAUTH_SCOPES = list(_GOOGLE_SCOPES)
 GOOGLE_OAUTH_FALLBACK_REDIRECT_URI = "http://127.0.0.1:8765/oauth2callback"
 SESSION_COOKIE = "autosaver_sid"
 
@@ -1344,15 +1346,25 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
             fresh_enough = (datetime.now() - fetched).total_seconds() < 86400
         except ValueError:
             fresh_enough = False
+    def with_semester(payload: dict[str, Any]) -> dict[str, Any]:
+        """지금이 몇 학기인지 함께 담아 준다. 시간표가 이 값에 맞춰 움직인다."""
+        try:
+            payload["semester"] = academic_calendar.current_semester(payload.get("events", []))
+        except Exception:
+            payload["semester"] = {}
+        return payload
+
     if entry and fresh_enough:
-        return {"ok": True, "year": year, "cached": True, **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+        return with_semester(
+            {"ok": True, "year": year, "cached": True, **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+        )
 
     result = academic_calendar.fetch_academic_calendar(year)
     if not result.get("ok"):
         # 새로 못 받으면 오래된 캐시라도 돌려준다
         if entry:
-            return {"ok": True, "year": year, "cached": True, "stale": True,
-                    **{k: v for k, v in entry.items() if k != "fetchedAt"}}
+            return with_semester({"ok": True, "year": year, "cached": True, "stale": True,
+                    **{k: v for k, v in entry.items() if k != "fetchedAt"}})
         return result
 
     if not isinstance(cache, dict):
@@ -1365,7 +1377,7 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     workspace.academic_path.write_text(
         json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    return result
+    return with_semester(result)
 
 
 def get_course_catalog(

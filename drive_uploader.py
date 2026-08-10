@@ -6,9 +6,12 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from runtime_config import GOOGLE_CLIENT_SECRETS_PATH, GOOGLE_TOKEN_PATH
+from runtime_config import GOOGLE_CLIENT_SECRETS_PATH, GOOGLE_SCOPES, GOOGLE_TOKEN_PATH
 
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+# Drive만 쓰지만, 권한 목록은 앱 전체와 같아야 한다.
+# 여기서 Drive 권한만 요청하면 로그인할 때 token.json이 덮어써져
+# 캘린더 권한이 사라진다.
+SCOPES = GOOGLE_SCOPES
 CREDENTIALS_PATH = GOOGLE_CLIENT_SECRETS_PATH
 TOKEN_PATH = GOOGLE_TOKEN_PATH
 ROOT_FOLDER = "AutoSaver"
@@ -35,7 +38,10 @@ def authorize_drive(force=False):
     creds = None
 
     if not force and os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        # 파일에 실제로 담긴 권한 그대로 읽는다.
+        # SCOPES를 넘기면 '요청한 권한'으로 덮어써져, 실제로 없는 권한도
+        # 있는 것처럼 보인다.
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH)
 
     if creds and creds.valid:
         return creds

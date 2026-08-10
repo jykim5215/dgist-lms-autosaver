@@ -559,8 +559,9 @@ body {
   gap: 14px;
   padding: 16px 28px;
   border-bottom: 1px solid var(--border);
-  background: rgba(250, 249, 245, 0.92);
-  backdrop-filter: blur(8px);
+  /* backdrop-filter는 화면 폭만큼 넓은 이 영역을 스크롤할 때마다
+     다시 흐리게 만들어야 해서 비쌌다. 불투명 배경이면 충분하다. */
+  background: var(--bg);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -845,7 +846,8 @@ body {
   gap: 1px;
   transition: filter 0.15s, transform 0.15s;
 }
-.tt-block:hover { filter: brightness(1.07); transform: scale(1.015); }
+/* filter는 칸마다 레이어를 만든다. 밝기만 살짝 바꾼다. */
+.tt-block:hover { opacity: 0.88; }
 .tt-block strong {
   font-size: 11.5px;
   font-weight: 700;
@@ -4808,14 +4810,14 @@ tbody tr:hover {
   from { opacity: 0; transform: translateY(9px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.view:not([hidden]) > * {
-  animation: panel-settle 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+/* 앞의 몇 개만 차례로 들어온다.
+   화면 안 카드 전부에 걸면(특히 both로 남겨 두면) 무겁다. */
+.view:not([hidden]) > *:nth-child(-n + 4) {
+  animation: panel-settle 0.36s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.view:not([hidden]) > *:nth-child(1) { animation-delay: 0.02s; }
-.view:not([hidden]) > *:nth-child(2) { animation-delay: 0.06s; }
-.view:not([hidden]) > *:nth-child(3) { animation-delay: 0.1s; }
-.view:not([hidden]) > *:nth-child(4) { animation-delay: 0.14s; }
-.view:not([hidden]) > *:nth-child(n + 5) { animation-delay: 0.17s; }
+.view:not([hidden]) > *:nth-child(2) { animation-delay: 0.04s; }
+.view:not([hidden]) > *:nth-child(3) { animation-delay: 0.08s; }
+.view:not([hidden]) > *:nth-child(4) { animation-delay: 0.11s; }
 
 /* 목록 → 읽기/작성: 오른쪽에서 미끄러지듯 */
 @keyframes pane-enter-right {
@@ -5278,6 +5280,7 @@ textarea:focus {
 /* 끌어 올린 카드: 살짝 떠오르고 그림자가 진다 */
 .dash-lift {
   z-index: 5;
+  will-change: transform;
   cursor: grabbing;
   box-shadow: 0 14px 30px -10px rgba(31, 30, 29, 0.32);
   border-radius: var(--radius);
@@ -5298,4 +5301,25 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 @media (prefers-reduced-motion: reduce) {
   .dash-editing [data-block] { transition: none; }
   .dash-lift { box-shadow: none; }
+}
+
+
+/* ===== 학기 표시 ===== */
+.semester-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.semester-badge[hidden] { display: none; }
+/* 학기 중이면 눈에 띄게, 방학이면 조용하게 */
+.semester-badge[data-state="during"] {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
 }

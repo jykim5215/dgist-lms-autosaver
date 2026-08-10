@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import http.cookiejar
+from datetime import datetime
 import json
 import re
 import time
@@ -392,3 +393,33 @@ def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict
         "korean": bool(korean),
         "courses": courses,
     }
+
+
+# ===== 학기 목록 =====
+_TERM_LABELS = {"CMN17.10": "1학기", "CMN17.11": "여름학기", "CMN17.20": "2학기", "CMN17.21": "겨울학기"}
+
+
+def current_term_value() -> str:
+    """기본으로 보여 줄 학기.
+
+    계절학기(여름·겨울)는 과목이 거의 없어 기본값으로 두면 빈 화면이 된다.
+    그래서 정규학기만 기본으로 쓴다.
+    (실제로는 학사일정의 개강·종강으로 정한 학기가 우선한다)
+    """
+    now = datetime.now()
+    if now.month <= 7:
+        return f"{now.year}{TERM_CODES['spring']}"
+    return f"{now.year}{TERM_CODES['fall']}"
+
+
+def available_terms() -> list[dict[str, str]]:
+    """고를 수 있는 학기 목록. 올해를 가운데 두고 앞뒤 1년씩.
+
+    부르는 쪽(web_ui)이 ok·current를 붙이므로 여기서는 목록만 준다.
+    """
+    year = datetime.now().year
+    terms = []
+    for y in (year - 1, year, year + 1):
+        for code in ("CMN17.10", "CMN17.11", "CMN17.20", "CMN17.21"):
+            terms.append({"value": f"{y}{code}", "label": f"{y}학년도 {_TERM_LABELS[code]}"})
+    return terms

@@ -185,6 +185,14 @@ GOOGLE_CLIENT_SECRETS_PATH = str(
 )
 GOOGLE_TOKEN_PATH = str(AUTOSAVER_DATA_ROOT / "token.json")
 
+# 구글 권한 목록은 여기 한 곳에서만 정한다.
+# Drive와 캘린더가 token.json 한 파일을 같이 쓰기 때문에, 한쪽이 자기 권한만
+# 요청해서 파일을 덮어쓰면 다른 쪽 권한이 사라진다. (실제로 그래서
+# 동기화를 돌릴 때마다 캘린더 권한이 날아가 학사일정 업로드가 막혔다)
+GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+GOOGLE_SCOPES = [GOOGLE_DRIVE_SCOPE, GOOGLE_CALENDAR_SCOPE]
+
 PLAYWRIGHT_HEADLESS = os.environ.get("AUTOSAVER_HEADLESS", "1").lower() not in {
     "0",
     "false",
