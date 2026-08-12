@@ -4655,7 +4655,12 @@ tbody tr:hover {
 }
 
 @media (max-width: 760px) {
-  .settings-view { inset: 0; }
+  /* 사이드바가 아래쪽 탭바로 내려온다. 왼쪽 232px을 비워 둘 이유가 없고,
+     대신 아래를 비워 주지 않으면 설정이 탭바를 덮어 나갈 길이 막힌다. */
+  .settings-view {
+    inset: 0;
+    padding: 20px 16px calc(var(--tabbar-h, 64px) + 28px);
+  }
 }
 
 /* ===== 캘린더 화면 ===== */
@@ -6499,20 +6504,28 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   margin-top: 4px;
 }
 
-/* 넓은 화면에서 설정이 한 줄로만 늘어져 여백이 남았다. 두 칸으로 나눈다. */
+/* 넓은 화면에서 설정이 한 줄로만 늘어져 여백이 남았다. 두 칸으로 나눈다.
+   격자(grid)로 나눴더니 칸마다 높이가 제각각이라 옆이 580px씩 비었다.
+   단(column)으로 흘려보내면 빈 데 없이 차곡차곡 쌓인다. */
 @media (min-width: 1100px) {
-  #view-settings form > div:first-of-type,
-  .settings-body {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    align-items: start;
+  /* 두 단이 되었으니 760px 틀은 너무 좁다 */
+  #view-settings form { max-width: 1180px; }
+  .settings-view .settings-body {
+    display: block;
+    column-count: 2;
+    column-gap: 20px;
   }
-  /* 표가 들어가는 칸은 넓게 */
-  .settings-section:has(.storage-actions),
-  .settings-section:has(.form-grid .wide),
-  .settings-view-actions { grid-column: 1 / -1; }
+  /* 한 섹션이 두 단에 걸쳐 잘리면 안 된다 */
+  .settings-view .settings-body > * {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    display: block;
+    margin: 0 0 20px;
+  }
 }
+/* 헤더(제목 줄)는 어떤 폭에서도 한 덩어리다.
+   예전엔 form의 첫 div까지 격자로 묶어 '설정' 제목이 반쪽이 됐다. */
+.settings-view-header { display: block; }
 
 /* 보안 안내 */
 .settings-note.secure {
@@ -6768,3 +6781,19 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .mail-pane.compose-with-files { grid-template-columns: minmax(420px, 1fr) 268px; }
   .compose-files { border-left: 1px solid var(--border); border-top: none; max-height: none; }
 }
+
+/* ===== 설정 폼: 좁은 폭에서 칸이 안 줄던 문제 =====
+   1fr 은 사실 minmax(auto, 1fr)이라 입력칸의 기본 너비(≈199px) 밑으로 안 줄었다.
+   두 칸 * 199 + 여백이 화면보다 넓어져 설정 전체가 오른쪽으로 삐져나갔다. */
+.form-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.form-grid label,
+.form-grid input,
+.form-grid select { min-width: 0; }
+
+/* 폭이 모자라면 한 칸씩 */
+@media (max-width: 620px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 세로로만 구른다. 가로로 밀리면 어딘가 잘못된 것이다. */
+.settings-view { overflow-x: hidden; }

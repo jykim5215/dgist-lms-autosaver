@@ -5483,14 +5483,17 @@ function dashPeek(key) {
 }
 
 /* 처음 쓸 때 접혀 있을 블록.
-   공지·바로가기는 급하지 않고 자리를 많이 먹어서 접어 둔다. */
-const FOLD_DEFAULT = { notices: true, links: true };
+   공지·바로가기·셔틀은 급하지 않고 자리를 많이 먹어서 접어 둔다.
+   (셔틀 노선도는 혼자 850px를 쓴다) */
+const FOLD_DEFAULT = { notices: true, links: true, shuttle: true };
 
 function loadFold() {
   try {
     const saved = localStorage.getItem(FOLD_STORE);
     if (saved === null) return { ...FOLD_DEFAULT };
-    return JSON.parse(saved) || {};
+    // 저장본에 없는 블록은 기본값을 따른다. 나중에 기본을 바꿔도 반영되게.
+    // 직접 펴 둔 블록은 저장본에 false 로 남아 있어 그대로 유지된다.
+    return { ...FOLD_DEFAULT, ...(JSON.parse(saved) || {}) };
   } catch (error) {
     return { ...FOLD_DEFAULT };
   }
