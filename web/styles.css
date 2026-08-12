@@ -6464,7 +6464,7 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .mail-actionbar.up { transform: translateY(0); }
   .mail-actions button { padding: 5px 7px; font-size: 12px; }
   .mail-topbar { flex-wrap: wrap; }
-  .mail-topbar .email-search { width: 100%; margin-left: 0; order: 3; }
+  /* 검색을 한 줄로 합치는 규칙은 파일 끝의 mailpane 컨테이너 쿼리에 있다 */
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6655,7 +6655,7 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   /* 제목이 길어도 검색·정렬을 밀어내지 않게 */
   .mail-topbar { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
   .mail-topbar h1 { font-size: 15px; min-width: 0; }
-  .mail-topbar .email-search { width: 100%; order: 9; margin-left: 0; }
+  /* 위와 같음 */
 }
 
 /* 막은 늘 흐름 밖에 둔다. 서랍을 연 채로 창을 넓히면 그리드 한 칸을
@@ -6746,9 +6746,10 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .news-grid { grid-template-columns: minmax(0, 1fr); }
   .news-featured { display: none; }
   /* 폭이 좁아진 만큼 상단 줄도 눌러 준다 */
-  #mailListPane .mail-topbar { padding: 10px 14px; gap: 7px; flex-wrap: wrap; }
+  /* 줄바꿈은 하지 않는다. 검색을 한 줄로 두는 게 아래 mailpane 규칙의 뜻이다. */
+  #mailListPane .mail-topbar { padding: 10px 14px; gap: 7px; }
   #mailListPane .mail-topbar h1 { font-size: 14.5px; }
-  #mailListPane .mail-topbar .email-search { width: 100%; order: 9; margin-left: 0; }
+  /* 위와 같음 */
   #mailListPane .mail-topbar select { font-size: 11px; }
   /* 두 칸으로 나뉜 상태에서는 '목록으로' 버튼이 갈 곳이 없다 */
   #mailReadPane .back-button { display: none; }
@@ -6797,3 +6798,326 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 
 /* 세로로만 구른다. 가로로 밀리면 어딘가 잘못된 것이다. */
 .settings-view { overflow-x: hidden; }
+
+/* ===== 분류를 받은 편지함 하위 폴더로 ===== */
+.mail-folder-row { display: flex; align-items: center; gap: 0; }
+.mail-folder-row .mail-folder { flex: 1; min-width: 0; }
+
+.mail-folder-caret {
+  flex: none;
+  width: 18px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.mail-folder-caret.empty { cursor: default; }
+.mail-folder-caret .icon {
+  width: 13px;
+  height: 13px;
+  transform: rotate(-90deg);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mail-folder-caret.open .icon { transform: none; }
+.mail-folder-caret:hover { color: var(--text); }
+
+/* 0fr → 1fr 로 접으려면 자식이 정확히 하나여야 한다 */
+.mail-subfolders {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mail-subfolders > * { min-height: 0; overflow: hidden; }
+.mail-subfolders.closed { grid-template-rows: 0fr; }
+.mail-subfolders-inner { display: flex; flex-direction: column; gap: 2px; }
+.mail-subfolders .mail-cat {
+  /* 하위임을 들여쓰기로 보인다 */
+  margin-left: 18px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.mail-subfolders.closed .mail-cat { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-subfolders, .mail-folder-caret .icon { transition: none; }
+}
+
+/* ===== 메일 한 줄: 제목에 자리를 준다 =====
+   두 칸 모드에서 목록은 400px인데 날짜(74) + 체크(13) + 점(10) + 버튼(56)이
+   먼저 자리를 잡아 제목에 155px만 남았다. 제목을 못 읽으면 목록이 아니다. */
+.mail-scroll { container-type: inline-size; container-name: maillist; }
+
+.list-from {
+  flex: none;
+  width: 132px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.email-list-row.unread .list-title { font-weight: 700; }
+.email-list-row.unread .list-from { color: var(--text-soft); }
+
+/* 날짜는 넓을 때만 요일·시각까지 */
+.list-date .d-short { display: none; }
+
+/* 버튼이 늘 자리를 잡고 있을 이유가 없다. 손이 갔을 때만 뜬다. */
+.email-list-row { position: relative; }
+.email-list-row .list-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, transparent, var(--surface-soft) 22%);
+  padding-left: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.email-list-row:hover .list-actions,
+.email-list-row:focus-within .list-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* --- 목록 칸이 좁으면 두 줄로 눕힌다 --- */
+@container maillist (max-width: 560px) {
+  .email-list-row {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "pick dot from date"
+      "pick dot title title";
+    column-gap: 9px;
+    row-gap: 1px;
+    align-items: center;
+    padding: 10px 12px;
+  }
+  .email-list-row .mail-pick { grid-area: pick; }
+  .email-list-row .list-unread { grid-area: dot; }
+  .email-list-row .list-from { grid-area: from; width: auto; }
+  .email-list-row .list-date { grid-area: date; width: auto; text-align: right; }
+  .email-list-row .list-title { grid-area: title; }
+  /* 짧은 날짜로 바꿔 제목 줄을 넓힌다 */
+  .list-date .d-full { display: none; }
+  .list-date .d-short { display: inline; }
+}
+
+/* ===== 메일 상단: 검색을 한 줄로 =====
+   제목 / 정렬 / 보기전환이 첫 줄을 채우고 검색이 아래로 밀려나,
+   상단이 두 겹으로 나뉘어 보였다. 좁을 땐 제목을 빼고 검색을 그 자리에 둔다.
+   (어느 폴더인지는 왼쪽 목록이 이미 짚어 준다) */
+#mailListPane { container-type: inline-size; container-name: mailpane; }
+
+@container mailpane (max-width: 640px) {
+  #mailListPane .mail-topbar {
+    flex-wrap: nowrap;
+    gap: 7px;
+    padding: 10px 12px;
+  }
+  #mailListPane .mail-topbar h1 { display: none; }
+  #mailListPane .mail-topbar .email-search {
+    order: 0;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
+  }
+  #mailListPane .mail-topbar select { max-width: 82px; }
+}
+
+/* 목록 칸(#newsGrid)이 align-items:start 라 한 줄이 글자 길이만큼만 넓었다.
+   400px 칸인데 행이 227px여서 제목 자리가 더 좁아졌다. */
+.mail-scroll > *,
+#newsGrid > * { align-self: stretch; }
+#newsGrid.list-mode > * { width: 100%; }
+
+/* 400px 칸에서 좌우 22px씩 44px을 여백으로 내주면 제목이 그만큼 짧아진다 */
+@container mailpane (max-width: 640px) {
+  #mailListPane .mail-scroll { padding: 12px 10px 32px; }
+}
+
+/* 좁은 칸에서는 제목을 두 줄까지 펴 준다.
+   한 줄로 자르면 대부분의 제목이 '…'로 끝나 무슨 메일인지 알 수 없다. */
+@container maillist (max-width: 560px) {
+  .email-list-row .list-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+  }
+}
+
+/* 24시간제 시간 고르개 */
+.time-pick { display: flex; align-items: center; gap: 4px; }
+.time-pick select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.time-pick b { color: var(--text-faint); font-weight: 600; }
+
+/* ===== 창고: FGLP 파견 지도 ===== */
+#view-storage { display: flex; flex-direction: column; gap: 16px; }
+#view-storage[hidden] { display: none; }
+
+.fglp-legend { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--text-faint); }
+.fl-item { display: inline-flex; align-items: center; gap: 5px; }
+.fl-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.fl-dot.k-fglp { background: var(--accent); }
+.fl-dot.k-exchange { background: #6b8f9c; }
+
+.fglp-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* 정각원통도법이라 가로:세로 = 2:1 이 정확하다 */
+.fglp-map {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wm-land, .wm-pins { position: absolute; inset: 0; }
+
+.wm-dot {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.wm-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  z-index: 2;
+}
+.wm-pin-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.16s ease;
+}
+.wm-pin.k-exchange .wm-pin-dot {
+  background: #6b8f9c;
+  box-shadow: 0 0 0 3px rgba(107, 143, 156, 0.26);
+}
+.wm-pin-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.wm-pin:hover { z-index: 4; }
+.wm-pin:hover .wm-pin-dot,
+.wm-pin.on .wm-pin-dot { transform: scale(1.5); }
+.wm-pin:hover .wm-pin-label,
+.wm-pin.on .wm-pin-label { opacity: 1; transform: none; }
+.wm-pin.on { z-index: 5; }
+
+.fglp-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 16px;
+}
+.fglp-detail h3 { margin: 0 0 4px; font-size: 15px; font-weight: 700; }
+.fd-sum, .fd-where { margin: 0 0 10px; font-size: 12.5px; color: var(--text-faint); }
+.fd-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 12px; }
+.fd-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+}
+.fd-tag.k-fglp { background: var(--accent-soft); color: var(--accent-strong); }
+.fd-tag.ok { background: color-mix(in srgb, #4a7c59 18%, transparent); color: #3d6b4a; }
+.fd-tag.warn { background: color-mix(in srgb, #b8860b 18%, transparent); color: #8a6508; }
+
+.fd-list { margin: 0; display: flex; flex-direction: column; gap: 9px; }
+.fd-list > div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; }
+.fd-list dt { font-size: 11.5px; font-weight: 600; color: var(--text-faint); }
+.fd-list dd { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.fd-unknown { color: var(--text-faint); font-style: italic; }
+.fd-hint { margin: 12px 0 0; font-size: 11.5px; color: var(--text-faint); }
+.fd-back {
+  border: none;
+  background: none;
+  padding: 0 0 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.fglp-notes { margin-top: 14px; display: flex; flex-direction: column; gap: 5px; }
+.fglp-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding-left: 16px;
+  position: relative;
+  color: var(--text-faint);
+}
+.fglp-note::before { content: "•"; position: absolute; left: 4px; }
+.fglp-note.warn { color: #8a6508; }
+.fglp-note.warn::before { content: "!"; font-weight: 700; }
+.fglp-src { margin: 6px 0 0; font-size: 11px; color: var(--text-faint); }
+
+/* 좁으면 지도 아래로 설명을 내린다 */
+@media (max-width: 900px) {
+  .fglp-wrap { grid-template-columns: minmax(0, 1fr); }
+  .wm-pin-label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-pin-dot, .wm-pin-label { transition: none; }
+}

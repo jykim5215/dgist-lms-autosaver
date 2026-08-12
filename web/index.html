@@ -72,6 +72,12 @@
             메일 쓰기
           </button>
 
+          <span class="nav-group-label">창고</span>
+          <button class="nav-item" type="button" data-view="storage">
+            <span class="icon" data-icon="box"></span>
+            창고
+          </button>
+
           <span class="nav-group-label">앱</span>
           <button class="nav-item" type="button" data-view="settings">
             <span class="icon" data-icon="settings"></span>
@@ -184,19 +190,6 @@
               </section>
 
               <!-- 학교 사이트 바로가기 -->
-              <section class="panel" aria-labelledby="shuttleTitle" data-block="shuttle" data-block-label="셔틀버스">
-                <div class="panel-header">
-                  <div>
-                    <h2 id="shuttleTitle">셔틀버스</h2>
-                    <p id="shuttleHint">정류장과 시각을 노선도로 봅니다</p>
-                  </div>
-                  <div class="shuttle-actions">
-                    <select id="shuttleGroup" aria-label="노선 갈래"></select>
-                    <button class="button compact ghost" id="refreshShuttle" type="button">새로고침</button>
-                  </div>
-                </div>
-                <div class="shuttle-list" id="shuttleList"></div>
-              </section>
 
               <section class="panel" aria-labelledby="noticeTitle" data-block="notices" data-block-label="학교 공지">
                 <div class="panel-header">
@@ -335,13 +328,25 @@
                               <span>강의실</span>
                               <input name="room" type="text" placeholder="예: E7-101" autocomplete="off" />
                             </label>
+                            <!-- 브라우저 기본 시간칸은 로캘을 따라 '오전/오후'로 뜬다.
+                                 강의 시간은 24시간제로 읽는 게 익숙해서 직접 만든다. -->
                             <label class="event-field">
                               <span>시작</span>
-                              <input name="start" type="time" required step="300" />
+                              <span class="time-pick">
+                                <select name="startHour" class="tp-hour" aria-label="시작 시"></select>
+                                <b>:</b>
+                                <select name="startMin" class="tp-min" aria-label="시작 분"></select>
+                              </span>
+                              <input name="start" type="hidden" />
                             </label>
                             <label class="event-field">
                               <span>끝</span>
-                              <input name="end" type="time" required step="300" />
+                              <span class="time-pick">
+                                <select name="endHour" class="tp-hour" aria-label="끝 시"></select>
+                                <b>:</b>
+                                <select name="endMin" class="tp-min" aria-label="끝 분"></select>
+                              </span>
+                              <input name="end" type="hidden" />
                             </label>
                             <label class="event-field event-field-wide">
                               <span>색</span>
@@ -467,7 +472,12 @@
                     </label>
                     <label class="event-field">
                       <span>시간 <em>(비우면 종일)</em></span>
-                      <input name="time" type="time" />
+                      <span class="time-pick">
+                        <select name="timeHour" class="tp-hour" data-allow-empty aria-label="시"></select>
+                        <b>:</b>
+                        <select name="timeMin" class="tp-min" data-allow-empty aria-label="분"></select>
+                      </span>
+                      <input name="time" type="hidden" />
                     </label>
                     <label class="event-field event-field-wide">
                       <span>메모</span>
@@ -520,6 +530,50 @@
                   <strong>표시할 과제가 없습니다.</strong>
                   <span>‘마감 새로고침’을 누르거나 필터를 조정해 주세요.</span>
                 </div>
+              </section>
+            </section>
+
+            <!-- ===== 창고: 대시보드에 두기엔 자주 안 보는 것들 ===== -->
+            <section class="view" id="view-storage" hidden>
+              <div class="hero-panel">
+                <div>
+                  <h1>창고</h1>
+                  <p>가끔 꺼내 보는 것들. 셔틀 시간표와 FGLP 파견 지도.</p>
+                </div>
+              </div>
+
+              <section class="panel" aria-labelledby="fglpTitle">
+                <div class="panel-header">
+                  <div>
+                    <h2 id="fglpTitle">FGLP 파견 지도</h2>
+                    <p id="fglpHint">점을 누르면 지원 자격과 지원 내용을 봅니다</p>
+                  </div>
+                  <div class="fglp-actions">
+                    <div class="fglp-legend">
+                      <span class="fl-item"><i class="fl-dot k-fglp"></i>FGLP</span>
+                      <span class="fl-item"><i class="fl-dot k-exchange"></i>교환학생</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="fglp-wrap">
+                  <div class="fglp-map" id="fglpMap"></div>
+                  <aside class="fglp-detail" id="fglpDetail"></aside>
+                </div>
+                <div class="fglp-notes" id="fglpNotes"></div>
+              </section>
+
+              <section class="panel" aria-labelledby="shuttleTitle" id="shuttlePanel">
+                <div class="panel-header">
+                  <div>
+                    <h2 id="shuttleTitle">셔틀버스</h2>
+                    <p id="shuttleHint">정류장과 시각을 노선도로 봅니다</p>
+                  </div>
+                  <div class="shuttle-actions">
+                    <select id="shuttleGroup" aria-label="노선 갈래"></select>
+                    <button class="button compact ghost" id="refreshShuttle" type="button">새로고침</button>
+                  </div>
+                </div>
+                <div class="shuttle-list" id="shuttleList"></div>
               </section>
             </section>
 

@@ -2097,6 +2097,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"ok": False, "routes": [], "message": str(exc)})
             return
+        if route == "/api/fglp":
+            try:
+                from fglp import get_fglp
+
+                self.send_json(get_fglp())
+            except Exception as exc:
+                self.send_json({"ok": False, "schools": [], "message": str(exc)})
+            return
         if route == "/api/directory":
             try:
                 self.send_json(

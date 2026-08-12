@@ -31,6 +31,7 @@ const icons = {
   sync: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"/><path d="M16 16h5v5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>',
+  box: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M2 4h20v4H2z"/><path d="M10 12h4"/></svg>',
 };
 
 const state = {
@@ -54,6 +55,14 @@ const state = {
   emailQuery: "",
   emailSort: "newest",
   emailView: "list",
+  // 받은 편지함 아래 분류를 펴 둘지. 지난번에 접어 뒀으면 그대로 연다.
+  mailCatsOpen: (() => {
+    try {
+      return localStorage.getItem("autosaver-mail-cats-open") !== "false";
+    } catch (error) {
+      return true;
+    }
+  })(),
   emailFolder: "inbox",
   emailTab: "primary",
   mailSelected: new Set(),
@@ -483,6 +492,26 @@ const CATEGORY_COLORS = {
 /* 분류 아이콘(이모지)은 없앴다.
    글자만으로도 충분하고, 이모지가 섞이면 화면이 지저분해진다. */
 const CATEGORY_ICONS = {};
+
+/* 목록이 400px일 때 '7/22 (수) 19:40'은 74px을 먹는다.
+   제목에 줄 자리가 없어져서, 좁은 칸에서는 짧게 쓴다. */
+function compactMailDate(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (sameDay) {
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  }
+  const md = `${date.getMonth() + 1}/${date.getDate()}`;
+  return date.getFullYear() === now.getFullYear()
+    ? md
+    : `${String(date.getFullYear()).slice(2)}.${md}`;
+}
 
 function formatEmailDate(iso) {
   if (!iso) return "";
@@ -1429,29 +1458,49 @@ function renderMailFolders(emails) {
     count: inbox.filter((m) => m.category === c).length,
   })).filter((c) => c.count > 0);
 
+  // 분류는 받은 편지함의 하위 폴더다. 접었다 펼 수 있게 한 겹 안으로 넣는다.
+  const catsOpen = state.mailCatsOpen !== false;
+
   nav.innerHTML = MAIL_FOLDERS.map((f) => {
     const count = folderCount(emails, f.key);
     const unreadInFolder = emails.filter((m) => mailInFolder(m, f.key) && m.unread).length;
+    const isInbox = f.key === "inbox";
+    const hasKids = isInbox && cats.length > 0;
     return `
-      <button type="button" class="mail-folder ${state.emailFolder === f.key ? "active" : ""}" data-folder="${f.key}">
-        <span class="icon" data-icon="${f.icon}"></span>
-        <span class="mf-label">${f.label}</span>
-        ${unreadInFolder ? `<span class="mf-count">${unreadInFolder}</span>` : count ? `<span class="mf-count muted">${count}</span>` : ""}
-      </button>
+      <div class="mail-folder-row">
+        ${
+          hasKids
+            ? `<button type="button" class="mail-folder-caret ${catsOpen ? "open" : ""}" data-cats-toggle
+                 aria-label="분류 접기/펴기" aria-expanded="${catsOpen}">
+                 <span class="icon" data-icon="chevronDown"></span>
+               </button>`
+            : `<span class="mail-folder-caret empty"></span>`
+        }
+        <button type="button" class="mail-folder ${state.emailFolder === f.key ? "active" : ""}" data-folder="${f.key}">
+          <span class="icon" data-icon="${f.icon}"></span>
+          <span class="mf-label">${f.label}</span>
+          ${unreadInFolder ? `<span class="mf-count">${unreadInFolder}</span>` : count ? `<span class="mf-count muted">${count}</span>` : ""}
+        </button>
+      </div>
+      ${
+        hasKids
+          ? `<div class="mail-subfolders ${catsOpen ? "" : "closed"}">
+             <div class="mail-subfolders-inner">
+               ${cats
+                 .map(
+                   (c) => `
+                 <button type="button" class="mail-folder mail-cat ${state.emailFilter === c.key ? "active" : ""}" data-cat="${escapeHtml(c.key)}">
+                   <span class="mf-label">${escapeHtml(c.key)}</span>
+                   <span class="mf-count muted">${c.count}</span>
+                 </button>`,
+                 )
+                 .join("")}
+             </div>
+             </div>`
+          : ""
+      }
     `;
-  }).join("") +
-    (cats.length
-      ? `<span class="mail-folder-sep">분류</span>` +
-        cats
-          .map(
-            (c) => `
-      <button type="button" class="mail-folder mail-cat ${state.emailFilter === c.key ? "active" : ""}" data-cat="${escapeHtml(c.key)}">
-        <span class="mf-label">${escapeHtml(c.key)}</span>
-        <span class="mf-count muted">${c.count}</span>
-      </button>`,
-          )
-          .join("")
-      : "");
+  }).join("");
   installIcons(nav);
   const current = MAIL_FOLDERS.find((f) => f.key === state.emailFolder);
   const title = $("#mailFolderTitle");
@@ -1461,6 +1510,9 @@ function renderMailFolders(emails) {
     title.firstChild.nodeValue = `${current ? current.label : "메일함"} `;
     const count = $("#mailFolderCount");
     if (count) count.textContent = total ? `${unread} / ${total}` : "";
+    // 좁은 칸에서는 제목을 숨기므로, 어느 폴더를 뒤지는지 검색칸이 알려 준다
+    const search = $("#emailSearchInput");
+    if (search) search.placeholder = `${current ? current.label : "메일"}에서 검색`;
   }
 }
 
@@ -1611,12 +1663,13 @@ function emailListRow(mail) {
     <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <input type="checkbox" class="mail-pick" aria-label="선택" />
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
-      <time class="list-date">${formatEmailDate(mail.date)}</time>
+      <time class="list-date" title="${escapeHtml(formatEmailDate(mail.date))}">
+        <span class="d-full">${formatEmailDate(mail.date)}</span>
+        <span class="d-short">${compactMailDate(mail.date)}</span>
+      </time>
       
-      <div class="list-main">
-        <strong>${escapeHtml(shortText(title, 70))}</strong>
-        <span>${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
-      </div>
+      <span class="list-from">${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
+      <strong class="list-title" title="${escapeHtml(title || "")}">${escapeHtml(shortText(title, 90))}</strong>
       <span class="list-actions">
         <button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
           <span class="icon" data-icon="${mail.unread ? "check" : "mail"}"></span>
@@ -2420,8 +2473,9 @@ const RENDER_PARTS = [
     of: (s) => sig((s.files || []).length, s.search, s.fileView, s.fileCourse, s.fileStatus) },
   { key: "health", render: renderHealth, of: (s) => sig(s.health?.checkedAt, s.health?.level) },
   { key: "quicklinks", views: ["dashboard"], render: renderQuicklinks, of: (s) => sig(s.quicklinksAll) },
-  { key: "shuttle", views: ["dashboard"], render: renderShuttle,
+  { key: "shuttle", views: ["storage"], render: renderShuttle,
     of: (s) => sig((s.shuttle || []).length, s.shuttleGroup) },
+  { key: "fglp", views: ["storage"], render: renderFglp, of: () => "1" },
   { key: "timetable", views: ["dashboard"], render: renderTimetable,
     of: (s) => sig(listSig(s.timetable), s.ttShowSat) },
 ];
@@ -2801,7 +2855,15 @@ function openEventEditor(event = null) {
   form.elements.title.value = event?.title || "";
   form.elements.date.value =
     event?.date || `${y}-${pad2(m + 1)}-${pad2(state.calSelected || today.getDate())}`;
-  form.elements.time.value = event?.time || "";
+  fillTimePicks(form);
+  setTimePick(form, "time", event?.time || "");
+  if (!form.dataset.timeBound) {
+    form.dataset.timeBound = "1";
+    form.addEventListener("change", (ev) => {
+      const sel = ev.target.closest(".tp-hour, .tp-min");
+      if (sel) syncTimePick(form, sel.name.replace(/(Hour|Min)$/, ""));
+    });
+  }
   form.elements.note.value = event?.note || "";
   $("#eventEditorTitle").textContent = event?.id ? "일정 수정" : "새 일정";
   $("#eventDeleteButton").hidden = !event?.id;
@@ -3212,6 +3274,17 @@ function bindEvents() {
 
   // 폴더 네비게이션
   $("#mailFolders").addEventListener("click", (event) => {
+    // 받은 편지함 앞의 꺾쇠 = 분류 접기/펴기. 폴더를 옮기지는 않는다.
+    if (event.target.closest("[data-cats-toggle]")) {
+      state.mailCatsOpen = state.mailCatsOpen === false;
+      try {
+        localStorage.setItem("autosaver-mail-cats-open", String(state.mailCatsOpen));
+      } catch (error) {
+        /* 저장 못 해도 이번 실행에는 반영된다 */
+      }
+      renderEmails();
+      return;
+    }
     // 서랍에서 골랐으면 고르는 즉시 닫는다
     if (event.target.closest("[data-cat], [data-folder]")) setRail(false);
     // 분류(교수님·학생회 …)를 누르면 받은 편지함 안에서 걸러 본다
@@ -4423,6 +4496,73 @@ function setTtPreview(course) {
 }
 
 
+/* ===== 24시간제 시간 고르개 =====
+   <input type="time">은 브라우저 로캘을 따라 '오전/오후'로 뜨고, 이를 끄는
+   표준 방법이 없다. 강의 시간은 24시간제로 읽는 게 익숙해서 직접 만든다.
+   숨은 input(name=start/end)에 "HH:MM"을 넣어 두므로 저장 쪽은 그대로다. */
+const TT_MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
+function fillTimePicks(form) {
+  // data-allow-empty 는 '비우면 종일'인 칸. 빈 선택지를 하나 더 준다.
+  const blank = (sel) => (sel.hasAttribute("data-allow-empty") ? `<option value="">—</option>` : "");
+  form.querySelectorAll(".tp-hour").forEach((sel) => {
+    if (sel.options.length) return;
+    sel.innerHTML =
+      blank(sel) +
+      Array.from({ length: 24 }, (_, h) => {
+        const v = String(h).padStart(2, "0");
+        return `<option value="${v}">${v}</option>`;
+      }).join("");
+  });
+  form.querySelectorAll(".tp-min").forEach((sel) => {
+    if (sel.options.length) return;
+    sel.innerHTML =
+      blank(sel) +
+      TT_MINUTES.map((m) => {
+        const v = String(m).padStart(2, "0");
+        return `<option value="${v}">${v}</option>`;
+      }).join("");
+  });
+}
+
+/** "16:30" → 시·분 칸에 흩뿌린다 */
+function setTimePick(form, name, value) {
+  const hour = form.elements[`${name}Hour`];
+  const min = form.elements[`${name}Min`];
+  // 종일 일정처럼 시간이 없을 수도 있다
+  if (!value && hour?.hasAttribute("data-allow-empty")) {
+    hour.value = "";
+    if (min) min.value = "";
+    const hidden0 = form.elements[name];
+    if (hidden0) hidden0.value = "";
+    return;
+  }
+  const [h, m] = String(value || "09:00").split(":");
+  if (hour) hour.value = String(Number(h) || 0).padStart(2, "0");
+  if (min) {
+    // 5분 단위로 내림. 목록에 없는 값이면 칸이 비어 버린다.
+    const mm = Math.floor((Number(m) || 0) / 5) * 5;
+    min.value = String(mm).padStart(2, "0");
+  }
+  syncTimePick(form, name);
+}
+
+/** 시·분 칸 → 숨은 input */
+function syncTimePick(form, name) {
+  const hour = form.elements[`${name}Hour`];
+  const min = form.elements[`${name}Min`];
+  const hidden = form.elements[name];
+  if (!hour || !min || !hidden) return;
+  if (!hour.value) {
+    // 시를 비우면 종일. 분도 같이 비운다.
+    min.value = "";
+    hidden.value = "";
+    return;
+  }
+  if (!min.value) min.value = "00";
+  hidden.value = `${hour.value}:${min.value}`;
+}
+
 function openTtEditor(entry = null, preset = {}) {
   const panel = $("#ttEditor");
   const form = $("#ttForm");
@@ -4430,12 +4570,33 @@ function openTtEditor(entry = null, preset = {}) {
   form.elements.id.value = entry?.id || "";
   form.elements.title.value = entry?.title || "";
   form.elements.day.value = String(entry?.day ?? preset.day ?? 0);
-  form.elements.start.value = entry?.start || preset.start || "09:00";
-  form.elements.end.value = entry?.end || preset.end || "10:30";
+  fillTimePicks(form);
+  setTimePick(form, "start", entry?.start || preset.start || "09:00");
+  setTimePick(form, "end", entry?.end || preset.end || "10:30");
   form.elements.room.value = entry?.room || "";
   form.elements.color.value = entry?.color || pickTtColor(entry?.title || "");
   $("#ttEditorTitle").textContent = entry?.id ? "과목 수정" : "과목 추가";
   $("#ttDeleteButton").hidden = !entry?.id;
+
+  // 시·분을 고칠 때마다 숨은 칸을 맞춘다 (한 번만 건다)
+  if (!form.dataset.timeBound) {
+    form.dataset.timeBound = "1";
+    form.addEventListener("change", (event) => {
+      const sel = event.target.closest(".tp-hour, .tp-min");
+      if (!sel) return;
+      const name = sel.name.replace(/(Hour|Min)$/, "");
+      syncTimePick(form, name);
+      // 시작이 끝을 넘어서면 끝을 한 시간 뒤로 밀어 준다
+      if (name === "start") {
+        const s = form.elements.start.value;
+        const e = form.elements.end.value;
+        if (s && e && s >= e) {
+          const [h, m] = s.split(":").map(Number);
+          setTimePick(form, "end", `${String((h + 1) % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+        }
+      }
+    });
+  }
 
   // 색 고르기
   const wrap = $("#ttColors");
@@ -6126,6 +6287,7 @@ bindAcademic();
 bindDirectory();
 bindComposeFilesFold();
 bindDashEditor();
+bindFglp();
 renderNowBar();
 moveNavPill();
 window.addEventListener("resize", moveNavPill);
@@ -6154,3 +6316,173 @@ document.addEventListener("visibilitychange", () => {
     refreshAll();
   }
 });
+
+/* ===== 창고: FGLP 파견 지도 =====
+   세계지도를 점으로 찍는다. 외부 지도 라이브러리를 붙이면 인터넷이 없을 때
+   빈 화면이 되므로, 5°짜리 육지 표를 안에 들고 있다가 직접 점을 찍는다.
+   위도 90..-90(36줄), 경도 -180..180(72칸). 값은 육지인 경도 구간 목록. */
+const WORLD_LAND = [
+  [], // 90~85N
+  [[-70, -20], [-110, -75]],
+  [[-60, -18], [-125, -65], [8, 30], [50, 105]],
+  [[-58, -18], [-140, -65], [10, 32], [35, 180]],
+  [[-168, -140], [-140, -60], [-52, -20], [4, 32], [28, 180]],
+  [[-168, -138], [-140, -55], [-25, -14], [4, 32], [28, 180]],
+  [[-166, -136], [-138, -55], [-11, 2], [4, 32], [28, 180]],
+  [[-132, -55], [-10, 2], [3, 32], [28, 180]],
+  [[-128, -62], [-6, 32], [32, 180]],
+  [[-125, -68], [-10, 46], [46, 92], [90, 136], [138, 146]],
+  [[-122, -74], [-8, 42], [26, 62], [68, 124], [126, 142]],
+  [[-120, -76], [-11, 36], [34, 62], [62, 124], [128, 140]],
+  [[-116, -79], [-17, 36], [34, 60], [66, 124]],
+  [[-112, -96], [-88, -74], [-17, 36], [36, 58], [66, 94], [94, 112]],
+  [[-106, -88], [-86, -60], [-17, 42], [40, 56], [70, 94], [94, 112], [118, 126]],
+  [[-96, -82], [-76, -58], [-17, 48], [42, 54], [72, 82], [95, 110], [118, 127]],
+  [[-86, -76], [-80, -58], [-14, 48], [78, 82], [98, 120], [119, 127]],
+  [[-80, -44], [6, 46], [94, 136]],
+  [[-82, -34], [8, 44], [96, 142]],
+  [[-80, -34], [10, 42], [98, 152]],
+  [[-76, -34], [11, 41], [42, 51], [118, 152], [123, 146]],
+  [[-72, -37], [11, 40], [42, 51], [112, 152]],
+  [[-71, -39], [12, 36], [42, 49], [112, 154]],
+  [[-72, -47], [14, 34], [112, 154]],
+  [[-74, -52], [16, 33], [113, 153]],
+  [[-74, -56], [140, 149], [171, 179]],
+  [[-74, -61], [166, 179]],
+  [[-76, -65], []],
+  [[-76, -66], []],
+  [[-73, -65], []],
+  [], // 60~65S 바다
+  [[-180, -20], [60, 180]],
+  [[-180, 180]],
+  [[-180, 180]],
+  [[-180, 180]],
+  [[-180, 180]],
+];
+
+const LON_STEP = 5;
+const LAT_STEP = 5;
+
+function isLand(lat, lon) {
+  const r = Math.floor((90 - lat) / LAT_STEP);
+  const spans = WORLD_LAND[r];
+  if (!spans) return false;
+  return spans.some(([a, b]) => lon >= a && lon <= b);
+}
+
+/** 위경도 → 지도 안의 % 좌표 (정각원통도법) */
+function projectLatLon(lat, lon) {
+  return { x: ((lon + 180) / 360) * 100, y: ((90 - lat) / 180) * 100 };
+}
+
+function renderFglp() {
+  const map = $("#fglpMap");
+  if (!map || map.dataset.drawn) return;
+
+  const dots = [];
+  for (let r = 0; r < WORLD_LAND.length; r += 1) {
+    const lat = 90 - r * LAT_STEP - LAT_STEP / 2;
+    for (let lon = -180; lon < 180; lon += LON_STEP) {
+      if (!isLand(lat, lon + LON_STEP / 2)) continue;
+      const p = projectLatLon(lat, lon + LON_STEP / 2);
+      dots.push(`<i class="wm-dot" style="left:${p.x.toFixed(2)}%;top:${p.y.toFixed(2)}%"></i>`);
+    }
+  }
+  map.innerHTML = `<div class="wm-land">${dots.join("")}</div><div class="wm-pins" id="fglpPins"></div>`;
+  map.dataset.drawn = "1";
+  loadFglp();
+}
+
+async function loadFglp() {
+  const pins = $("#fglpPins");
+  const notes = $("#fglpNotes");
+  if (!pins) return;
+  try {
+    const data = await api("/api/fglp");
+    state.fglp = data;
+    pins.innerHTML = (data.schools || [])
+      .map((s, i) => {
+        const p = projectLatLon(s.lat, s.lon);
+        return `<button type="button" class="wm-pin k-${s.kind}" data-fglp="${i}"
+          style="left:${p.x.toFixed(2)}%;top:${p.y.toFixed(2)}%"
+          title="${escapeHtml(s.name)} · ${escapeHtml(s.country)}">
+          <span class="wm-pin-dot"></span>
+          <span class="wm-pin-label">${escapeHtml(shortText(s.name, 22))}</span>
+        </button>`;
+      })
+      .join("");
+    if (notes) {
+      notes.innerHTML =
+        (data.notes || [])
+          .map((n) => `<p class="fglp-note ${n.level}">${escapeHtml(n.text)}</p>`)
+          .join("") +
+        `<p class="fglp-src">공식 안내: <a href="${data.officialUrl}" target="_blank" rel="noopener">기초학부 글로벌 프로그램</a>
+          · 마지막 확인 ${escapeHtml(data.verifiedOn || "")}</p>`;
+    }
+    showFglpDetail(null);
+  } catch (error) {
+    pins.innerHTML = "";
+    if (notes) notes.innerHTML = `<p class="fglp-note warn">파견 정보를 불러오지 못했습니다: ${escapeHtml(error.message || "")}</p>`;
+  }
+}
+
+function showFglpDetail(index) {
+  const box = $("#fglpDetail");
+  if (!box) return;
+  const data = state.fglp;
+  if (!data) return;
+  const prog = data.program || {};
+  document.querySelectorAll("[data-fglp]").forEach((el) => {
+    el.classList.toggle("on", String(index) === el.dataset.fglp);
+  });
+
+  if (index === null || index === undefined) {
+    const n = (data.schools || []).filter((s) => s.kind === "fglp").length;
+    box.innerHTML = `
+      <h3>${escapeHtml(prog.name || "FGLP")}</h3>
+      <p class="fd-sum">${escapeHtml(prog.summary || "")}</p>
+      <dl class="fd-list">
+        <div><dt>대상</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
+        <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
+        <div><dt>지원</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>
+        <div><dt>어학</dt><dd>${escapeHtml(prog.requirement || "-")}</dd></div>
+        <div><dt>문의</dt><dd>${escapeHtml(prog.contact || "-")}</dd></div>
+      </dl>
+      <p class="fd-hint">지도에 찍힌 ${n}곳이 FGLP 파견 대학입니다. 점을 눌러 보세요.</p>`;
+    return;
+  }
+
+  const s = (data.schools || [])[index];
+  if (!s) return;
+  const srcLabel =
+    s.source === "official"
+      ? `<span class="fd-tag ok">공식 페이지 기재</span>`
+      : `<span class="fd-tag warn">학내 신문 보도</span>`;
+  box.innerHTML = `
+    <button type="button" class="fd-back" data-fglp-back>← 프로그램 안내</button>
+    <h3>${escapeHtml(s.name)}</h3>
+    <p class="fd-where">${escapeHtml(s.city)}, ${escapeHtml(s.country)}</p>
+    <p class="fd-tags">
+      <span class="fd-tag ${s.kind === "fglp" ? "k-fglp" : "k-exchange"}">${s.kind === "fglp" ? "FGLP" : "교환학생"}</span>
+      <span class="fd-tag">${s.since}년부터</span>
+      ${srcLabel}
+    </p>
+    <dl class="fd-list">
+      <div><dt>지원 자격</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
+      <div><dt>어학 요건</dt><dd>${escapeHtml(prog.requirement || "-")}</dd></div>
+      <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
+      <div><dt>지원 내용</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>
+      <div><dt>정원</dt><dd class="fd-unknown">공개된 문서에 없습니다. 국제협력팀에 확인하세요.</dd></div>
+    </dl>
+    <p class="fd-hint">문의 ${escapeHtml(prog.contact || "")}</p>`;
+}
+
+function bindFglp() {
+  $("#fglpMap")?.addEventListener("click", (event) => {
+    const pin = event.target.closest("[data-fglp]");
+    if (pin) showFglpDetail(Number(pin.dataset.fglp));
+  });
+  $("#fglpDetail")?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-fglp-back]")) showFglpDetail(null);
+  });
+}
