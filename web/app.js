@@ -10,6 +10,7 @@ const icons = {
   reply: '<svg viewBox="0 0 24 24"><path d="M9 17l-5-5 5-5"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></svg>',
   // 뒤로가기: 답장 아이콘과 헷갈리지 않도록 단순 화살표를 따로 둔다
   arrowLeft: '<svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>',
+  chevronDown: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   send: '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   paperclip: '<svg viewBox="0 0 24 24"><path d="m21.4 11.1-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>',
@@ -2466,6 +2467,8 @@ function renderAll(force = false) {
     changed = true;
   }
   if (changed) invalidateMetricPeek();
+  // 접어 둔 블록의 요약 줄도 값이 바뀌면 갱신한다
+  if (state.dashFold) applyFold();
 }
 
 // 그려 둔 적이 있는 부분 (화면을 바꿔 처음 보일 때는 반드시 한 번 그린다)
@@ -5054,12 +5057,13 @@ function loadDashLayout() {
   for (const row of Array.isArray(saved) ? saved : []) {
     if (row && present.includes(row.key) && !known.has(row.key)) {
       known.add(row.key);
-      layout.push({ key: row.key, off: !!row.off });
+      // size: "full"(한 줄 전체) 또는 "half"(반 폭). 반 폭끼리는 나란히 붙는다.
+      layout.push({ key: row.key, off: !!row.off, size: row.size === "half" ? "half" : "full" });
     }
   }
   // 저장된 적 없는(새로 추가된) 블록은 켠 채로 뒤에 붙인다
   for (const key of present) {
-    if (!known.has(key)) layout.push({ key, off: false });
+    if (!known.has(key)) layout.push({ key, off: false, size: "full" });
   }
   return layout;
 }
@@ -5082,6 +5086,7 @@ function applyDashLayout() {
     // 순서대로 다시 붙이면 그 순서가 된다
     view.appendChild(el);
     el.classList.toggle("dash-off", !!row.off);
+    el.classList.toggle("dash-half", row.size === "half");
   });
   renderDashEditor();
 }
@@ -5112,6 +5117,9 @@ function renderDashEditor() {
       <span class="dash-name">${escapeHtml(el.dataset.blockLabel || el.dataset.block)}</span>
       <button type="button" class="dash-btn" data-dash-up title="위로">↑</button>
       <button type="button" class="dash-btn" data-dash-down title="아래로">↓</button>
+      <button type="button" class="dash-btn" data-dash-size title="반 폭으로 나누기 / 한 줄 전체로">${
+        layout[idx]?.size === "half" ? "반폭" : "전체"
+      }</button>
       <button type="button" class="dash-btn ${off ? "" : "on"}" data-dash-toggle title="${off ? "보이기" : "숨기기"}">${off ? "숨김" : "보임"}</button>`;
   });
 }
@@ -5187,9 +5195,182 @@ function bindDirectory() {
 }
 
 
+/* ===== 대시보드 접기 =====
+   블록이 늘어나니 한 화면에 다 안 들어온다.
+   접어도 '한 줄 요약'은 남겨서, 펴지 않아도 상태를 알 수 있게 한다. */
+const FOLD_STORE = "autosaver-dashboard-fold";
+
+/** 접었을 때 보여 줄 한 줄. 블록마다 가장 중요한 것 하나만. */
+function dashPeek(key) {
+  const now = Date.now();
+  switch (key) {
+    case "dday": {
+      const num = $("#ddayNum")?.textContent || "";
+      const title = $("#ddayTitle")?.textContent || "";
+      return title ? `${num} · ${title}` : "";
+    }
+    case "shuttle": {
+      const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+      const next = (state.shuttle || [])
+        .filter((r) => r.depart)
+        .map((r) => {
+          const [h, m] = r.depart.split(":").map(Number);
+          return { r, min: h * 60 + (m || 0) };
+        })
+        .filter((x) => x.min >= nowMin)
+        .sort((a, b) => a.min - b.min)[0];
+      return next ? `다음 차 ${next.r.depart} ${next.r.name}` : "오늘 남은 차 없음";
+    }
+    case "notices": {
+      const list = state.notices || [];
+      return list.length ? `${list[0].board} · ${shortText(list[0].title, 22)}` : "";
+    }
+    case "links":
+      return "학교 사이트 바로가기";
+    case "metrics": {
+      const d = (state.deadlines?.items || []).length;
+      const f = (state.files || []).length;
+      return `마감 ${d} · 자료 ${f}`;
+    }
+    case "timetable": {
+      const info = state.semester;
+      const live = nowStatus(new Date(), state.timetable, state.semester);
+      return live?.title ? `${live.title}${live.sub ? ` · ${shortText(live.sub, 18)}` : ""}` : "";
+    }
+    case "upcoming": {
+      const next = (state.deadlines?.items || [])
+        .filter((d) => !isSubmitted(d))
+        .map((d) => ({ d, due: parseDue(d) }))
+        .filter((x) => x.due && x.due.getTime() >= now)
+        .sort((a, b) => a.due - b.due)[0];
+      if (!next) return "임박한 마감 없음";
+      const days = Math.ceil((next.due - now) / 86400000);
+      return `D-${Math.max(0, days)} ${shortText(next.d.name, 20)}`;
+    }
+    case "events": {
+      const n = document.querySelectorAll("#eventsList > *").length;
+      return n ? `${n}건` : "예정된 일정 없음";
+    }
+    default:
+      return "";
+  }
+}
+
+function loadFold() {
+  try {
+    return JSON.parse(localStorage.getItem(FOLD_STORE) || "{}") || {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveFold() {
+  try {
+    localStorage.setItem(FOLD_STORE, JSON.stringify(state.dashFold || {}));
+  } catch (error) {
+    /* 저장 못 해도 이번 실행에는 반영된다 */
+  }
+}
+
+/** 각 블록에 접기 버튼과 요약 줄을 달아 준다 (한 번만) */
+function setupFold() {
+  state.dashFold = state.dashFold || loadFold();
+
+  dashBlocks().forEach((el) => {
+    const key = el.dataset.block;
+    // 알림 배너(D-day)는 원래 한 줄짜리라 접을 게 없다
+    if (key === "dday") return;
+
+    let head = el.querySelector(":scope > .panel-header");
+    if (!head) return;
+
+    // 본문을 한 겹으로 싼다. 0fr→1fr 로 접으려면 자식이 하나여야 한다.
+    if (!el.querySelector(":scope > .fold-wrap")) {
+      const wrap = document.createElement("div");
+      wrap.className = "fold-wrap";
+      const body = document.createElement("div");
+      body.className = "fold-body";
+      // panel-header 뒤의 모든 것을 옮긴다
+      let node = head.nextSibling;
+      while (node) {
+        const next = node.nextSibling;
+        body.appendChild(node);
+        node = next;
+      }
+      wrap.appendChild(body);
+      el.appendChild(wrap);
+    }
+
+    // 접기 버튼
+    if (!head.querySelector(".fold-toggle")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fold-toggle";
+      btn.setAttribute("aria-label", "접기/펴기");
+      btn.innerHTML = '<span class="icon" data-icon="chevronDown"></span>';
+      head.appendChild(btn);
+      installIcons(head);
+    }
+
+    // 요약 줄 (접었을 때만 보인다)
+    if (!head.querySelector(".fold-peek")) {
+      const peek = document.createElement("span");
+      peek.className = "fold-peek";
+      head.insertBefore(peek, head.querySelector(".fold-toggle"));
+    }
+  });
+
+  applyFold();
+}
+
+function applyFold() {
+  const fold = state.dashFold || {};
+  dashBlocks().forEach((el) => {
+    const key = el.dataset.block;
+    const closed = Boolean(fold[key]);
+    el.classList.toggle("folded", closed);
+    const btn = el.querySelector(".fold-toggle");
+    if (btn) btn.setAttribute("aria-expanded", String(!closed));
+    const peek = el.querySelector(".fold-peek");
+    if (peek) peek.textContent = closed ? dashPeek(key) : "";
+  });
+}
+
+function bindFold() {
+  const view = $("#view-dashboard");
+  if (!view) return;
+
+  view.addEventListener("click", (event) => {
+    const btn = event.target.closest(".fold-toggle");
+    if (!btn) return;
+    // 편집 중에는 순서 바꾸기가 우선이라 접기를 막는다
+    if (state.dashEditing) return;
+    const el = btn.closest("[data-block]");
+    if (!el) return;
+    const key = el.dataset.block;
+    state.dashFold = state.dashFold || {};
+    state.dashFold[key] = !state.dashFold[key];
+    saveFold();
+    applyFold();
+  });
+
+  // 모두 접기 / 모두 펴기
+  $("#dashFoldAll")?.addEventListener("click", () => {
+    const keys = dashBlocks().map((el) => el.dataset.block).filter((k) => k !== "dday");
+    const anyOpen = keys.some((k) => !state.dashFold?.[k]);
+    state.dashFold = {};
+    if (anyOpen) keys.forEach((k) => (state.dashFold[k] = true));
+    saveFold();
+    applyFold();
+    $("#dashFoldAllLabel").textContent = anyOpen ? "모두 펴기" : "모두 접기";
+  });
+}
+
+
 function bindDashEditor() {
   state.dashLayout = loadDashLayout();
   applyDashLayout();
+  setupFold();
 
   $("#dashEditToggle")?.addEventListener("click", () => {
     state.dashEditing = !state.dashEditing;
@@ -5200,7 +5381,7 @@ function bindDashEditor() {
   if (!view) return;
 
   view.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-dash-up], [data-dash-down], [data-dash-toggle]");
+    const button = event.target.closest("[data-dash-up], [data-dash-down], [data-dash-toggle], [data-dash-size]");
     if (!button) return;
     // 편집 중에는 패널 안의 원래 버튼이 눌리지 않게 한다
     event.preventDefault();
@@ -5210,6 +5391,15 @@ function bindDashEditor() {
     if (!key) return;
     if (button.hasAttribute("data-dash-up")) return moveDashBlock(key, -1);
     if (button.hasAttribute("data-dash-down")) return moveDashBlock(key, 1);
+    if (button.hasAttribute("data-dash-size")) {
+      const row = (state.dashLayout || []).find((r) => r.key === key);
+      if (row) {
+        row.size = row.size === "half" ? "full" : "half";
+        saveDashLayout();
+        applyDashLayout();
+      }
+      return;
+    }
     const row = (state.dashLayout || []).find((r) => r.key === key);
     if (row) {
       row.off = !row.off;
@@ -5690,6 +5880,7 @@ initRail();
 setHeroGreeting();
 bindNowBar();
 bindShuttle();
+bindFold();
 bindRichToolbar();
 bindAddressPicker();
 bindComposeExtras();
