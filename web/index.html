@@ -993,6 +993,19 @@
           </section>
 
           <section class="settings-section">
+            <h3><span class="icon" data-icon="users"></span>DGIST 조직도 (주소록)</h3>
+            <p class="settings-note" id="directoryNote">조직도를 넣어 두면 메일 쓸 때 교수님·학생 이름으로 주소를 찾을 수 있어요.</p>
+            <div class="directory-actions">
+              <button class="button compact ghost" id="directoryImportButton" type="button">
+                <span class="icon" data-icon="file"></span>
+                조직도 파일 넣기
+              </button>
+              <input type="file" id="directoryFileInput" accept=".json,.csv" hidden />
+              <span id="directoryStatus"></span>
+            </div>
+          </section>
+
+          <section class="settings-section">
             <h3><span class="icon" data-icon="mail"></span>학교 이메일 (DGIST)</h3>
             <div class="form-grid">
               <label>

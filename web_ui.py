@@ -97,6 +97,7 @@ class UserWorkspace:
     academic_path: Path
     notices_path: Path
     catalog_path: Path
+    directory_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -135,6 +136,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         academic_path=root / "academic_calendar.json",
         notices_path=root / "notices.json",
         catalog_path=root / "course_catalog.json",
+        directory_path=root / "directory.json",
     )
 
 
@@ -1380,6 +1382,23 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     return with_semester(result)
 
 
+def search_directory_api(workspace: UserWorkspace, query: str) -> dict[str, Any]:
+    """조직도에서 사람 찾기. 받은 메일 연락처와 합쳐서 돌려준다."""
+    import directory
+
+    people = directory.load_directory(workspace.directory_path)
+    hits = directory.search_directory(people, query, limit=8)
+    return {"ok": True, "total": len(people), "results": hits}
+
+
+def import_directory(workspace: UserWorkspace, people: list[dict[str, Any]]) -> dict[str, Any]:
+    import directory
+
+    if not isinstance(people, list) or not people:
+        raise ValueError("가져올 사람 목록이 비어 있습니다.")
+    return directory.save_directory(workspace.directory_path, people)
+
+
 def get_course_catalog(
     workspace: UserWorkspace, year_term: str, undergraduate: bool, refresh: bool = False
 ) -> dict[str, Any]:
@@ -2041,6 +2060,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"ok": False, "events": [], "message": str(exc)})
             return
+        if route == "/api/directory":
+            try:
+                self.send_json(
+                    search_directory_api(workspace, params.get("q", [""])[0])
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "results": [], "message": str(exc)})
+            return
         if route == "/api/course-catalog":
             try:
                 self.send_json(
@@ -2373,6 +2400,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 import timetable_import
                 payload = self.read_body_json()
                 self.send_json(timetable_import.import_everytime(str(payload.get("url", ""))))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/directory/import":
+            try:
+                payload = self.read_body_json() or {}
+                self.send_json(import_directory(workspace, payload.get("people", [])))
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

@@ -851,6 +851,26 @@ function bindComposeFiles() {
   });
 }
 
+
+/* 조직도에서 사람 찾기.
+   받은 메일에서 뽑은 연락처만으로는 한 번도 메일을 주고받지 않은
+   교수·학생을 찾을 수 없다. (그게 DGIST 웹메일과 가장 큰 차이였다) */
+const dirCache = new Map();
+
+async function lookupDirectory(term) {
+  const q = (term || "").trim();
+  if (q.length < 2) return [];
+  if (dirCache.has(q)) return dirCache.get(q);
+  try {
+    const res = await api(`/api/directory?q=${encodeURIComponent(q)}`);
+    const people = res.results || [];
+    dirCache.set(q, people);
+    return people;
+  } catch (error) {
+    return [];
+  }
+}
+
 /* ===== 주소 자동완성 (DGIST 연락처) ===== */
 function contactMatches(term) {
   const q = term.trim().toLowerCase();
@@ -895,20 +915,37 @@ function setupAutocomplete() {
       input.focus();
     };
 
-    const showMenu = () => {
-      const { text } = currentToken();
-      const matches = contactMatches(text);
+    const paint = (matches) => {
       if (!matches.length) return closeMenu();
       menu.innerHTML = matches
         .map(
           (c, i) => `
           <button type="button" class="ac-item ${i === active ? "active" : ""}" data-email="${escapeHtml(c.email)}">
             <span class="ac-name">${escapeHtml(c.name || c.email)}</span>
-            <span class="ac-email">${escapeHtml(c.email)}${c.guess ? " · 추정" : ""}</span>
+            <span class="ac-email">${escapeHtml(c.email)}${
+              c.guess ? " · 추정" : c.dept ? " · " + escapeHtml(shortText(c.dept, 18)) : ""
+            }</span>
           </button>`,
         )
         .join("");
       menu.hidden = false;
+    };
+
+    const showMenu = () => {
+      const { text } = currentToken();
+      // 주고받은 연락처를 먼저 그려서 바로 반응하게 하고,
+      // 조직도 결과가 오면 이어 붙인다.
+      paint(contactMatches(text));
+      lookupDirectory(text).then((people) => {
+        // 입력이 그새 바뀌었으면 버린다
+        if (currentToken().text !== text) return;
+        const seen = new Set(contactMatches(text).map((c) => c.email));
+        const merged = [
+          ...contactMatches(text),
+          ...people.filter((p) => !seen.has(p.email)),
+        ].slice(0, 8);
+        paint(merged);
+      });
     };
 
     input.addEventListener("input", () => {
@@ -4539,6 +4576,66 @@ function moveDashBlock(key, delta) {
   applyDashLayout();
 }
 
+/* 조직도 파일 넣기 (JSON 또는 CSV).
+   웹메일 조직도는 포탈 SSO로만 열려서 앱이 직접 못 가져온다.
+   한 번 받아 둔 목록을 넣어 두면 그 안에서 찾는다. */
+function parseDirectoryFile(text, name) {
+  if (name.toLowerCase().endsWith(".json")) {
+    const data = JSON.parse(text);
+    return Array.isArray(data) ? data : data.people || data.entries || [];
+  }
+  // CSV: 이름,이메일,부서,직위,신분
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.split(","))
+    .filter((c) => c.length >= 2 && c[1] && c[1].includes("@"))
+    .map((c) => ({
+      name: (c[0] || "").trim(),
+      email: (c[1] || "").trim(),
+      dept: (c[2] || "").trim(),
+      title: (c[3] || "").trim(),
+      role: (c[4] || "").trim(),
+    }));
+}
+
+function bindDirectory() {
+  const button = $("#directoryImportButton");
+  const input = $("#directoryFileInput");
+  if (!button || !input) return;
+
+  const refreshCount = async () => {
+    try {
+      const res = await api("/api/directory?q=");
+      const status = $("#directoryStatus");
+      if (status) status.textContent = res.total ? `${res.total}명 등록됨` : "아직 없음";
+    } catch (error) {
+      /* 무시 */
+    }
+  };
+  refreshCount();
+
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const people = parseDirectoryFile(await file.text(), file.name);
+      const res = await api("/api/directory/import", {
+        method: "POST",
+        body: JSON.stringify({ people }),
+      });
+      showToast(`조직도 ${res.count}명을 넣었습니다.`);
+      dirCache.clear();
+      refreshCount();
+    } catch (error) {
+      showToast(error.message || "조직도 파일을 읽지 못했습니다.");
+    } finally {
+      input.value = "";
+    }
+  });
+}
+
+
 function bindDashEditor() {
   state.dashLayout = loadDashLayout();
   applyDashLayout();
@@ -4959,6 +5056,7 @@ initRail();
 setHeroGreeting();
 bindNowBar();
 bindAcademic();
+bindDirectory();
 bindDashEditor();
 renderNowBar();
 moveNavPill();
