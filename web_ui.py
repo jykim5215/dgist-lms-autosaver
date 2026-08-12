@@ -98,6 +98,7 @@ class UserWorkspace:
     notices_path: Path
     catalog_path: Path
     directory_path: Path
+    shuttle_path: Path
 
 
 def default_task_state() -> dict[str, Any]:
@@ -137,6 +138,7 @@ def workspace_for_user(user_id: str) -> UserWorkspace:
         notices_path=root / "notices.json",
         catalog_path=root / "course_catalog.json",
         directory_path=root / "directory.json",
+        shuttle_path=root / "shuttle.json",
     )
 
 
@@ -1382,6 +1384,33 @@ def get_academic_calendar(workspace: UserWorkspace, year: int | None = None, ref
     return with_semester(result)
 
 
+def get_shuttle(workspace: UserWorkspace, refresh: bool = False) -> dict[str, Any]:
+    """셔틀·통근버스 시간표. 학기 중에는 거의 안 바뀌니 일주일 캐시."""
+    import shuttle
+
+    cache = read_json(workspace.shuttle_path, {}) or {}
+    if not refresh and isinstance(cache, dict) and cache.get("routes"):
+        try:
+            fetched = datetime.fromisoformat(cache.get("fetchedAt", ""))
+            if (datetime.now() - fetched).total_seconds() < 7 * 86400:
+                return {"cached": True, **{k: v for k, v in cache.items() if k != "fetchedAt"}}
+        except ValueError:
+            pass
+
+    result = shuttle.fetch_shuttle()
+    if result.get("ok"):
+        workspace.shuttle_path.write_text(
+            json.dumps({**result, "fetchedAt": datetime.now().isoformat(timespec="seconds")},
+                       ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return result
+    if isinstance(cache, dict) and cache.get("routes"):
+        # 새로 못 받으면 지난 것이라도 보여 준다
+        return {"cached": True, "stale": True, **{k: v for k, v in cache.items() if k != "fetchedAt"}}
+    return result
+
+
 def search_directory_api(workspace: UserWorkspace, query: str) -> dict[str, Any]:
     """조직도에서 사람 찾기. 받은 메일 연락처와 합쳐서 돌려준다."""
     import directory
@@ -2059,6 +2088,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 )
             except Exception as exc:
                 self.send_json({"ok": False, "events": [], "message": str(exc)})
+            return
+        if route == "/api/shuttle":
+            try:
+                self.send_json(
+                    get_shuttle(workspace, params.get("refresh", [""])[0] == "1")
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "routes": [], "message": str(exc)})
             return
         if route == "/api/directory":
             try:

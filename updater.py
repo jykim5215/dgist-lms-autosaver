@@ -34,6 +34,7 @@ UPDATE_FILES = [
     "academic_calendar.py",
     "notice_board.py",
     "directory.py",
+    "shuttle.py",
     "email_reader.py",
     "email_notifier.py",
     "ai_summarizer.py",

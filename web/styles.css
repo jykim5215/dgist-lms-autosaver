@@ -5933,3 +5933,131 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .attach-head, .attach-row { grid-template-columns: minmax(0, 1fr) 60px 24px; }
   .attach-head span:nth-child(2), .attach-row .ar-from { display: none; }
 }
+
+/* ===== 셔틀버스 노선도 =====
+   점과 선. 정류장 이름은 점 위, 시각은 점 아래. */
+.shuttle-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.shuttle-actions select { font-size: 12px; padding: 5px 8px; }
+.shuttle-list { display: flex; flex-direction: column; gap: 10px; }
+.shuttle-empty { margin: 0; padding: 14px 4px; font-size: 12.5px; color: var(--text-faint); }
+
+.bus-route {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 11px 14px 9px;
+}
+/* 아직 출발 안 한 차 */
+.bus-route.upcoming { border-color: var(--accent); background: var(--accent-soft); }
+.bus-route.passed { opacity: 0.62; }
+
+.bus-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.bus-head strong { font-size: 12.5px; font-weight: 700; }
+.bus-when { font-size: 11px; color: var(--text-faint); }
+.bus-flag {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+
+/* 가로로 흐르는 선. 칸이 모자라면 좌우로 넘겨 본다. */
+.bus-line {
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding: 2px 0 0;
+  scrollbar-width: thin;
+}
+.bus-stop {
+  position: relative;
+  flex: 1 0 68px;
+  min-width: 68px;
+  display: grid;
+  grid-template-rows: 26px 14px auto;
+  justify-items: center;
+  gap: 3px;
+  padding-top: 2px;
+}
+/* 점과 점을 잇는 선 (양옆으로 반 칸씩) */
+.bus-stop::before,
+.bus-stop::after {
+  content: "";
+  position: absolute;
+  /* 이름칸 26px + 간격 3px + 점칸 14px의 절반 = 36px */
+  top: 36px;
+  height: 2px;
+  background: var(--border-strong, var(--border));
+  width: 50%;
+}
+.bus-stop::before { left: 0; }
+.bus-stop::after { right: 0; }
+.bus-stop.first::before,
+.bus-stop.last::after { display: none; }
+
+/* 이름이 한 줄이든 두 줄이든 점이 같은 높이에 오도록
+   이름칸 높이를 고정하고 아래쪽에 붙인다. */
+.bus-name {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 26px;
+  font-size: 10px;
+  color: var(--text-soft);
+  text-align: center;
+  line-height: 1.25;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.bus-dot {
+  position: relative;
+  z-index: 1;
+  /* 점 크기가 달라도(출발·도착 11px, 경유 6px) 선 높이는 같아야 한다 */
+  flex: none;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.bus-time {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-height: 13px;
+}
+
+/* 거쳐만 가는 곳 (시각 없음)은 작고 조용하게 */
+.bus-stop.via .bus-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--text-faint);
+}
+.bus-stop.via .bus-name { color: var(--text-faint); font-size: 9.5px; }
+
+/* 출발·도착은 크게 */
+.bus-stop.first .bus-dot,
+.bus-stop.last .bus-dot { width: 11px; height: 11px; }
+.bus-stop.first .bus-name,
+.bus-stop.last .bus-name { font-weight: 700; color: var(--text); }
+
+.bus-extra {
+  margin: 6px 0 0;
+  font-size: 10px;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .bus-stop { flex: 1 0 60px; min-width: 60px; }
+  .bus-name { font-size: 9.5px; }
+}

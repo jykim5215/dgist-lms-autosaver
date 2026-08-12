@@ -64,6 +64,8 @@ const state = {
   myEvents: [],
   academic: [],
   notices: [],
+  shuttle: [],
+  shuttleGroup: "",
   academicUnderOnly: true,
   fileMode: "list",
   openFolders: {},
@@ -2429,6 +2431,8 @@ const RENDER_PARTS = [
     of: (s) => sig((s.files || []).length, s.search, s.fileView, s.fileCourse, s.fileStatus) },
   { key: "health", render: renderHealth, of: (s) => sig(s.health?.checkedAt, s.health?.level) },
   { key: "quicklinks", views: ["dashboard"], render: renderQuicklinks, of: (s) => sig(s.quicklinksAll) },
+  { key: "shuttle", views: ["dashboard"], render: renderShuttle,
+    of: (s) => sig((s.shuttle || []).length, s.shuttleGroup) },
   { key: "timetable", views: ["dashboard"], render: renderTimetable,
     of: (s) => sig(listSig(s.timetable), s.ttShowSat) },
 ];
@@ -5374,6 +5378,7 @@ function loadAcademic() {
   state.academicTriedAt = now;
 
   loadNotices(false);
+  loadShuttle(false);
   api("/api/academic-calendar")
     .then((res) => {
       // 서버가 200으로 {ok:false}를 줄 수 있다. 이때 성공으로 치면 안 된다.
@@ -5425,6 +5430,88 @@ function applySemester() {
       if (!$("#catalogPanel")?.hidden) loadCatalog();
     }
   }
+}
+
+
+/* ===== 셔틀버스 노선도 =====
+   점(정류장)과 선으로 잇고, 이름은 점 위에 시각은 점 아래에 둔다.
+   시각이 없는 곳('성서IC경유')은 작은 빈 점으로 표시한다. */
+function renderShuttle() {
+  const list = $("#shuttleList");
+  const picker = $("#shuttleGroup");
+  if (!list) return;
+
+  const routes = state.shuttle || [];
+  if (!routes.length) {
+    list.innerHTML = '<p class="shuttle-empty">시간표를 불러오는 중이에요.</p>';
+    return;
+  }
+
+  // 갈래 고르개 (출근버스 / 퇴근버스 / 순환 …)
+  const groups = [...new Set(routes.map((r) => r.group))];
+  if (picker && picker.options.length !== groups.length) {
+    picker.innerHTML = groups.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+    if (!state.shuttleGroup || !groups.includes(state.shuttleGroup)) state.shuttleGroup = groups[0];
+    picker.value = state.shuttleGroup;
+  }
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const toMin = (t) => {
+    const [h, m] = String(t || "0:0").split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+
+  const shown = routes.filter((r) => r.group === state.shuttleGroup);
+  list.innerHTML = shown
+    .map((route) => {
+      const departMin = route.depart ? toMin(route.depart) : null;
+      // 아직 안 지난 차는 눈에 띄게
+      const upcoming = departMin !== null && departMin >= nowMin;
+      const dots = route.stops
+        .map((s, i) => {
+          const last = i === route.stops.length - 1;
+          return `
+        <div class="bus-stop ${s.via ? "via" : ""} ${i === 0 ? "first" : ""} ${last ? "last" : ""}">
+          <span class="bus-name" title="${escapeHtml(s.name)}">${escapeHtml(shortText(s.name, 9))}</span>
+          <span class="bus-dot"></span>
+          <span class="bus-time">${escapeHtml(s.time || "")}</span>
+        </div>`;
+        })
+        .join("");
+      return `
+      <article class="bus-route ${upcoming ? "upcoming" : "passed"}">
+        <div class="bus-head">
+          <strong>${escapeHtml(route.name)}</strong>
+          ${route.depart ? `<span class="bus-when">${escapeHtml(route.depart)} 출발</span>` : ""}
+          ${upcoming ? '<em class="bus-flag">곧 출발</em>' : ""}
+        </div>
+        <div class="bus-line">${dots}</div>
+        ${route.extra ? `<p class="bus-extra">${escapeHtml(shortText(route.extra, 70))}</p>` : ""}
+      </article>`;
+    })
+    .join("");
+}
+
+function loadShuttle(refresh) {
+  return api(`/api/shuttle${refresh ? "?refresh=1" : ""}`)
+    .then((res) => {
+      if (!res.routes || !res.routes.length) return;
+      state.shuttle = res.routes;
+      renderShuttle();
+      if (refresh) showToast(`버스 노선 ${res.routes.length}개를 새로 받았어요.`);
+    })
+    .catch(() => {
+      /* 학교 홈페이지가 응답하지 않아도 앱은 그대로 쓴다 */
+    });
+}
+
+function bindShuttle() {
+  $("#shuttleGroup")?.addEventListener("change", (event) => {
+    state.shuttleGroup = event.target.value;
+    renderShuttle();
+  });
+  $("#refreshShuttle")?.addEventListener("click", () => loadShuttle(true));
 }
 
 
@@ -5602,6 +5689,7 @@ initTheme();
 initRail();
 setHeroGreeting();
 bindNowBar();
+bindShuttle();
 bindRichToolbar();
 bindAddressPicker();
 bindComposeExtras();
