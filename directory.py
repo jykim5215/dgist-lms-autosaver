@@ -83,7 +83,9 @@ def search_directory(people: list[dict[str, Any]], query: str, limit: int = 8) -
     q = _norm(query)
     if not q:
         return []
-    q_ini = initials(q)
+    # 초성 검색은 자음만 쳤을 때만. '김동준'을 초성으로도 풀면
+    # 초성이 같은 다른 사람(권동재, 김대진…)까지 딸려 나온다.
+    q_is_initials = bool(q) and all(ch in _CHO for ch in q)
 
     scored: list[tuple[int, dict[str, Any]]] = []
     for p in people:
@@ -97,8 +99,8 @@ def search_directory(people: list[dict[str, Any]], query: str, limit: int = 8) -
             score = 0
         elif q in name or q in email:
             score = 1
-        elif initials(name).startswith(q_ini) and q_ini:
-            # 'ㄱㄷㅈ' 같은 초성 검색
+        elif q_is_initials and initials(name).startswith(q):
+            # 'ㄱㄷㅈ' 같은 초성만 친 경우
             score = 2
         elif q in dept:
             score = 3

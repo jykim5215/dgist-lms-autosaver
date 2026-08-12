@@ -939,12 +939,14 @@ function setupAutocomplete() {
       lookupDirectory(text).then((people) => {
         // 입력이 그새 바뀌었으면 버린다
         if (currentToken().text !== text) return;
-        const seen = new Set(contactMatches(text).map((c) => c.email));
-        const merged = [
-          ...contactMatches(text),
-          ...people.filter((p) => !seen.has(p.email)),
-        ].slice(0, 8);
-        paint(merged);
+        const dirEmails = new Set(people.map((p) => p.email));
+        // 조직도에 실제 이름이 있으면 '추정' 항목은 버린다.
+        // (deniz@dgist.ac.kr 가 'DGIST 메일'로 뜨던 문제)
+        const local = contactMatches(text).filter(
+          (c) => !(c.guess && dirEmails.has(c.email)),
+        );
+        const seen = new Set(local.map((c) => c.email));
+        paint([...local, ...people.filter((p) => !seen.has(p.email))].slice(0, 8));
       });
     };
 
