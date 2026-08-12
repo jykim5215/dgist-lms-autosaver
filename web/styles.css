@@ -6388,3 +6388,100 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 .mail-folder { border-radius: var(--radius-sm); }
 .mail-rail { gap: 10px; }
 .mail-folders { gap: 2px; }
+
+/* ===== 메일함 구성 다시 =====
+   목록이 시작되기까지 4단(상단·작업줄·탭)을 지나야 해서 답답했다.
+   작업 줄을 자리에서 빼 '고른 게 있을 때만' 떠오르게 하고,
+   정렬·보기전환을 상단 한 줄로 합쳤다. */
+
+.mail-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+.mail-topbar select { flex: none; font-size: 11.5px; padding: 5px 7px; }
+.mail-topbar .view-toggle { flex: none; }
+
+/* 분류 탭을 한 단 낮게 */
+.mail-tab { min-height: 46px; padding: 8px 14px; }
+.mail-tab-peek { font-size: 10.5px; }
+
+/* 떠 있는 작업 막대: 목록 위를 덮되 자리는 차지하지 않는다 */
+.mail-actionbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 20;
+  transform: translateX(-50%) translateY(8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  min-height: 0;
+  padding: 7px 10px 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px -10px rgba(31, 30, 29, 0.34);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mail-actionbar[hidden] { display: none; }
+.mail-actionbar.up { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.mail-selectall {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mail-selected-count { color: inherit; }
+.mail-unpick { width: 28px; height: 28px; }
+.mail-unpick .icon { width: 14px; height: 14px; }
+
+/* 목록 칸이 막대의 기준이 되도록 */
+#mailListPane { position: relative; }
+
+/* 좁을 때는 막대를 화면 폭에 맞춰 눕힌다 */
+@container mailmain (max-width: 560px) {
+  .mail-actionbar {
+    left: 10px;
+    right: 10px;
+    transform: translateY(8px);
+    justify-content: space-between;
+    border-radius: var(--radius);
+  }
+  .mail-actionbar.up { transform: translateY(0); }
+  .mail-actions button { padding: 5px 7px; font-size: 12px; }
+  .mail-topbar { flex-wrap: wrap; }
+  .mail-topbar .email-search { width: 100%; margin-left: 0; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-actionbar { transition: none; }
+}
+
+
+/* 상단 한 줄의 높이를 맞춘다.
+   검색란만 54px라 줄 전체가 79px로 부풀어 있었다. */
+.mail-topbar { padding: 9px 20px; }
+.mail-topbar .email-search { height: 34px; }
+.mail-topbar .email-search input {
+  height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12.5px;
+}
+.mail-topbar .email-search .icon { top: 50%; transform: translateY(-50%); }
+.mail-topbar h1 { font-size: 17px; line-height: 34px; }
+.mail-topbar select { height: 34px; }
+.mail-topbar .view-toggle { height: 34px; }
+.mail-topbar .view-toggle-btn { height: 32px; }

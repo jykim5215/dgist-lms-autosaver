@@ -1481,6 +1481,13 @@ function syncMailSelection() {
   });
   const label = $("#mailSelectedCount");
   if (label) label.textContent = chosen.size ? `${chosen.size}통 선택` : "";
+  // 작업 막대는 고른 게 있을 때만. 평소에는 자리를 차지하지 않는다.
+  const bar = $("#mailActionbar");
+  if (bar) {
+    const show = chosen.size > 0;
+    if (bar.hidden === show) bar.hidden = !show;
+    bar.classList.toggle("up", show);
+  }
   const all = $("#mailSelectAll");
   if (all) {
     const total = document.querySelectorAll("[data-mail-id]").length;
@@ -3200,6 +3207,13 @@ function bindEvents() {
     renderEmails();
   });
 
+
+
+  // 작업 막대의 '선택 해제'
+  $("#mailClearPick")?.addEventListener("click", () => {
+    state.mailSelected = new Set();
+    syncMailSelection();
+  });
 
   // 분류 탭 (기본 / 관심 메일 / LMS·공지)
   $("#mailTabs")?.addEventListener("click", (event) => {
