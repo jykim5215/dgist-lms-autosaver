@@ -112,29 +112,18 @@
               </span>
               <span class="top-progress-pct" id="topProgressPct">0%</span>
             </div>
-            <button class="button ghost" id="refreshDeadlinesButton" type="button" title="LMS에서 과제 마감일과 일정만 다시 가져옵니다.">
-              <span class="icon" data-icon="calendar"></span>
-              마감 새로고침
-            </button>
-            <button class="button ghost" id="openDownloadsButton" type="button">
-              <span class="icon" data-icon="folder"></span>
-              다운로드
-            </button>
-            <button class="button primary" id="runButton" type="button">
+            <!-- LMS 마감·일정과 메일을 한 번에 -->
+            <button class="button primary" id="refreshAllButton" type="button" title="LMS 마감·일정과 메일을 함께 다시 가져옵니다.">
               <span class="icon" data-icon="sync"></span>
-              지금 동기화
+              새로고침
             </button>
-            <div class="theme-switch" id="themeSwitch" role="group" aria-label="테마 선택">
-              <button type="button" class="theme-opt" data-theme="claude" aria-label="기본 테마" title="기본">
+            <!-- 테마: 누를 때마다 카드가 넘어가듯 다음 테마로 -->
+            <button class="theme-flip" id="themeFlip" type="button" aria-label="테마 바꾸기">
+              <span class="tf-card" id="themeCard">
                 <span class="icon" data-icon="sparkle"></span>
-              </button>
-              <button type="button" class="theme-opt" data-theme="light" aria-label="화이트 테마" title="화이트">
-                <span class="icon" data-icon="sun"></span>
-              </button>
-              <button type="button" class="theme-opt" data-theme="dark" aria-label="다크 테마" title="다크">
-                <span class="icon" data-icon="moon"></span>
-              </button>
-            </div>
+              </span>
+              <span class="tf-name" id="themeName">기본</span>
+            </button>
           </div>
         </header>
 
@@ -236,12 +225,13 @@
                   <small id="metricCoursesNote">분류된 과목</small>
                   <div class="metric-inline"><div class="metric-inline-body" data-inline="courses"></div></div>
                 </article>
-                <article class="metric-card" data-peek="drive">
-                  <div class="metric-icon green"><span class="icon" data-icon="cloud"></span></div>
-                  <span class="metric-label">Drive</span>
-                  <strong id="metricLocal">대기</strong>
-                  <small id="metricDriveNote">Drive 준비 상태</small>
-                  <div class="metric-inline"><div class="metric-inline-body" data-inline="drive"></div></div>
+                <!-- Drive 연결 여부는 설정에서 보면 된다. 여기서는 새 메일을 본다. -->
+                <article class="metric-card" data-goto="emails" data-peek="newmail">
+                  <div class="metric-icon green"><span class="icon" data-icon="mail"></span></div>
+                  <span class="metric-label">새 메일</span>
+                  <strong id="metricNewMail">0</strong>
+                  <small id="metricNewMailNote">안 읽은 메일</small>
+                  <div class="metric-inline"><div class="metric-inline-body" data-inline="newmail"></div></div>
                 </article>
                 </div>
               </div>
@@ -396,16 +386,12 @@
               <div class="hero-panel calendar-hero">
                 <div>
                   <h1 id="calendarTitle">캘린더</h1>
-                  <p>과제 마감과 메일 속 일정을 한눈에. 점을 클릭하면 상세를 볼 수 있어요.</p>
+                  <p>과제 마감과 메일 속 일정을 한눈에. 날짜를 누르면 그 날 일정을 봅니다.</p>
                 </div>
                 <div class="calendar-nav">
                   <button class="icon-button" id="calPrevButton" type="button" aria-label="이전 달">‹</button>
                   <button class="button compact ghost" id="calTodayButton" type="button">오늘</button>
                   <button class="icon-button" id="calNextButton" type="button" aria-label="다음 달">›</button>
-                  <button class="button compact primary" id="addEventButton" type="button">
-                    <span class="icon" data-icon="edit"></span>
-                    일정 추가
-                  </button>
                   <label class="holiday-toggle" title="공휴일 표시">
                     <input type="checkbox" id="holidayToggle" checked />
                     <span>공휴일</span>
@@ -414,14 +400,6 @@
                     <input type="checkbox" id="academicUnderOnly" />
                     <span>학부만</span>
                   </label>
-                  <button class="button compact ghost" id="syncAcademicButton" type="button" title="학사일정을 구글 캘린더에 올립니다">
-                    <span class="icon" data-icon="sync"></span>
-                    학사일정 동기화
-                  </button>
-                  <button class="button compact ghost" id="gcalConnectButton" type="button" title="Google 캘린더로 내보내기(.ics)">
-                    <span class="icon" data-icon="calendar"></span>
-                    구글 캘린더
-                  </button>
                 </div>
               </div>
               <div class="calendar-legend">
@@ -455,17 +433,16 @@
                 <section class="event-editor" id="eventEditor" hidden>
                   <form id="eventForm">
                   <div class="event-editor-head">
-                    <strong id="eventEditorTitle">새 일정</strong>
+                    <!-- '새 일정'이라 써 두고 그 아래 제목칸을 또 두면 촌스럽다.
+                         제목칸 자체가 머리글 노릇을 한다. -->
+                    <input class="event-title-input" name="title" type="text"
+                      placeholder="새 일정" required autocomplete="off" aria-label="일정 제목" />
                     <button class="icon-button" id="eventEditorClose" type="button" aria-label="닫기">
                       <span class="icon" data-icon="x"></span>
                     </button>
                   </div>
                   <input type="hidden" name="id" />
                   <div class="event-grid">
-                    <label class="event-field event-field-wide">
-                      <span>제목</span>
-                      <input name="title" type="text" placeholder="예: 스터디 모임" required autocomplete="off" />
-                    </label>
                     <label class="event-field">
                       <span>날짜</span>
                       <input name="date" type="date" required />
@@ -896,9 +873,17 @@
 
             <!-- ===== 자료 ===== -->
             <section class="view" id="view-files" hidden>
-              <div class="hero-panel">
-                <h1>자료</h1>
-                <p>LMS에서 수집한 파일을 과목별로 검색하고, 저장 버튼으로 내 컴퓨터 다운로드 폴더에 바로 저장할 수 있습니다.</p>
+              <div class="hero-panel files-hero">
+                <div>
+                  <h1>자료</h1>
+                  <p>LMS에서 받은 파일을 과목별로 찾고, 내 컴퓨터에 저장할 수 있습니다.</p>
+                </div>
+                <div class="files-hero-actions">
+                  <button class="button primary" id="runButton" type="button">
+                    <span class="icon" data-icon="sync"></span>
+                    지금 동기화
+                  </button>
+                </div>
               </div>
               <section class="panel file-panel" aria-labelledby="filesTitle">
                 <div class="panel-header">
@@ -1037,7 +1022,7 @@
                 <button class="button compact primary" id="applyUpdateButton" type="button" hidden>지금 업데이트</button>
               </div>
             </div>
-            <small class="section-note">개발자가 GitHub에 새 버전을 올리면 여기서 앱을 최신으로 갱신할 수 있습니다. 계정·개인정보 파일은 업데이트 대상이 아닙니다.</small>
+            <small class="section-note">새 버전이 나오면 여기서 올릴 수 있습니다. 계정 정보는 그대로 남습니다.</small>
           </section>
 
           <section class="settings-section">
@@ -1045,10 +1030,7 @@
             <div class="storage-box" id="storageBox">
               <p class="section-note">불러오는 중…</p>
             </div>
-            <small class="section-note">
-              앱이 받은 강의자료만 정리 대상입니다. 직접 넣어 둔 파일은 목록에 나오지 않고 지워지지도 않습니다.
-              지운 자료는 다음 동기화 때 다시 받을 수 있습니다.
-            </small>
+            <small class="section-note">앱이 받아 온 자료만 지웁니다. 직접 넣은 파일은 건드리지 않습니다.</small>
           </section>
 
           <section class="settings-section">
@@ -1068,10 +1050,7 @@
                 <input type="file" id="importSettingsInput" accept="application/json,.json" hidden />
               </div>
             </div>
-            <small class="section-note">
-              ‘비밀번호 포함’을 켜면 파일에 비밀번호가 <strong>평문으로</strong> 들어갑니다.
-              다른 사람에게 전달하지 말고 안전한 곳에만 보관해 주세요.
-            </small>
+            <small class="section-note">이 파일에는 비밀번호가 그대로 들어갑니다. 남에게 주지 마세요.</small>
           </section>
 
           <section class="settings-section">
@@ -1099,11 +1078,7 @@
 
           <section class="settings-section">
             <h3><span class="icon" data-icon="book"></span>학교 계정 (LMS · DGIST 메일)</h3>
-            <p class="settings-note secure">
-              여기 넣은 아이디와 비밀번호는 <strong>이 컴퓨터에만</strong> 저장됩니다.
-              Windows 자체 암호화(DPAPI)로 잠기고, 어떤 서버로도 보내지 않습니다.
-              받은 강의자료와 메일도 이 컴퓨터 안에만 남습니다.
-            </p>
+            <p class="settings-note secure">아이디·비밀번호는 이 컴퓨터에만 저장되고, 어디로도 보내지 않습니다. 받아 온 자료와 메일도 마찬가지입니다.</p>
             <div class="form-grid">
               <label>
                 <span>LMS ID</span>
@@ -1157,10 +1132,15 @@
               <span>캘린더(카테고리) 이름</span>
               <input name="gcalCalendarName" placeholder="DGIST 메일 일정" />
             </label>
-            <small class="section-note">
-              지정한 이름의 캘린더가 없으면 새로 만들고, 메일에서 찾은 일정을 그 캘린더에만 등록합니다.
-              같은 메일은 다시 올려도 중복되지 않습니다. 메일 새로고침·동기화가 끝날 때마다 자동 반영됩니다.
-            </small>
+            <small class="section-note">메일에서 찾은 일정을 이 이름의 구글 캘린더에 담습니다. 없으면 새로 만들고, 같은 일정이 두 번 들어가지 않습니다.</small>
+
+            <!-- 캘린더 화면에 흩어져 있던 것을 여기로 모았다 -->
+            <div class="gcal-extra">
+              <div class="gcal-extra-buttons">
+                <button class="button compact ghost" id="syncAcademicButton" type="button">학사일정 올리기</button>
+                <button class="button compact ghost" id="gcalConnectButton" type="button">캘린더 파일로 내보내기</button>
+              </div>
+            </div>
           </section>
 
           <section class="settings-section">
@@ -1193,7 +1173,7 @@
                 <span>일시가 지난 행사·마감 메일 숨기기 <em>(행사 일시가 이미 지난 메일을 메일함에서 감춥니다)</em></span>
               </label>
             </div>
-            <small class="section-note">DGIST 메일은 구글 호스팅이 아니어서 학교 메일 서버(IMAP)에 직접 접속합니다. 계정 정보는 이 컴퓨터에만 저장됩니다.</small>
+            <small class="section-note">구글 계정과는 별개입니다. 메일은 이 컴퓨터에만 저장됩니다.</small>
           </section>
 
           <details class="settings-section advanced">

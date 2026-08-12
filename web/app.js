@@ -31,6 +31,8 @@ const icons = {
   sync: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"/><path d="M16 16h5v5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9Z"/></svg>',
+  moonStar: '<svg viewBox="0 0 24 24"><path d="M18 5h4"/><path d="M20 3v4"/><path d="M21.5 13.5A9 9 0 1 1 10.5 2.5a7 7 0 0 0 11 11Z"/></svg>',
   box: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M2 4h20v4H2z"/><path d="M10 12h4"/></svg>',
 };
 
@@ -55,6 +57,8 @@ const state = {
   emailQuery: "",
   emailSort: "newest",
   emailView: "list",
+  // 별표한 메일 id. 폴더 '중요'가 이걸 본다.
+  mailStars: null,
   // 받은 편지함 아래 분류를 펴 둘지. 지난번에 접어 뒀으면 그대로 연다.
   mailCatsOpen: (() => {
     try {
@@ -1324,15 +1328,17 @@ function replyToCurrentEmail() {
    관심메일·LMS공지는 폴더가 아니라 위쪽 분류 탭으로 옮겼다. (Gmail식) */
 const MAIL_FOLDERS = [
   { key: "inbox", label: "받은 편지함", icon: "mail" },
+  { key: "starred", label: "중요", icon: "star" },
   { key: "sent", label: "보낸 편지함", icon: "send" },
   { key: "promo", label: "프로모션", icon: "folder" },
   { key: "all", label: "전체 메일", icon: "list" },
 ];
 
-/* 위쪽 분류 탭. 받은 편지함 안에서 갈라 본다. */
+/* 위쪽 분류 탭. 받은 편지함 안에서 갈라 본다.
+   별표를 탭으로도 갈랐더니, 별을 누른 메일이 기본 탭에서 사라져 버렸다.
+   지메일처럼 별표는 '중요' 폴더에만 모으고 받은 편지함에는 그대로 둔다. */
 const MAIL_TABS = [
   { key: "primary", label: "기본", icon: "mail" },
-  { key: "starred", label: "관심 메일", icon: "sparkle" },
   { key: "lms", label: "LMS·공지", icon: "book" },
 ];
 
@@ -1355,7 +1361,7 @@ function mailInFolder(mail, folder) {
     case "unread":
       return mail.folder === "inbox" && mail.unread;
     case "starred":
-      return (mail.score || 0) >= 6;
+      return isStarredMail(mail);
     case "lms":
       return isLmsMail(mail);
     case "all":
@@ -1373,15 +1379,44 @@ function isLmsMail(mail) {
   );
 }
 
+/* ===== 별표 =====
+   예전에는 점수(score)가 6점 넘으면 저절로 '중요'가 됐다. 내가 고른 것이
+   아니라 예측이라 믿기 어려웠다. 이제는 눌러서 직접 찍는다.
+   서버에 메일 깃발을 저장하는 자리가 없어 이 컴퓨터에 적어 둔다. */
+const STAR_STORE = "autosaver-mail-stars";
+
+function loadStars() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(STAR_STORE) || "[]"));
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function saveStars() {
+  try {
+    localStorage.setItem(STAR_STORE, JSON.stringify([...(state.mailStars || [])]));
+  } catch (error) {
+    /* 저장 못 해도 이번 실행에는 반영된다 */
+  }
+}
+
 function isStarredMail(mail) {
-  return (mail.score || 0) >= 6;
+  return (state.mailStars || new Set()).has(String(mail.id));
+}
+
+function toggleStar(id) {
+  const key = String(id);
+  const stars = state.mailStars || (state.mailStars = new Set());
+  if (stars.has(key)) stars.delete(key);
+  else stars.add(key);
+  saveStars();
 }
 
 function mailInTab(mail, tab) {
-  if (tab === "starred") return isStarredMail(mail);
   if (tab === "lms") return isLmsMail(mail);
-  // 기본: 관심·LMS로 빠지지 않은 나머지
-  return !isStarredMail(mail) && !isLmsMail(mail);
+  // 기본: LMS·공지로 빠지지 않은 나머지 (별표는 여기서 빼지 않는다)
+  return !isLmsMail(mail);
 }
 
 function renderMailTabs(folderMails) {
@@ -1633,6 +1668,13 @@ function renderEmails() {
   const count = emails.filter((mail) => (mail.score || 0) >= 6 && mail.unread).length;
   badge.textContent = count;
   badge.hidden = !count;
+
+  // 대시보드 '새 메일' 카드
+  const unread = emails.filter((m) => m.folder === "inbox" && m.unread).length;
+  const num = $("#metricNewMail");
+  if (num) num.textContent = unread;
+  const note = $("#metricNewMailNote");
+  if (note) note.textContent = unread ? "안 읽은 메일" : "모두 읽었습니다";
 }
 
 function sortEmails(list, mode) {
@@ -1663,6 +1705,11 @@ function emailListRow(mail) {
     <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <input type="checkbox" class="mail-pick" aria-label="선택" />
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
+      <button type="button" class="list-star ${isStarredMail(mail) ? "on" : ""}" data-star
+        aria-label="${isStarredMail(mail) ? "중요 해제" : "중요 표시"}"
+        title="${isStarredMail(mail) ? "중요 해제" : "중요 표시"}">
+        <span class="icon" data-icon="star"></span>
+      </button>
       <time class="list-date" title="${escapeHtml(formatEmailDate(mail.date))}">
         <span class="d-full">${formatEmailDate(mail.date)}</span>
         <span class="d-short">${compactMailDate(mail.date)}</span>
@@ -1850,16 +1897,12 @@ function renderStatus() {
 
   $("#metricFiles").textContent = status.counts.files;
   $("#metricCourses").textContent = status.counts.courses;
-  $("#metricLocal").textContent = oauth.tokenUsable ? "연결" : "대기";
+
   $("#metricFilesNote").textContent = status.counts.files ? "관리 중인 파일" : "자료 없음";
   $("#metricCoursesNote").textContent = status.counts.missing
     ? `누락 ${status.counts.missing}건 포함`
     : "분류된 과목";
-  $("#metricDriveNote").textContent = oauth.tokenUsable
-    ? `Drive 연결됨 · 로컬 ${status.counts.localFiles}개`
-    : oauth.credentialsExists
-      ? "OAuth 연결 필요"
-      : "credentials.json 필요";
+
 
   $("#metricDeadlines").textContent = deadlineInfo.upcoming7d ?? 0;
   $("#metricDeadlinesNote").textContent = deadlineInfo.overdueUnsubmitted
@@ -1877,11 +1920,14 @@ function renderStatus() {
 
   renderGoogleSection();
 
+  // 상단에서 없앤 버튼이라 없을 수 있다
   const openDownloadsButton = $("#openDownloadsButton");
-  openDownloadsButton.disabled = isSharedSite;
-  openDownloadsButton.title = isSharedSite
-    ? "공유 웹사이트 모드에서는 서버 폴더를 직접 열 수 없습니다."
-    : "다운로드 폴더를 엽니다.";
+  if (openDownloadsButton) {
+    openDownloadsButton.disabled = isSharedSite;
+    openDownloadsButton.title = isSharedSite
+      ? "공유 웹사이트 모드에서는 서버 폴더를 직접 열 수 없습니다."
+      : "다운로드 폴더를 엽니다.";
+  }
 }
 
 /* ===== 설정: 구글 계정 섹션 ===== */
@@ -2865,7 +2911,11 @@ function openEventEditor(event = null) {
     });
   }
   form.elements.note.value = event?.note || "";
-  $("#eventEditorTitle").textContent = event?.id ? "일정 수정" : "새 일정";
+  // 제목칸이 머리글을 겸한다. 비어 있으면 '새 일정'이라고 흐리게 보인다.
+  {
+    const ti = $("#eventEditor")?.querySelector('[name="title"]');
+    if (ti) ti.placeholder = event?.id ? "일정 제목" : "새 일정";
+  }
   $("#eventDeleteButton").hidden = !event?.id;
   panel.hidden = false;
   panel.classList.remove("opening");
@@ -3089,6 +3139,9 @@ function syncReadingRow() {
 
 /* ===== 이벤트 바인딩 ===== */
 function bindEvents() {
+  // 별표는 이 컴퓨터에 적어 둔다. 화면을 그리기 전에 읽어야 한다.
+  state.mailStars = loadStars();
+
   $("#searchInput").addEventListener("input", (event) => {
     state.query = event.target.value;
     renderUpcoming();
@@ -3154,7 +3207,8 @@ function bindEvents() {
     closeDayDetail();
     renderCalendar();
   });
-  $("#addEventButton").addEventListener("click", () => openEventEditor());
+  // '일정 추가' 버튼은 없앴다. 날짜를 눌러 그 날 상세에서 추가한다.
+  $("#addEventButton")?.addEventListener("click", () => openEventEditor());
   // 공휴일 표시 on/off (선택은 브라우저에 기억)
   const holidayBox = $("#holidayToggle");
   if (holidayBox) {
@@ -3413,6 +3467,13 @@ function bindEvents() {
   const handleMailClick = (event) => {
     const item = event.target.closest(".news-card, .email-list-row");
     if (!item) return;
+    // 별표는 '중요 표시'지 '열기'가 아니다
+    if (event.target.closest("[data-star]")) {
+      event.stopPropagation();
+      toggleStar(item.dataset.mailId);
+      renderEmails();
+      return;
+    }
     // 체크박스는 '선택'이지 '열기'가 아니다
     if (event.target.closest(".mail-pick")) {
       const id = item.dataset.mailId;
@@ -3663,9 +3724,12 @@ function bindEvents() {
   });
 
   $("#verifyButton").addEventListener("click", () => startRun("/api/verify", "검증"));
-  $("#refreshDeadlinesButton").addEventListener("click", () => {
-    splashFromButton($("#refreshDeadlinesButton"));
-    startRun("/api/refresh-deadlines", "마감 새로고침");
+  // LMS 마감·일정과 메일을 잇달아 가져온다. 예전엔 버튼이 따로였다.
+  $("#refreshAllButton")?.addEventListener("click", async () => {
+    splashFromButton($("#refreshAllButton"));
+    await startRun("/api/refresh-deadlines", "새로고침");
+    // 앞 작업이 끝나야 뒤가 밀리지 않는다
+    await startRun("/api/refresh-emails", "메일 새로고침");
   });
 
   $("#googleLoginButton").addEventListener("click", () => {
@@ -3803,8 +3867,11 @@ function bindEvents() {
     }
   });
 
-  document.querySelectorAll(".theme-opt").forEach((btn) => {
-    btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
+  // 카드가 넘어가듯 다음 테마로
+  $("#themeFlip")?.addEventListener("click", () => {
+    const order = THEMES.map((x) => x.key);
+    const next = order[(order.indexOf(currentTheme()) + 1) % order.length];
+    flipTheme(next);
   });
 
   $("#exportIcsButton").addEventListener("click", async () => {
@@ -3827,7 +3894,7 @@ function bindEvents() {
   $("#googleHelpButton").addEventListener("click", () => $("#googleHelpDialog").showModal());
   $("#closeGoogleHelpButton").addEventListener("click", () => $("#googleHelpDialog").close());
 
-  $("#openDownloadsButton").addEventListener("click", async () => {
+  $("#openDownloadsButton")?.addEventListener("click", async () => {
     try {
       await api("/api/open-downloads", { method: "POST", body: "{}" });
       showToast("다운로드 폴더를 열었습니다.");
@@ -3904,10 +3971,12 @@ function bindEvents() {
   });
 }
 
-/* ===== 테마 (클로드 기본 / 화이트 / 다크) ===== */
+/* ===== 테마 =====
+   누를 때마다 이 차례대로 넘어간다. */
 const THEMES = [
-  { key: "claude", label: "클로드", icon: "sparkle" },
+  { key: "claude", label: "기본", icon: "sparkle" },
   { key: "light", label: "화이트", icon: "sun" },
+  { key: "navy", label: "남색", icon: "moonStar" },
   { key: "dark", label: "다크", icon: "moon" },
 ];
 
@@ -3923,10 +3992,32 @@ function applyTheme(theme) {
   } catch (error) {
     /* localStorage 사용 불가 환경 무시 */
   }
-  // 3분할 테마 선택기: 현재 테마 버튼만 활성 표시
-  document.querySelectorAll(".theme-opt").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.theme === theme);
-  });
+  paintThemeCard(theme);
+}
+
+function paintThemeCard(theme) {
+  const meta = THEMES.find((x) => x.key === theme) || THEMES[0];
+  const card = $("#themeCard");
+  const name = $("#themeName");
+  if (card) {
+    card.innerHTML = `<span class="icon" data-icon="${meta.icon}"></span>`;
+    installIcons(card);
+  }
+  if (name) name.textContent = meta.label;
+}
+
+/** 카드를 반 바퀴 돌리고, 뒤집힌 순간에 내용을 갈아 끼운다 */
+function flipTheme(next) {
+  const card = $("#themeCard");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!card || reduce) {
+    applyTheme(next);
+    return;
+  }
+  card.classList.add("flipping");
+  // 90도에서 앞뒤가 바뀐다. 그때 갈아 끼워야 뒤집히는 것처럼 보인다.
+  window.setTimeout(() => applyTheme(next), 150);
+  window.setTimeout(() => card.classList.remove("flipping"), 320);
 }
 
 function currentTheme() {
@@ -4445,9 +4536,18 @@ function ttOverlaps(slot, entry) {
   return ttMinutes(slot.start) < ttMinutes(entry.end) && ttMinutes(entry.start) < ttMinutes(slot.end);
 }
 
-/** 새로 넣을 슬롯들과 겹치는 기존 수업 */
+/** 새로 넣을 슬롯들과 겹치는 기존 수업.
+    한 과목이 요일별로 쪼개져 있으면(화 1교시 + 목 2교시) 반쪽만 지워져
+    이름만 남은 유령 수업이 생겼다. 겹친 것과 같은 과목은 통째로 묶어 돌려준다. */
 function ttConflicts(slots) {
-  return (state.timetable || []).filter((e) => slots.some((s) => ttOverlaps(s, e)));
+  const all = state.timetable || [];
+  const direct = all.filter((e) => slots.some((s) => ttOverlaps(s, e)));
+  if (!direct.length) return direct;
+  const titles = new Set(
+    direct.map((e) => (e.title || "").trim()).filter(Boolean),
+  );
+  const hit = new Set(direct.map((e) => e.id));
+  return all.filter((e) => hit.has(e.id) || titles.has((e.title || "").trim()));
 }
 
 function renderTtPreview() {
@@ -4483,7 +4583,7 @@ function renderTtPreview() {
   const hint = $("#timetableHint");
   if (hint) {
     hint.textContent = clash.size
-      ? `'${shortText(course.title, 16)}'을(를) 넣으면 겹치는 ${clash.size}개 수업이 지워집니다.`
+      ? `'${shortText(course.title, 16)}' 넣으면 겹치는 수업 ${clash.size}칸이 통째로 빠집니다.`
       : `'${shortText(course.title, 16)}'이(가) 여기에 들어갑니다.`;
   }
 }
@@ -4820,7 +4920,7 @@ function bindTimetable() {
       renderTimetable();
       showToast(
         clash.length
-          ? `'${shortText(course.title, 18)}' 추가 · 겹치던 ${clash.length}개를 대체했습니다.`
+          ? `'${shortText(course.title, 18)}' 추가 · 겹치던 수업 ${clash.length}칸을 통째로 뺐습니다.`
           : `'${shortText(course.title, 20)}' 추가했습니다.`,
       );
     } catch (error) {
@@ -4946,20 +5046,19 @@ function peekRows(kind) {
     return { title: "수강 중인 강의", empty: "표시할 강의가 없습니다.", rows };
   }
 
-  if (kind === "drive") {
-    // Drive에 올라간 것 = 로컬에 저장된 자료 (업로드는 동기화 때 함께 처리됨)
-    const rows = (state.files || [])
-      .filter((f) => f.status === "local" && f.savedAt)
-      .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+  if (kind === "newmail") {
+    // 제목과 보낸 사람만. 자세한 건 메일함에서 본다.
+    const rows = (state.emails.emails || [])
+      .filter((m) => m.folder === "inbox" && m.unread)
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
       .slice(0, 8)
-      .map((f) => ({
-        title: f.name,
-        sub: f.courseLabel,
-        tag: formatBytes(f.size || 0),
-        tone: "done",
-        extra: formatDue(new Date(f.savedAt)),
+      .map((m) => ({
+        title: m.subject || m.summary || "(제목 없음)",
+        sub: m.fromName || m.fromEmail,
+        tag: compactMailDate(m.date),
+        tone: "normal",
       }));
-    return { title: "최근 저장된 파일", empty: "저장된 파일이 없습니다.", rows };
+    return { title: "안 읽은 메일", empty: "새로 온 메일이 없습니다.", rows };
   }
   return { title: "", empty: "", rows: [] };
 }

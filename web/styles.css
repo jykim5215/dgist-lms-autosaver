@@ -7121,3 +7121,156 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 @media (prefers-reduced-motion: reduce) {
   .wm-pin-dot, .wm-pin-label { transition: none; }
 }
+
+/* ===== 남색 테마 =====
+   다크보다 파랗고 차분하게. 강조색은 남색 위에서 살아나도록 살구빛으로 올린다. */
+[data-theme="navy"] {
+  --bg: #172033;
+  --bg-deep: #111827;
+  --surface: #1e293f;
+  --surface-soft: #26324c;
+  --border: #2e3b57;
+  --border-strong: #405072;
+  --text: #e3e9f5;
+  --text-soft: #adb9d1;
+  --text-faint: #7f8ca8;
+  --accent: #e08a63;
+  --accent-strong: #f0a582;
+  --accent-soft: #33303c;
+  --green: #7fbfa0;
+  --green-soft: #1e3630;
+  --amber: #d9b063;
+  --amber-soft: #38321f;
+  --red: #e28b8b;
+  --red-soft: #40262c;
+  --blue: #8fb4e8;
+  --blue-soft: #223350;
+  --bp-bg: #eef2fb;
+  --bp-body: #f3bc55;
+  --bp-hi: #ffd98a;
+  --bp-line: #16203a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px -8px rgba(0, 0, 0, 0.5);
+}
+[data-theme="navy"] .toast { background: #eef2fb; color: #111827; }
+[data-theme="navy"] .topbar { background: rgba(23, 32, 51, 0.92); }
+[data-theme="navy"] .check-item.ready .check-icon { background: var(--surface); }
+
+/* ===== 테마 넘기기 단추 ===== */
+.theme-flip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 5px 12px 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  /* 카드가 뒤집힐 공간 */
+  perspective: 420px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.theme-flip:hover { border-color: var(--border-strong); background: var(--surface-soft); }
+
+.tf-card {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  transform-style: preserve-3d;
+  transition: transform 0.3s cubic-bezier(0.45, 0, 0.25, 1);
+}
+.tf-card.flipping { transform: rotateY(180deg); }
+.tf-card .icon { width: 15px; height: 15px; }
+.tf-name { min-width: 34px; text-align: left; }
+
+/* 자료 화면 머리에 붙은 동기화 단추 */
+.files-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.files-hero-actions { display: flex; gap: 8px; flex: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-card { transition: none; }
+}
+
+/* ===== 시간표 머리글이 흔들리지 않게 =====
+   미리보기를 띄울 때마다 안내문 길이가 바뀌면서, 그 옆의
+   '토요일 / 이미지로 가져오기 / 시간표 편집'이 좌우로 밀렸다.
+   글자 칸을 남는 자리로 고정하고 단추 묶음은 자리를 안 내주게 한다. */
+.timetable-panel > .panel-header { align-items: flex-start; gap: 12px; }
+.timetable-panel > .panel-header > div:first-child { flex: 1 1 auto; min-width: 0; }
+.timetable-panel .timetable-actions { flex: 0 0 auto; }
+#timetableHint {
+  /* 한 줄로 고정. 길어지면 줄바꿈 대신 …로 자른다 (세로로도 안 흔들리게) */
+  min-height: 1.45em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 별표: 눌러서 '중요'에 넣는다 */
+.list-star {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  opacity: 0.4;
+  cursor: pointer;
+  transition: opacity 0.14s ease, color 0.14s ease, transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.email-list-row:hover .list-star { opacity: 0.85; }
+.list-star:hover { transform: scale(1.18); }
+.list-star .icon { width: 15px; height: 15px; }
+.list-star.on {
+  opacity: 1;
+  color: var(--amber);
+}
+.list-star.on .icon svg { fill: currentColor; }
+
+/* 두 줄 배치에서도 별은 왼쪽 기둥에 */
+@container maillist (max-width: 560px) {
+  .email-list-row {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "pick dot star from date"
+      "pick dot star title title";
+  }
+  .email-list-row .list-star { grid-area: star; }
+}
+
+/* 설정으로 옮겨 온 캘린더 단추들 */
+.gcal-extra { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.gcal-extra-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 일정 제목칸이 머리글을 겸한다 */
+.event-title-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: none;
+  padding: 2px 0 5px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.event-title-input::placeholder { color: var(--text-faint); font-weight: 600; }
+.event-title-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
