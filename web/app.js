@@ -658,10 +658,20 @@ function openCompose({ to = "", cc = "", bcc = "", subject = "", body = "", inRe
   form.elements.body.value = body;
   form.dataset.inReplyTo = inReplyTo;
   form.dataset.references = references;
-  $("#composeTitle").textContent = title;
-  $("#ccField").hidden = !cc;
-  $("#bccField").hidden = !bcc;
-  $("#htmlModeToggle").checked = false;
+  // 참조 줄은 늘 보이고, 숨은참조만 접었다 편다
+  const bccField = $("#bccField");
+  if (bccField) bccField.hidden = !bcc;
+  const toggle = $("#htmlModeToggle");
+  if (toggle) {
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+  }
+  // 본문은 서식 영역에도 넣어 준다 (답장 인용문이 보이도록)
+  setComposeBody(body ? escapeHtml(body).replace(/\n/g, "<br>") : "");
+  const important = $("#markImportant");
+  if (important) important.checked = false;
+  const separately = $("#sendSeparately");
+  if (separately) separately.checked = false;
   state.attachments = [];
   renderAttachments();
   renderComposeFiles();
@@ -686,23 +696,38 @@ function composeHasContent() {
   return filled || (state.attachments || []).length > 0;
 }
 
+/* 첨부는 웹메일처럼 표로 보여 준다 (파일명 · 출처 · 용량 · 지우기) */
+const ATTACH_LIMIT = 10 * 1024 * 1024; // 학교 메일 기준 10MB
+
 function renderAttachments() {
   const wrap = $("#composeAttachments");
   const atts = state.attachments || [];
   wrap.innerHTML = atts
     .map(
       (a, i) => `
-      <span class="attach-chip">
-        <span class="icon" data-icon="paperclip"></span>
-        <span class="attach-name">${escapeHtml(a.filename)}</span>
-        <span class="attach-size">${formatBytes(a.size)}</span>
+      <div class="attach-row">
+        <span class="ar-name" title="${escapeHtml(a.filename)}">
+          <span class="icon" data-icon="paperclip"></span>
+          ${escapeHtml(a.filename)}
+        </span>
+        <span class="ar-from">${escapeHtml(a.source || "내 PC")}</span>
+        <span class="ar-size">${formatBytes(a.size)}</span>
         <button type="button" class="attach-remove" data-idx="${i}" aria-label="제거">✕</button>
-      </span>`,
+      </div>`,
     )
     .join("");
   installIcons(wrap);
+
+  const hint = $("#dropzoneHint");
+  if (hint) hint.hidden = atts.length > 0;
+
   const total = atts.reduce((s, a) => s + a.size, 0);
-  $("#attachNote").textContent = atts.length ? `첨부 ${atts.length}개 · ${formatBytes(total)}` : "";
+  const note = $("#attachNote");
+  if (note) {
+    note.textContent = `${formatBytes(total)} / ${formatBytes(ATTACH_LIMIT)}`;
+    // 학교 메일 한도를 넘으면 눈에 띄게
+    note.classList.toggle("over", total > ATTACH_LIMIT);
+  }
 }
 
 function formatBytes(n) {
@@ -989,6 +1014,267 @@ function setupAutocomplete() {
     input.addEventListener("blur", () => setTimeout(closeMenu, 150));
   });
 }
+
+/* ===== 메일 쓰기: 서식 편집 · 주소찾기 · 임시저장 =====
+   웹메일 작성 화면과 같은 구성으로 맞췄다.
+   보안메일·편지지·표편집은 우리 쪽에서 보낼 방법이 없어 넣지 않았다. */
+
+/** 지금 본문이 서식(HTML) 모드인지 */
+function composeIsRich() {
+  return !$("#htmlModeToggle")?.checked;
+}
+
+/** 어느 칸에 쓰든 본문 내용을 가져온다 */
+function composeBody() {
+  const rich = $("#composeRich");
+  const area = document.querySelector('#composeForm [name="body"]');
+  return composeIsRich() ? rich?.innerHTML || "" : area?.value || "";
+}
+
+function setComposeBody(html) {
+  const rich = $("#composeRich");
+  const area = document.querySelector('#composeForm [name="body"]');
+  if (rich) rich.innerHTML = html || "";
+  if (area) area.value = html || "";
+}
+
+/* --- 서식 도구 --- */
+function bindRichToolbar() {
+  const rich = $("#composeRich");
+  const area = document.querySelector('#composeForm [name="body"]');
+  const toolbar = $("#rtToolbar");
+  if (!rich || !toolbar) return;
+
+  const run = (cmd, arg) => {
+    rich.focus();
+    try {
+      document.execCommand(cmd, false, arg);
+    } catch (error) {
+      /* 브라우저가 막으면 조용히 넘어간다 */
+    }
+  };
+
+  toolbar.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-cmd]");
+    if (!btn) return;
+    event.preventDefault();
+    const cmd = btn.dataset.cmd;
+    if (cmd === "createLink") {
+      const url = window.prompt("링크 주소를 넣어 주세요", "https://");
+      if (url) run("createLink", url);
+      return;
+    }
+    if (cmd === "insertImage") {
+      const url = window.prompt("사진 주소(URL)를 넣어 주세요", "https://");
+      if (url) run("insertImage", url);
+      return;
+    }
+    run(cmd, btn.dataset.arg);
+  });
+
+  $("#rtFontSize")?.addEventListener("change", (event) => run("fontSize", event.target.value));
+  $("#rtColor")?.addEventListener("input", (event) => run("foreColor", event.target.value));
+
+  // 서명 넣기 (설정의 학교 이메일 기준)
+  $("#insertSignature")?.addEventListener("click", () => {
+    const me = state.config?.schoolEmail || "";
+    const sign = `<br><br>--<br>${escapeHtml(state.config?.senderName || me.split("@")[0] || "")}<br>${escapeHtml(me)}`;
+    if (composeIsRich()) {
+      rich.focus();
+      run("insertHTML", sign);
+    } else if (area) {
+      area.value += `\n\n--\n${me}`;
+    }
+  });
+
+  // HTML 모드 전환: 두 칸의 내용을 서로 옮겨 준다
+  $("#htmlModeToggle")?.addEventListener("change", (event) => {
+    const html = event.target.checked;
+    if (html) {
+      if (area) area.value = rich.innerHTML;
+    } else {
+      rich.innerHTML = area?.value || "";
+    }
+    rich.hidden = html;
+    if (area) area.hidden = !html;
+    toolbar.classList.toggle("disabled", html);
+  });
+
+  // 서식 모드에서 타이핑하면 textarea에도 반영 (전송은 textarea를 안 봐도 되지만 안전하게)
+  rich.addEventListener("input", () => {
+    if (area && composeIsRich()) area.value = rich.innerHTML;
+  });
+}
+
+/* --- 주소찾기 --- */
+function openAddressPicker(targetName) {
+  const dialog = $("#addressPicker");
+  if (!dialog) return;
+  dialog.dataset.target = targetName;
+  $("#addressPickerInput").value = "";
+  $("#addressPickerList").innerHTML =
+    '<p class="picker-empty">이름 · 이메일 · 부서로 찾아보세요.</p>';
+  dialog.showModal();
+  $("#addressPickerInput").focus();
+}
+
+function bindAddressPicker() {
+  const dialog = $("#addressPicker");
+  if (!dialog) return;
+  const list = $("#addressPickerList");
+  const chosen = new Set();
+
+  const draw = (people) => {
+    list.innerHTML = people.length
+      ? people
+          .map(
+            (p) => `
+        <label class="picker-row">
+          <input type="checkbox" value="${escapeHtml(p.email)}" ${chosen.has(p.email) ? "checked" : ""} />
+          <span class="picker-main">
+            <strong>${escapeHtml(p.name || p.email)}</strong>
+            <span>${escapeHtml(p.email)}${p.dept ? " · " + escapeHtml(shortText(p.dept, 22)) : ""}</span>
+          </span>
+          ${p.role ? `<em class="picker-role">${escapeHtml(p.role)}</em>` : ""}
+        </label>`,
+          )
+          .join("")
+      : '<p class="picker-empty">찾는 사람이 없습니다.</p>';
+  };
+
+  let timer = null;
+  $("#addressPickerInput")?.addEventListener("input", (event) => {
+    const q = event.target.value.trim();
+    window.clearTimeout(timer);
+    if (q.length < 2) {
+      list.innerHTML = '<p class="picker-empty">두 글자 이상 넣어 주세요.</p>';
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        const res = await api(`/api/directory?q=${encodeURIComponent(q)}&limit=40`);
+        draw(res.results || []);
+      } catch (error) {
+        list.innerHTML = '<p class="picker-empty">조직도를 불러오지 못했습니다.</p>';
+      }
+    }, 200);
+  });
+
+  list?.addEventListener("change", (event) => {
+    const box = event.target.closest("input[type=checkbox]");
+    if (!box) return;
+    if (box.checked) chosen.add(box.value);
+    else chosen.delete(box.value);
+    $("#pickerCount").textContent = chosen.size ? `${chosen.size}명 선택` : "";
+  });
+
+  $("#addressPickerAdd")?.addEventListener("click", () => {
+    const target = dialog.dataset.target || "to";
+    const input = document.querySelector(`#composeForm [name="${target}"]`);
+    if (input && chosen.size) {
+      const before = input.value.trim();
+      const joined = [...chosen].join(", ");
+      input.value = before ? `${before.replace(/,\s*$/, "")}, ${joined}, ` : `${joined}, `;
+    }
+    chosen.clear();
+    $("#pickerCount").textContent = "";
+    dialog.close();
+  });
+
+  $("#addressPickerClose")?.addEventListener("click", () => {
+    chosen.clear();
+    $("#pickerCount").textContent = "";
+    dialog.close();
+  });
+
+  // 각 줄의 '주소찾기' 버튼
+  document.querySelectorAll("[data-find]").forEach((btn) => {
+    btn.addEventListener("click", () => openAddressPicker(btn.dataset.find));
+  });
+}
+
+/* --- 임시저장 · 미리보기 --- */
+const DRAFT_KEY = "autosaver-mail-draft";
+
+function collectDraft() {
+  const form = $("#composeForm");
+  if (!form) return null;
+  return {
+    to: form.elements.to?.value || "",
+    cc: form.elements.cc?.value || "",
+    bcc: form.elements.bcc?.value || "",
+    subject: form.elements.subject?.value || "",
+    body: composeBody(),
+    // 서식 모드는 innerHTML, HTML 모드는 직접 쓴 HTML.
+    // 어느 쪽이든 본문은 HTML이다. (예전에 여기가 뒤집혀 미리보기에 태그가 그대로 보였다)
+    html: true,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function bindComposeExtras() {
+  $("#saveDraftButton")?.addEventListener("click", () => {
+    const draft = collectDraft();
+    if (!draft) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      $("#draftNote").textContent = "임시저장됨";
+      window.setTimeout(() => ($("#draftNote").textContent = ""), 2500);
+    } catch (error) {
+      showToast("임시저장하지 못했습니다.");
+    }
+  });
+
+  $("#previewMailButton")?.addEventListener("click", () => {
+    const draft = collectDraft();
+    if (!draft) return;
+    const box = $("#mailPreview");
+    if (!box) return;
+    $("#previewSubject").textContent = draft.subject || "(제목 없음)";
+    $("#previewTo").textContent = [draft.to, draft.cc && `참조 ${draft.cc}`].filter(Boolean).join(" · ");
+    // 미리보기는 그대로 보여 줘야 하므로 HTML을 넣는다.
+    // 사용자가 방금 자기 손으로 쓴 내용이라 외부에서 온 값이 아니다.
+    $("#previewBody").innerHTML = draft.html ? draft.body : escapeHtml(draft.body).replace(/\n/g, "<br>");
+    box.showModal();
+  });
+  $("#previewClose")?.addEventListener("click", () => $("#mailPreview")?.close());
+
+  // 첨부 전체 삭제
+  $("#attachClearButton")?.addEventListener("click", () => {
+    state.attachments = [];
+    renderAttachments();
+  });
+}
+
+/** 임시저장한 내용이 있으면 물어보고 되살린다 */
+function restoreDraftIfAny() {
+  let draft = null;
+  try {
+    draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+  } catch (error) {
+    draft = null;
+  }
+  if (!draft || !(draft.to || draft.subject || draft.body)) return false;
+  const when = draft.savedAt ? formatEmailDate(draft.savedAt) : "";
+  if (!window.confirm(`임시저장한 메일이 있습니다${when ? ` (${when})` : ""}. 이어서 쓸까요?`)) {
+    localStorage.removeItem(DRAFT_KEY);
+    return false;
+  }
+  const form = $("#composeForm");
+  if (form.elements.to) form.elements.to.value = draft.to;
+  if (form.elements.cc) form.elements.cc.value = draft.cc;
+  if (form.elements.bcc) form.elements.bcc.value = draft.bcc;
+  if (form.elements.subject) form.elements.subject.value = draft.subject;
+  const toggle = $("#htmlModeToggle");
+  if (toggle) {
+    toggle.checked = Boolean(draft.html);
+    toggle.dispatchEvent(new Event("change"));
+  }
+  setComposeBody(draft.body);
+  localStorage.removeItem(DRAFT_KEY);
+  return true;
+}
+
 
 function replyToCurrentEmail() {
   const mail = state.replyContext;
@@ -3054,13 +3340,12 @@ function bindEvents() {
   $("#composeButton").addEventListener("click", () => switchView("compose"));
   $("#closeComposeDialog").addEventListener("click", closeCompose);
   $("#cancelComposeButton").addEventListener("click", closeCompose);
+  // 참조 줄은 늘 보이므로, ＋는 숨은참조만 여닫는다
   $("#toggleCcBcc").addEventListener("click", () => {
-    const cc = $("#ccField");
     const bcc = $("#bccField");
-    const show = cc.hidden;
-    cc.hidden = !show;
-    bcc.hidden = !show;
-    if (show) $("#composeForm").elements.cc.focus();
+    if (!bcc) return;
+    bcc.hidden = !bcc.hidden;
+    if (!bcc.hidden) $("#composeForm").elements.bcc.focus();
   });
 
   // 첨부파일
@@ -3093,13 +3378,20 @@ function bindEvents() {
   $("#composeForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    let subject = form.elements.subject.value;
+    // '중요'를 켜면 제목 앞에 표시를 붙인다 (웹메일도 같은 방식)
+    if ($("#markImportant")?.checked && !/^\[중요\]/.test(subject)) {
+      subject = `[중요] ${subject}`;
+    }
+
     const payload = {
       to: form.elements.to.value.trim(),
       cc: form.elements.cc.value.trim(),
       bcc: form.elements.bcc.value.trim(),
-      subject: form.elements.subject.value,
-      body: form.elements.body.value,
-      html: $("#htmlModeToggle").checked,
+      subject,
+      // 서식 모드면 편집 영역, HTML 모드면 textarea에서 가져온다
+      body: composeBody(),
+      html: composeIsRich() || $("#htmlModeToggle").checked,
       inReplyTo: form.dataset.inReplyTo || "",
       references: form.dataset.references || "",
       attachments: (state.attachments || []).map((a) => ({ filename: a.filename, content: a.content })),
@@ -3108,11 +3400,34 @@ function bindEvents() {
       showToast("받는 사람 주소를 입력해 주세요.");
       return;
     }
+
+    // '개별' — 한 명씩 따로 보내 서로의 주소가 안 보이게 한다
+    const separately = Boolean($("#sendSeparately")?.checked);
+    const targets = separately
+      ? payload.to.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+      : [payload.to];
+    if (separately && targets.length > 1) {
+      if (!window.confirm(`${targets.length}명에게 한 통씩 따로 보냅니다. 계속할까요?`)) return;
+    }
+
     const sendBtn = $("#sendMailButton");
     sendBtn.disabled = true;
     try {
-      const data = await api("/api/send-email", { method: "POST", body: JSON.stringify(payload) });
-      showToast(data.message || "메일을 보냈습니다.");
+      let sent = 0;
+      for (const one of targets) {
+        // 개별 발송에서는 참조·숨은참조를 첫 통에만 넣는다
+        const body = separately
+          ? { ...payload, to: one, cc: sent === 0 ? payload.cc : "", bcc: sent === 0 ? payload.bcc : "" }
+          : payload;
+        await api("/api/send-email", { method: "POST", body: JSON.stringify(body) });
+        sent += 1;
+      }
+      showToast(sent > 1 ? `${sent}명에게 각각 보냈습니다.` : "메일을 보냈습니다.");
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch (error) {
+        /* 무시 */
+      }
       closeCompose();
     } catch (error) {
       showToast(error.message);
@@ -5287,6 +5602,9 @@ initTheme();
 initRail();
 setHeroGreeting();
 bindNowBar();
+bindRichToolbar();
+bindAddressPicker();
+bindComposeExtras();
 bindAcademic();
 bindDirectory();
 bindDashEditor();

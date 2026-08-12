@@ -631,59 +631,134 @@
                   <!-- 작성 pane -->
                   <div class="mail-pane compose-with-files" id="mailComposePane" hidden>
                     <form id="composeForm">
-                      <div class="mail-pane-topbar">
+                      <!-- 위쪽 작업 줄 (웹메일과 같은 순서) -->
+                      <div class="compose-bar">
                         <button class="icon-button back-button" id="closeComposeDialog" type="button" aria-label="목록으로" title="목록으로">
                           <span class="icon" data-icon="arrowLeft"></span>
-                          <span class="back-label">목록</span>
                         </button>
-                        <strong id="composeTitle">새 메일</strong>
-                        <div class="mail-pane-actions compose-mode-toggle">
-                          <label class="html-toggle"><input type="checkbox" id="htmlModeToggle" /> HTML</label>
-                        </div>
-                      </div>
-                      <div class="compose-scroll">
-                        <div class="compose-row autocomplete-field">
-                          <input name="to" type="text" placeholder="받는 사람" autocomplete="off" required data-ac="1" />
-                          <button type="button" class="compose-cc-toggle" id="toggleCcBcc">참조</button>
-                          <div class="ac-menu" id="ac-to" hidden></div>
-                        </div>
-                        <div class="compose-row autocomplete-field" id="ccField" hidden>
-                          <input name="cc" type="text" placeholder="참조 (여러 명은 쉼표로)" autocomplete="off" data-ac="1" />
-                          <div class="ac-menu" id="ac-cc" hidden></div>
-                        </div>
-                        <div class="compose-row autocomplete-field" id="bccField" hidden>
-                          <input name="bcc" type="text" placeholder="숨은참조 (받는 사람에게 안 보임)" autocomplete="off" data-ac="1" />
-                          <div class="ac-menu" id="ac-bcc" hidden></div>
-                        </div>
-                        <div class="compose-row">
-                          <input name="subject" type="text" placeholder="제목" autocomplete="off" />
-                        </div>
-                        <textarea name="body" class="compose-textarea" placeholder="내용을 입력하세요"></textarea>
-                        <!-- 첨부: 자료 칸에서 끌어다 놓을 수 있는 영역 -->
-                        <div class="compose-dropzone" id="composeDropzone">
-                          <div class="compose-attachments" id="composeAttachments"></div>
-                          <p class="dropzone-hint" id="dropzoneHint">
-                            오른쪽 <strong>내 자료</strong>에서 파일을 끌어다 놓거나, 컴퓨터에서 바로 드래그하세요.
-                          </p>
-                        </div>
-                        <div class="compose-from" id="composeFrom">보내는 사람 확인 중…</div>
-                      </div>
-                      <div class="compose-footer">
-                        <button class="button primary" id="sendMailButton" type="submit">
+                        <button class="button primary compose-send" id="sendMailButton" type="submit">
                           <span class="icon" data-icon="send"></span>
                           보내기
                         </button>
-                        <button class="icon-button" id="attachButton" type="button" aria-label="파일 첨부" title="파일 첨부">
-                          <span class="icon" data-icon="paperclip"></span>
-                        </button>
-                        <button class="icon-button" id="driveImportButton" type="button" aria-label="Drive에서 가져오기" title="Google Drive에서 첨부">
-                          <span class="icon" data-icon="cloud"></span>
-                        </button>
-                        <input type="file" id="attachInput" multiple hidden />
-                        <span class="compose-attach-note" id="attachNote"></span>
+                        <button class="button ghost compact" id="previewMailButton" type="button">미리보기</button>
+                        <button class="button ghost compact" id="saveDraftButton" type="button">임시저장</button>
+                        <span class="compose-bar-note" id="draftNote"></span>
                         <button class="icon-button danger compose-discard" id="cancelComposeButton" type="button" aria-label="작성 취소" title="작성 취소">
                           <span class="icon" data-icon="trash"></span>
                         </button>
+                      </div>
+
+                      <div class="compose-scroll">
+                        <!-- 받는사람 -->
+                        <div class="cfield autocomplete-field">
+                          <label class="cfield-label" for="composeTo">받는사람</label>
+                          <label class="cfield-opt" title="한 명씩 따로 보내 서로의 주소가 안 보이게 합니다">
+                            <input type="checkbox" id="sendSeparately" /> 개별
+                          </label>
+                          <div class="cfield-body">
+                            <input id="composeTo" name="to" type="text" placeholder="이름 또는 주소" autocomplete="off" required data-ac="1" />
+                            <div class="ac-menu" id="ac-to" hidden></div>
+                          </div>
+                          <button type="button" class="cfield-find" data-find="to">주소찾기</button>
+                        </div>
+
+                        <!-- 참조 -->
+                        <div class="cfield autocomplete-field">
+                          <label class="cfield-label" for="composeCc">참조</label>
+                          <button type="button" class="cfield-plus" id="toggleCcBcc" title="숨은참조 열기">＋</button>
+                          <div class="cfield-body">
+                            <input id="composeCc" name="cc" type="text" placeholder="여러 명은 쉼표로" autocomplete="off" data-ac="1" />
+                            <div class="ac-menu" id="ac-cc" hidden></div>
+                          </div>
+                          <button type="button" class="cfield-find" data-find="cc">주소찾기</button>
+                        </div>
+
+                        <!-- 숨은참조 -->
+                        <div class="cfield autocomplete-field" id="bccField" hidden>
+                          <label class="cfield-label" for="composeBcc">숨은참조</label>
+                          <div class="cfield-body">
+                            <input id="composeBcc" name="bcc" type="text" placeholder="받는 사람에게 안 보임" autocomplete="off" data-ac="1" />
+                            <div class="ac-menu" id="ac-bcc" hidden></div>
+                          </div>
+                          <button type="button" class="cfield-find" data-find="bcc">주소찾기</button>
+                        </div>
+
+                        <!-- 제목 -->
+                        <div class="cfield">
+                          <label class="cfield-label" for="composeSubject">제목</label>
+                          <label class="cfield-opt" title="제목 앞에 [중요]를 붙입니다">
+                            <input type="checkbox" id="markImportant" /> 중요
+                          </label>
+                          <div class="cfield-body">
+                            <input id="composeSubject" name="subject" type="text" placeholder="제목" autocomplete="off" />
+                          </div>
+                        </div>
+
+                        <!-- 파일첨부 -->
+                        <div class="cfield cfield-attach">
+                          <span class="cfield-label">파일첨부</span>
+                          <div class="cfield-body">
+                            <div class="attach-tools">
+                              <button type="button" class="attach-btn" id="attachButton">내 PC</button>
+                              <button type="button" class="attach-btn" id="driveImportButton">Drive</button>
+                              <button type="button" class="attach-btn danger" id="attachClearButton">전체 삭제</button>
+                              <input type="file" id="attachInput" multiple hidden />
+                              <span class="attach-total" id="attachNote"></span>
+                            </div>
+                            <div class="attach-table" id="composeDropzone">
+                              <div class="attach-head">
+                                <span>파일명</span>
+                                <span>출처</span>
+                                <span>용량</span>
+                                <span></span>
+                              </div>
+                              <div class="attach-rows" id="composeAttachments"></div>
+                              <p class="dropzone-hint" id="dropzoneHint">마우스로 파일을 끌어오세요.</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- 서식 도구 -->
+                        <div class="rt-toolbar" id="rtToolbar">
+                          <select class="rt-size" id="rtFontSize" aria-label="글자 크기">
+                            <option value="2">작게</option>
+                            <option value="3" selected>보통</option>
+                            <option value="5">크게</option>
+                            <option value="6">아주 크게</option>
+                          </select>
+                          <span class="rt-sep"></span>
+                          <button type="button" class="rt-btn" data-cmd="bold" title="굵게"><b>가</b></button>
+                          <button type="button" class="rt-btn" data-cmd="italic" title="기울임"><i>가</i></button>
+                          <button type="button" class="rt-btn" data-cmd="underline" title="밑줄"><u>가</u></button>
+                          <button type="button" class="rt-btn" data-cmd="strikeThrough" title="취소선"><s>가</s></button>
+                          <label class="rt-color" title="글자색">
+                            <input type="color" id="rtColor" value="#d97757" />
+                            <span>가</span>
+                          </label>
+                          <span class="rt-sep"></span>
+                          <button type="button" class="rt-btn" data-cmd="justifyLeft" title="왼쪽 정렬">≡</button>
+                          <button type="button" class="rt-btn" data-cmd="justifyCenter" title="가운데 정렬">≣</button>
+                          <button type="button" class="rt-btn" data-cmd="insertUnorderedList" title="글머리 기호">•</button>
+                          <button type="button" class="rt-btn" data-cmd="insertOrderedList" title="번호 매기기">1.</button>
+                          <span class="rt-sep"></span>
+                          <button type="button" class="rt-btn" data-cmd="createLink" title="링크">URL</button>
+                          <button type="button" class="rt-btn" data-cmd="insertImage" title="사진 넣기">사진</button>
+                          <button type="button" class="rt-btn" data-cmd="formatBlock" data-arg="blockquote" title="인용">인용</button>
+                          <button type="button" class="rt-btn" data-cmd="insertHorizontalRule" title="구분선">선</button>
+                          <span class="rt-sep"></span>
+                          <button type="button" class="rt-btn" data-cmd="undo" title="되돌리기">되돌리기</button>
+                          <button type="button" class="rt-btn" data-cmd="redo" title="다시 실행">다시</button>
+                          <div class="rt-right">
+                            <button type="button" class="rt-btn" id="insertSignature" title="서명 넣기">서명</button>
+                            <label class="html-toggle"><input type="checkbox" id="htmlModeToggle" /> HTML</label>
+                          </div>
+                        </div>
+
+                        <!-- 본문: 서식 모드면 편집 영역, HTML 모드면 textarea -->
+                        <div class="rt-body" id="composeRich" contenteditable="true" data-placeholder="내용을 입력하세요"></div>
+                        <textarea name="body" class="compose-textarea" placeholder="내용을 입력하세요" hidden></textarea>
+
+                        <div class="compose-from" id="composeFrom">보내는 사람 확인 중…</div>
                       </div>
                     </form>
 
@@ -1161,6 +1236,37 @@
             <span>생활코딩 OAuth code 절차, 조회수 약 1.6만회</span>
           </a>
         </div>
+      </div>
+    </dialog>
+
+    <!-- 주소찾기: 조직도에서 골라 넣기 -->
+    <dialog class="picker-dialog" id="addressPicker">
+      <div class="picker-head">
+        <strong>주소찾기</strong>
+        <span class="picker-count" id="pickerCount"></span>
+        <button type="button" class="icon-button" id="addressPickerClose" aria-label="닫기">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <input type="search" id="addressPickerInput" placeholder="이름 · 이메일 · 부서로 찾기" autocomplete="off" />
+      <div class="picker-list" id="addressPickerList"></div>
+      <div class="picker-foot">
+        <button type="button" class="button primary compact" id="addressPickerAdd">넣기</button>
+      </div>
+    </dialog>
+
+    <!-- 보내기 전 미리보기 -->
+    <dialog class="preview-dialog" id="mailPreview">
+      <div class="picker-head">
+        <strong>미리보기</strong>
+        <button type="button" class="icon-button" id="previewClose" aria-label="닫기">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <div class="preview-doc">
+        <h2 id="previewSubject"></h2>
+        <p class="preview-to" id="previewTo"></p>
+        <div class="preview-body" id="previewBody"></div>
       </div>
     </dialog>
 
