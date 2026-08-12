@@ -4062,6 +4062,8 @@ tbody tr:hover {
   height: 100%;
   min-height: 0;
   background: var(--bg);
+  /* 좁은 화면의 폴더 서랍·막이 여기에 붙는다 */
+  position: relative;
 }
 
 .mail-rail {
@@ -4911,14 +4913,9 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
   .app-shell.mail-focus .topbar { display: flex; }
-  .app-shell.mail-focus .main { height: auto; overflow: visible; }
-  .app-shell.mail-focus .workspace {
-    padding: 16px 14px 28px;
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
-  }
-  .app-shell.mail-focus .content-column { height: auto; }
-  .app-shell.mail-focus #view-emails { height: auto; }
+  /* 높이·스크롤은 파일 끝의 '접은 화면 메일함'에서 다시 잡는다.
+     여기서 height:auto로 풀면 목록이 2500px 두루마리가 됐다. */
+  .app-shell.mail-focus .workspace { grid-template-columns: minmax(0, 1fr); }
   /* 탭바는 계속 보이게 */
   .app-shell.mail-focus .sidebar { display: flex; }
   .app-shell.mail-focus .nav-item { font-size: 11px; }
@@ -6473,15 +6470,301 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 /* 상단 한 줄의 높이를 맞춘다.
    검색란만 54px라 줄 전체가 79px로 부풀어 있었다. */
 .mail-topbar { padding: 9px 20px; }
-.mail-topbar .email-search { height: 34px; }
-.mail-topbar .email-search input {
+/* .search-wrap 은 이미 flex + align-items:center 라 정렬은 저절로 된다.
+   여기에 top/transform 을 걸었더니 아이콘이 8.5px 위로 날아갔다. */
+.mail-topbar .email-search {
   height: 34px;
+  padding: 0 14px;
+  align-items: center;
+}
+.mail-topbar .email-search input {
+  height: 32px;
   padding-top: 0;
   padding-bottom: 0;
   font-size: 12.5px;
 }
-.mail-topbar .email-search .icon { top: 50%; transform: translateY(-50%); }
+.mail-topbar .email-search .icon { flex: none; }
 .mail-topbar h1 { font-size: 17px; line-height: 34px; }
 .mail-topbar select { height: 34px; }
 .mail-topbar .view-toggle { height: 34px; }
 .mail-topbar .view-toggle-btn { height: 32px; }
+
+/* ===== 설정 화면 다듬기 ===== */
+
+/* 저장 버튼이 화면에 붙어 둥둥 떠다녔다. 문서 끝에 놓는다. */
+.settings-view-actions {
+  position: static;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+
+/* 넓은 화면에서 설정이 한 줄로만 늘어져 여백이 남았다. 두 칸으로 나눈다. */
+@media (min-width: 1100px) {
+  #view-settings form > div:first-of-type,
+  .settings-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  /* 표가 들어가는 칸은 넓게 */
+  .settings-section:has(.storage-actions),
+  .settings-section:has(.form-grid .wide),
+  .settings-view-actions { grid-column: 1 / -1; }
+}
+
+/* 보안 안내 */
+.settings-note.secure {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.6;
+  border-left: 3px solid var(--green);
+}
+.settings-note.secure strong { color: var(--text); }
+
+/* 앱 정보 */
+.about-grid { display: flex; flex-direction: column; gap: 6px; }
+.about-grid > div { display: flex; align-items: baseline; gap: 9px; }
+.about-grid strong { font-size: 15px; font-family: var(--font-serif); }
+.about-grid span { font-size: 11.5px; color: var(--text-faint); }
+.about-desc { margin: 0; font-size: 12.5px; color: var(--text-soft); line-height: 1.6; }
+.about-made { margin: 6px 0 0; font-size: 10.5px; color: var(--text-faint); }
+
+/* ===== 메일 왼쪽 폴더에 분류 붙이기 ===== */
+.mail-folder-sep {
+  display: block;
+  margin: 12px 0 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.mail-cat { padding-left: 14px; }
+.mail-cat .mf-label { font-size: 12px; }
+
+/* 분류 아이콘(이모지)을 없앤 만큼 칩을 담백하게 */
+.category-chip {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+.list-chip { display: none; }
+
+
+/* ===== 접은 화면(좁은 폭)의 메일함 =====
+   지금까지는 좁아지면 세로로 전부 풀어 놓았다. 폴더 레일이 화면 위 326px을
+   먹고, 목록은 2500px짜리 두루마리가 되어 페이지 스크롤에 묻혔다.
+   좁을수록 오히려 화면을 붙박아 두고, 폴더는 서랍으로 빼는 편이 낫다. */
+@media (max-width: 760px) {
+  .app-shell.mail-focus .main {
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  /* 메일함에는 자체 검색이 있다. 위쪽 전역 검색은 자리만 먹는다. */
+  .app-shell.mail-focus .topbar .search-wrap { display: none; }
+  .app-shell.mail-focus .topbar { flex: none; padding-bottom: 8px; }
+
+  .app-shell.mail-focus .workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    grid-template-rows: minmax(0, 1fr);
+    /* 아래 탭바가 가리지 않게 그만큼 비워 둔다 */
+    padding: 0 0 var(--tabbar-h, 64px);
+  }
+  .app-shell.mail-focus .content-column {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  .app-shell.mail-focus #view-emails {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .mail-app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .mail-pane { height: 100%; min-height: 0; }
+  .mail-scroll, .mail-read-scroll, .compose-scroll { max-height: none; }
+
+  /* --- 폴더 레일을 서랍으로 --- */
+  .mail-rail {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 14;
+    width: min(272px, 84%);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 8px;
+    padding: 14px 12px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--bg-deep);
+    box-shadow: 18px 0 44px rgba(0, 0, 0, 0.2);
+    transform: translateX(-102%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .mail-app.rail-open .mail-rail { transform: none; }
+
+  /* 서랍 안에서는 다시 세로 목록으로. 손가락으로 누를 만한 크기로. */
+  .mail-rail .mail-folders { flex-direction: column; flex-wrap: nowrap; flex: none; gap: 2px; }
+  .mail-rail .mail-folder { padding: 9px 11px; font-size: 13px; flex: none; }
+  .mail-rail .mail-folder .icon { width: 17px; height: 17px; }
+  .mail-rail .mail-write-row { flex: none; }
+  .mail-rail .mail-quick { flex: none; flex-direction: column; gap: 2px; }
+  .mail-rail .mail-quick-item { justify-content: flex-start; }
+  .mail-rail .mail-rail-foot { margin-top: auto; }
+  .mail-rail .mail-quota { display: block; }
+
+  .mail-app.rail-open .mail-scrim { opacity: 1; }
+
+  /* 아래의 기본 .mail-rail-toggle{display:none}이 이 블록보다 뒤에 있어
+     한 단계 더 구체적으로 적어야 이긴다 */
+  .mail-topbar .mail-rail-toggle { display: inline-flex; }
+
+  /* 제목이 길어도 검색·정렬을 밀어내지 않게 */
+  .mail-topbar { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
+  .mail-topbar h1 { font-size: 15px; min-width: 0; }
+  .mail-topbar .email-search { width: 100%; order: 9; margin-left: 0; }
+}
+
+/* 막은 늘 흐름 밖에 둔다. 서랍을 연 채로 창을 넓히면 그리드 한 칸을
+   차지해 레이아웃이 밀리기 때문이다. */
+.mail-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  background: rgba(15, 12, 10, 0.34);
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+
+/* 서랍 여는 단추: 넓은 화면에는 레일이 늘 보이므로 필요 없다 */
+.mail-rail-toggle {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.mail-rail-toggle:hover { background: var(--surface-soft); color: var(--text); }
+.mail-rail-toggle .icon { width: 18px; height: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-rail, .mail-scrim { transition: none; }
+}
+
+
+/* ===== 넓은 화면: 목록 옆에 읽기 창 =====
+   1920px에서 메일 한 줄이 1557px까지 늘어났다. 보낸사람·제목·날짜뿐인 줄을
+   그만큼 늘려 봐야 눈만 멀리 움직인다. 자리가 남으면 목록을 접어 두고
+   그 오른쪽에서 본문을 바로 읽는 게 낫다. */
+.mail-read-hint { display: none; }
+
+/* .mail-main 은 스스로 mailmain 컨테이너라 자기 자신은 못 고친다.
+   한 단계 바깥(#view-emails = mailapp)을 기준으로 잡는다.
+   레일 232px + 목록 340 + 본문 500 ≈ 1080 → 여유를 두어 1320px */
+@container mailapp (min-width: 1320px) {
+  .mail-main {
+    display: grid;
+    grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+    align-items: stretch;
+  }
+  /* 목록은 왼쪽에 늘 떠 있다. 읽기로 넘어가도 숨기지 않는다. */
+  #mailListPane,
+  #mailListPane[hidden] {
+    display: flex;
+    grid-column: 1;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+  /* 본문·작성은 오른쪽 칸에서 */
+  #mailReadPane,
+  #mailComposePane {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .mail-read-hint {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-faint);
+    text-align: center;
+    padding: 24px;
+  }
+  .mail-read-hint .icon { width: 32px; height: 32px; opacity: 0.5; }
+  .mail-read-hint strong { font-size: 14px; font-weight: 600; color: var(--text-soft); }
+  .mail-read-hint span { font-size: 12.5px; }
+  /* 본문이 떠 있으면 안내는 물러난다 */
+  .mail-main:has(#mailReadPane:not([hidden])) .mail-read-hint,
+  .mail-main:has(#mailComposePane:not([hidden])) .mail-read-hint { display: none; }
+
+  /* 목록이 좁아졌으니 카드 격자는 접고 한 줄씩 */
+  .news-grid { grid-template-columns: minmax(0, 1fr); }
+  .news-featured { display: none; }
+  /* 폭이 좁아진 만큼 상단 줄도 눌러 준다 */
+  #mailListPane .mail-topbar { padding: 10px 14px; gap: 7px; flex-wrap: wrap; }
+  #mailListPane .mail-topbar h1 { font-size: 14.5px; }
+  #mailListPane .mail-topbar .email-search { width: 100%; order: 9; margin-left: 0; }
+  #mailListPane .mail-topbar select { font-size: 11px; }
+  /* 두 칸으로 나뉜 상태에서는 '목록으로' 버튼이 갈 곳이 없다 */
+  #mailReadPane .back-button { display: none; }
+  /* 본문 글줄이 지나치게 길어지지 않게 */
+  .mail-read-scroll > * { max-width: 860px; margin-left: auto; margin-right: auto; }
+}
+
+/* 두 칸 모드에서 지금 읽고 있는 줄 */
+.email-list-row.reading,
+.news-card.reading {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* 두 칸일 때 작성창은 왼쪽 목록만큼 좁아진다.
+   mailmain 기준(700px)으로는 자리가 있다고 착각해 '내 자료'가 끼어 눌렸다. */
+@container mailapp (min-width: 1320px) {
+  .mail-pane.compose-with-files {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .compose-files {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 220px;
+  }
+}
+/* 목록 400 + 본문 420 + 자료 268 + 레일 232 ≈ 1320. 여유를 두어 1700px부터 */
+@container mailapp (min-width: 1700px) {
+  .mail-pane.compose-with-files { grid-template-columns: minmax(420px, 1fr) 268px; }
+  .compose-files { border-left: 1px solid var(--border); border-top: none; max-height: none; }
+}

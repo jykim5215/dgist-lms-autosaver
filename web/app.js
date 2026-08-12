@@ -30,6 +30,7 @@ const icons = {
   settings: '<svg viewBox="0 0 24 24"><path d="M12.2 2h-.4a2 2 0 0 0-2 1.7l-.1.7a2 2 0 0 1-2.9 1.2l-.6-.4a2 2 0 0 0-2.6.3l-.2.3a2 2 0 0 0-.3 2.6l.4.6a2 2 0 0 1-1.2 2.9l-.7.1A2 2 0 0 0 2 13.8v.4a2 2 0 0 0 1.7 2l.7.1a2 2 0 0 1 1.2 2.9l-.4.6a2 2 0 0 0 .3 2.6l.3.2a2 2 0 0 0 2.6.3l.6-.4a2 2 0 0 1 2.9 1.2l.1.7a2 2 0 0 0 2 1.7h.4a2 2 0 0 0 2-1.7l.1-.7a2 2 0 0 1 2.9-1.2l.6.4a2 2 0 0 0 2.6-.3l.2-.3a2 2 0 0 0 .3-2.6l-.4-.6a2 2 0 0 1 1.2-2.9l.7-.1a2 2 0 0 0 1.7-2v-.4a2 2 0 0 0-1.7-2l-.7-.1a2 2 0 0 1-1.2-2.9l.4-.6a2 2 0 0 0-.3-2.6l-.3-.2a2 2 0 0 0-2.6-.3l-.6.4a2 2 0 0 1-2.9-1.2l-.1-.7A2 2 0 0 0 12.2 2Z"/><circle cx="12" cy="12" r="3"/></svg>',
   sync: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"/><path d="M16 16h5v5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>',
 };
 
 const state = {
@@ -479,16 +480,9 @@ const CATEGORY_COLORS = {
   "기타": "neutral",
 };
 
-const CATEGORY_ICONS = {
-  "답신": "↩️",
-  "교수님": "🎓",
-  "세미나·행사": "🎤",
-  "취업·진로": "💼",
-  "학생회": "📣",
-  "행정·학생팀": "🏛️",
-  "동아리·문화": "🎵",
-  "기타": "📎",
-};
+/* 분류 아이콘(이모지)은 없앴다.
+   글자만으로도 충분하고, 이모지가 섞이면 화면이 지저분해진다. */
+const CATEGORY_ICONS = {};
 
 function formatEmailDate(iso) {
   if (!iso) return "";
@@ -532,12 +526,11 @@ function newsCard(mail, featured = false) {
   const color = CATEGORY_COLORS[mail.category] || "neutral";
   const headline = mail.summary || mail.subject;
   const showSubject = Boolean(mail.summary) && mail.summary !== mail.subject;
-  const icon = CATEGORY_ICONS[mail.category] || "📎";
   return `
     <article class="news-card ${featured ? "featured" : ""} ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <div class="news-card-top">
         <input type="checkbox" class="mail-pick" aria-label="선택" />
-        <span class="category-chip ${color}">${icon} ${escapeHtml(mail.category || "기타")}</span>
+        <span class="category-chip ${color}">${escapeHtml(mail.category || "기타")}</span>
         ${mail.unread ? '<span class="unread-dot" title="안 읽은 메일"></span>' : ""}
         <span class="card-actions">
           <button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
@@ -560,10 +553,9 @@ function newsCard(mail, featured = false) {
 
 function openEmailDetail(mail) {
   const color = CATEGORY_COLORS[mail.category] || "neutral";
-  const icon = CATEGORY_ICONS[mail.category] || "📎";
   const chip = $("#readCategory");
   chip.className = `category-chip ${color}`;
-  chip.textContent = `${icon} ${mail.category || "기타"}`;
+  chip.textContent = mail.category || "기타";
   $("#readSubject").textContent = mail.subject;
   const date = mail.date ? formatEmailDate(mail.date) : "";
   const sender = mail.fromName || mail.fromEmail || "";
@@ -1371,7 +1363,7 @@ function renderMailTabs(folderMails) {
   wrap.hidden = !useTabs;
   if (!useTabs) return;
   // 빠른 필터가 켜져 있으면 탭 구분은 잠시 쉰다
-  wrap.classList.toggle("muted", Boolean(state.emailQuick));
+  wrap.classList.toggle("muted", Boolean(state.emailQuick || state.emailFilter));
 
   wrap.innerHTML = MAIL_TABS.map((tabDef) => {
     const mails = folderMails.filter((m) => mailInTab(m, tabDef.key));
@@ -1416,12 +1408,27 @@ function renderMailQuick(emails) {
 
 
 function folderCount(emails, folder) {
-  return emails.filter((m) => mailInFolder(m, folder)).length;
+  const hidePast = Boolean(state.config?.hidePastEmails) && folder === "inbox";
+  return emails.filter((m) => mailInFolder(m, folder) && !(hidePast && isPastEvent(m))).length;
 }
 
 function renderMailFolders(emails) {
   const nav = $("#mailFolders");
   if (!nav) return;
+
+  // 받은 편지함 안의 분류(교수님·학생회 …)를 폴더 아래에 이어 붙인다.
+  // 예전에는 목록 위에 칩 줄로 떠 있어서 자리를 먹었다.
+  // 목록은 '지난 일정 숨김'을 적용해 보여 주므로, 개수도 같은 기준으로 세야
+  // '세미나·행사 12'를 눌렀는데 4통만 나오는 일이 없다.
+  const hidePastHere = Boolean(state.config?.hidePastEmails);
+  const inbox = emails.filter(
+    (m) => mailInFolder(m, "inbox") && !(hidePastHere && isPastEvent(m)),
+  );
+  const cats = CATEGORY_ORDER.map((c) => ({
+    key: c,
+    count: inbox.filter((m) => m.category === c).length,
+  })).filter((c) => c.count > 0);
+
   nav.innerHTML = MAIL_FOLDERS.map((f) => {
     const count = folderCount(emails, f.key);
     const unreadInFolder = emails.filter((m) => mailInFolder(m, f.key) && m.unread).length;
@@ -1432,7 +1439,19 @@ function renderMailFolders(emails) {
         ${unreadInFolder ? `<span class="mf-count">${unreadInFolder}</span>` : count ? `<span class="mf-count muted">${count}</span>` : ""}
       </button>
     `;
-  }).join("");
+  }).join("") +
+    (cats.length
+      ? `<span class="mail-folder-sep">분류</span>` +
+        cats
+          .map(
+            (c) => `
+      <button type="button" class="mail-folder mail-cat ${state.emailFilter === c.key ? "active" : ""}" data-cat="${escapeHtml(c.key)}">
+        <span class="mf-label">${escapeHtml(c.key)}</span>
+        <span class="mf-count muted">${c.count}</span>
+      </button>`,
+          )
+          .join("")
+      : "");
   installIcons(nav);
   const current = MAIL_FOLDERS.find((f) => f.key === state.emailFolder);
   const title = $("#mailFolderTitle");
@@ -1445,30 +1464,6 @@ function renderMailFolders(emails) {
   }
 }
 
-function renderEmailFilterChips(emails) {
-  const wrap = $("#emailFilterChips");
-  if (!emails.length) {
-    wrap.innerHTML = "";
-    return;
-  }
-  const unreadCount = emails.filter((mail) => mail.unread).length;
-  const chips = [
-    { key: "", label: `📥 전체 ${emails.length}` },
-    { key: "unread", label: `🔴 안읽음 ${unreadCount}` },
-  ];
-  CATEGORY_ORDER.forEach((category) => {
-    const count = emails.filter((mail) => mail.category === category).length;
-    if (count) chips.push({ key: category, label: `${CATEGORY_ICONS[category] || ""} ${category} ${count}` });
-  });
-  wrap.innerHTML = chips
-    .map(
-      (chip) => `
-        <button type="button" class="filter-chip ${state.emailFilter === chip.key ? "active" : ""}"
-          data-filter="${escapeHtml(chip.key)}">${escapeHtml(chip.label)}</button>
-      `,
-    )
-    .join("");
-}
 
 /* 선택 상태를 화면에 반영한다 (체크 표시 + 개수) */
 function syncMailSelection() {
@@ -1518,7 +1513,9 @@ function renderEmails() {
   renderMailTabs(folderPool);
   // 빠른 필터를 켰을 때는 탭으로 가르지 않는다.
   // ('중요'를 눌렀는데 기본 탭에 머물면 기본 탭에는 중요 메일이 없어 0통이 된다)
-  if (isInboxLike && !state.emailQuick) {
+  // 빠른 필터나 분류를 골랐을 때는 탭으로 또 가르지 않는다.
+  // ('세미나·행사 12'를 눌렀는데 기본 탭에 걸려 4통만 보이면 숫자가 안 맞는다)
+  if (isInboxLike && !state.emailQuick && !state.emailFilter) {
     folderPool = folderPool.filter((m) => mailInTab(m, state.emailTab));
   }
 
@@ -1535,24 +1532,8 @@ function renderEmails() {
   // "모두 읽음" 버튼: 받은편지함에 안읽음 있을 때만
   $("#markAllReadButton").hidden = !(isInboxLike && unreadInFolder > 0);
 
-  // 브리핑은 받은편지함에서만, 아주 간결하게 (한 줄 + todo)
-  const briefingPanel = $("#briefingPanel");
-  const briefing = data.briefing || {};
-  const intro = typeof briefing === "string" ? briefing : briefing.intro || "";
-  const todo = typeof briefing === "object" && Array.isArray(briefing.todo) ? briefing.todo.filter(Boolean) : [];
-  briefingPanel.hidden = !emails.length || !isInboxLike || (!intro && !todo.length);
-  $("#briefingText").textContent = intro;
-  $("#briefingTodo").innerHTML = todo.length
-    ? todo.map((t) => `<span class="todo-item">${escapeHtml(t)}</span>`).join("")
-    : "";
-
-  // 카테고리 칩은 받은편지함에서만
-  if (isInboxLike) {
-    renderEmailFilterChips(folderPool);
-  } else {
-    $("#emailFilterChips").innerHTML = "";
-    state.emailFilter = "";
-  }
+  // 브리핑('오늘 워크숍 있어요' + 할 일)과 분류 칩 줄은 없앴다.
+  // 분류는 왼쪽 폴더 목록에서 고른다.
 
   // 필터/검색 적용
   const searching = Boolean(state.emailFilter) || Boolean(state.query.trim()) || Boolean(state.emailQuery?.trim());
@@ -1593,6 +1574,7 @@ function renderEmails() {
   installIcons($("#newsFeatured"));
   // 다시 그렸으니 선택 표시를 맞춰 준다
   syncMailSelection();
+  syncReadingRow();
   $("#emailEmpty").hidden = visible.length > 0;
 
   const badge = $("#emailBadge");
@@ -1624,14 +1606,13 @@ function sortEmails(list, mode) {
 
 function emailListRow(mail) {
   const color = CATEGORY_COLORS[mail.category] || "neutral";
-  const icon = CATEGORY_ICONS[mail.category] || "📎";
   const title = mail.summary || mail.subject;
   return `
     <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <input type="checkbox" class="mail-pick" aria-label="선택" />
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
       <time class="list-date">${formatEmailDate(mail.date)}</time>
-      <span class="category-chip ${color} list-chip">${icon}</span>
+      
       <div class="list-main">
         <strong>${escapeHtml(shortText(title, 70))}</strong>
         <span>${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
@@ -2971,9 +2952,14 @@ function bindInterestChips() {
 
 function renderSecretBadges() {
   const config = state.config || {};
-  $("#geminiSavedBadge").hidden = !config.hasGeminiKey;
-  $("#clearGeminiKey").hidden = !config.hasGeminiKey;
-  $("#emailPwSavedBadge").hidden = !config.hasEmailPassword;
+  {
+    const el = $("#geminiSavedBadge");
+    if (el) el.hidden = !config.hasGeminiKey;
+  }
+  {
+    const el = $("#emailPwSavedBadge");
+    if (el) el.hidden = !config.hasEmailPassword;
+  }
   $("#schoolPwSavedBadge").hidden = !config.hasSchoolEmailPassword;
 }
 
@@ -2991,11 +2977,10 @@ async function populateSettings() {
     showToast(error.message);
   }
   const form = $("#configForm");
-  form.elements.geminiKey.value = "";
-  form.elements.geminiKey.type = "password";
-  form.elements.lmsPassword.value = "";
-  form.elements.emailPassword.value = "";
-  form.elements.schoolEmailPassword.value = "";
+  // 없앤 칸(Gemini 키·메일 알림)을 건드리면 터진다. 있는 것만 비운다.
+  ["lmsPassword", "schoolEmailPassword"].forEach((name) => {
+    if (form.elements[name]) form.elements[name].value = "";
+  });
   state.interestTags = new Set(state.config?.interestTags || []);
   form.elements.interestsCustom.value = state.config?.interestsCustom || "";
   form.elements.hidePastEmails.checked = Boolean(state.config?.hidePastEmails);
@@ -3017,11 +3002,27 @@ async function populateSettings() {
 }
 
 /* ===== 메일 pane 전환 (목록/읽기/작성) ===== */
+/* 넓으면 목록과 본문이 나란히 선다. 그때는 목록을 숨기면 안 된다.
+   (CSS 로 되살려 놓긴 했지만 hidden 이 걸린 채 보이는 건 화면낭독기에 거짓말이 된다) */
+function mailTwoPane() {
+  const el = $("#view-emails");
+  return !!el && el.clientWidth >= 1320;
+}
+
 function showMailPane(pane) {
   state.mailPane = pane;
-  $("#mailListPane").hidden = pane !== "list";
+  $("#mailListPane").hidden = mailTwoPane() ? false : pane !== "list";
   $("#mailReadPane").hidden = pane !== "read";
   $("#mailComposePane").hidden = pane !== "compose";
+  syncReadingRow();
+}
+
+/** 지금 읽고 있는 메일을 목록에서도 짚어 준다 */
+function syncReadingRow() {
+  const id = state.mailPane === "read" ? state.replyContext?.id : null;
+  document.querySelectorAll("[data-mail-id]").forEach((el) => {
+    el.classList.toggle("reading", !!id && el.dataset.mailId === String(id));
+  });
 }
 
 /* ===== 이벤트 바인딩 ===== */
@@ -3045,7 +3046,7 @@ function bindEvents() {
     renderEmails();
   });
 
-  $("#emailFilterChips").addEventListener("click", (event) => {
+  $("#emailFilterChips")?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-filter]");
     if (!chip) return;
     state.emailFilter = chip.dataset.filter;
@@ -3183,8 +3184,46 @@ function bindEvents() {
     }
   });
 
+  // 좁은 화면에서 폴더 레일은 서랍이 된다
+  const setRail = (open) => {
+    const app = $("#mailApp");
+    if (!app) return;
+    app.classList.toggle("rail-open", open);
+    const scrim = $("#mailScrim");
+    if (scrim) scrim.hidden = !open;
+    $("#mailRailToggle")?.setAttribute("aria-expanded", String(open));
+  };
+  $("#mailRailToggle")?.addEventListener("click", () => {
+    setRail(!$("#mailApp")?.classList.contains("rail-open"));
+  });
+  $("#mailScrim")?.addEventListener("click", () => setRail(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setRail(false);
+  });
+  // 두 칸 ↔ 한 칸이 바뀌면 목록을 다시 세운다
+  window.addEventListener("resize", () => {
+    if (state.mailPane) showMailPane(state.mailPane);
+  });
+
+  // 넓어지면 레일이 원래 자리로 돌아온다. 열린 상태가 남아 있으면 안 된다.
+  matchMedia("(max-width: 760px)").addEventListener("change", (event) => {
+    if (!event.matches) setRail(false);
+  });
+
   // 폴더 네비게이션
   $("#mailFolders").addEventListener("click", (event) => {
+    // 서랍에서 골랐으면 고르는 즉시 닫는다
+    if (event.target.closest("[data-cat], [data-folder]")) setRail(false);
+    // 분류(교수님·학생회 …)를 누르면 받은 편지함 안에서 걸러 본다
+    const cat = event.target.closest("[data-cat]");
+    if (cat) {
+      state.emailFilter = state.emailFilter === cat.dataset.cat ? "" : cat.dataset.cat;
+      state.emailFolder = "inbox";
+      state.mailSelected = new Set();
+      switchView("emails");
+      renderEmails();
+      return;
+    }
     const btn = event.target.closest("[data-folder]");
     if (!btn) return;
     // 작성 중이던 내용이 있으면 확인 후 이동
@@ -3227,6 +3266,8 @@ function bindEvents() {
 
   // 왼쪽 빠른 필터 (안읽음 / 중요 / 첨부) — 다시 누르면 해제
   $("#mailQuick")?.addEventListener("click", (event) => {
+    // 서랍에서 골랐으면 고르는 즉시 닫는다
+    if (event.target.closest("[data-quick]")) setRail(false);
     const btn = event.target.closest("[data-quick]");
     if (!btn) return;
     state.emailQuick = state.emailQuick === btn.dataset.quick ? "" : btn.dataset.quick;
@@ -3591,12 +3632,12 @@ function bindEvents() {
     }
   });
 
-  $("#toggleGeminiKey").addEventListener("click", () => {
+  $("#toggleGeminiKey")?.addEventListener("click", () => {
     const input = $("#configForm").elements.geminiKey;
     input.type = input.type === "password" ? "text" : "password";
   });
 
-  $("#clearGeminiKey").addEventListener("click", async () => {
+  $("#clearGeminiKey")?.addEventListener("click", async () => {
     const confirmed = window.confirm("저장된 Gemini API 키를 삭제할까요? AI 요약 기능이 중지됩니다.");
     if (!confirmed) return;
     try {
@@ -4061,7 +4102,7 @@ async function renderStorage() {
     };
     box.querySelectorAll("input[type=checkbox]").forEach((c) => c.addEventListener("change", sync));
 
-    $("#cleanupStorageButton").addEventListener("click", async () => {
+    $("#cleanupStorageButton")?.addEventListener("click", async () => {
       const semesters = [...box.querySelectorAll("[data-sem]:checked")].map((c) => c.dataset.sem);
       const courses = [...box.querySelectorAll("[data-course-storage]:checked")].map(
         (c) => c.dataset.courseStorage,
@@ -5145,7 +5186,23 @@ const DDAY_KEYWORDS = ["수강신청", "성적확인", "수강신청 변경", "�
 /* ===== 대시보드 편집 =====
    어떤 것을 어떤 순서로 볼지 화면에서 바로 바꾼다.
    순서는 DOM 순서를 직접 바꿔서 적용하므로, 각 패널 코드는 건드릴 필요가 없다. */
-const DASH_STORE = "autosaver-dashboard-layout";
+const DASH_STORE = "autosaver-dashboard-layout-v2";
+const DASH_STORE_V1 = "autosaver-dashboard-layout";
+
+/* 넓은 화면에서 목록형 블록까지 한 줄을 통째로 쓰면 오른쪽이 텅 빈다.
+   글이 몇 줄뿐인 블록은 처음부터 반 폭으로 둘씩 붙여 놓는다.
+   (시간표·셔틀 노선도·요약 카드는 가로가 필요해서 한 줄 전체) */
+const DASH_DEFAULT_SIZE = {
+  dday: "full",
+  metrics: "full",
+  timetable: "full",
+  upcoming: "half",
+  events: "half",
+  notices: "half",
+  links: "half",
+  shuttle: "full",
+};
+const dashDefaultSize = (key) => (DASH_DEFAULT_SIZE[key] === "half" ? "half" : "full");
 
 function dashBlocks() {
   return [...document.querySelectorAll("#view-dashboard [data-block]")];
@@ -5154,8 +5211,17 @@ function dashBlocks() {
 /** 저장된 배치를 읽는다. 새로 생긴 블록은 뒤에 붙는다. */
 function loadDashLayout() {
   let saved = [];
+  let migrating = false;
   try {
-    saved = JSON.parse(localStorage.getItem(DASH_STORE) || "[]");
+    const raw = localStorage.getItem(DASH_STORE);
+    if (raw) {
+      saved = JSON.parse(raw);
+    } else {
+      // 예전 저장본은 전부 "full"이라 새 기본 반 폭이 묻힌다.
+      // 순서와 숨김 여부만 물려받고 폭은 새로 정한다.
+      saved = JSON.parse(localStorage.getItem(DASH_STORE_V1) || "[]");
+      migrating = saved.length > 0;
+    }
   } catch (error) {
     saved = [];
   }
@@ -5182,12 +5248,16 @@ function loadDashLayout() {
     if (row && present.includes(row.key) && !known.has(row.key)) {
       known.add(row.key);
       // size: "full"(한 줄 전체) 또는 "half"(반 폭). 반 폭끼리는 나란히 붙는다.
-      layout.push({ key: row.key, off: !!row.off, size: row.size === "half" ? "half" : "full" });
+      layout.push({
+        key: row.key,
+        off: !!row.off,
+        size: migrating ? dashDefaultSize(row.key) : row.size === "half" ? "half" : "full",
+      });
     }
   }
   // 저장된 적 없는(새로 추가된) 블록은 켠 채로 뒤에 붙인다
   for (const key of present) {
-    if (!known.has(key)) layout.push({ key, off: false, size: "full" });
+    if (!known.has(key)) layout.push({ key, off: false, size: dashDefaultSize(key) });
   }
   return layout;
 }
@@ -6037,6 +6107,7 @@ function renderNowBar() {
 }
 
 installIcons();
+api("/api/update/check").then(r=>{const e=$("#aboutVersion"); if(e) e.textContent=`버전 ${r.current||"?"}`;}).catch(()=>{});
 bindEvents();
 bindInterestChips();
 initTheme();

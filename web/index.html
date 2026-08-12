@@ -525,8 +525,10 @@
 
             <!-- ===== 이메일 (Gmail식 2-pane) ===== -->
             <section class="view" id="view-emails" hidden>
-              <div class="mail-app">
-                <aside class="mail-rail" aria-label="메일 폴더">
+              <div class="mail-app" id="mailApp">
+                <!-- 좁은 화면에서 폴더 레일이 서랍으로 바뀔 때 뒤를 덮는 막 -->
+                <div class="mail-scrim" id="mailScrim" hidden></div>
+                <aside class="mail-rail" id="mailRail" aria-label="메일 폴더">
                   <!-- 네이버처럼 쓰기 버튼 두 개를 나란히 -->
                   <div class="mail-write-row">
                     <button class="button primary mail-compose-btn" id="composeButton" type="button">메일 쓰기</button>
@@ -551,6 +553,9 @@
                   <!-- 목록 pane -->
                   <div class="mail-pane" id="mailListPane">
                     <div class="mail-topbar">
+                      <button class="mail-rail-toggle" id="mailRailToggle" type="button" aria-label="폴더 목록">
+                        <span class="icon" data-icon="menu"></span>
+                      </button>
                       <h1 id="mailFolderTitle">받은 편지함 <em id="mailFolderCount"></em></h1>
                       <div class="search-wrap email-search">
                         <span class="icon" data-icon="search"></span>
@@ -605,12 +610,7 @@
                         </button>
                       </div>
 
-                      <section class="briefing-banner" id="briefingPanel" hidden>
-                        <p class="briefing-text" id="briefingText"></p>
-                        <div class="briefing-todo" id="briefingTodo"></div>
-                      </section>
 
-                      <div class="email-filter-chips" id="emailFilterChips"></div>
                       <div class="news-featured" id="newsFeatured"></div>
                       <div class="news-grid" id="newsGrid"></div>
 
@@ -620,6 +620,13 @@
                         <span>설정에서 학교 이메일 계정을 입력한 뒤 ‘새로고침’을 눌러 주세요.</span>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- 넓은 화면에서 목록 옆이 비어 있을 때 -->
+                  <div class="mail-read-hint" id="mailReadHint">
+                    <span class="icon" data-icon="mail"></span>
+                    <strong>읽을 메일을 고르세요</strong>
+                    <span>왼쪽 목록에서 누르면 여기에 펼쳐집니다.</span>
                   </div>
 
                   <!-- 읽기 pane -->
@@ -1031,6 +1038,32 @@
               이 컴퓨터의 구글 로그인 해제
             </button>
 
+          </section>
+
+
+
+
+          <section class="settings-section">
+            <h3><span class="icon" data-icon="book"></span>학교 계정 (LMS · DGIST 메일)</h3>
+            <p class="settings-note secure">
+              여기 넣은 아이디와 비밀번호는 <strong>이 컴퓨터에만</strong> 저장됩니다.
+              Windows 자체 암호화(DPAPI)로 잠기고, 어떤 서버로도 보내지 않습니다.
+              받은 강의자료와 메일도 이 컴퓨터 안에만 남습니다.
+            </p>
+            <div class="form-grid">
+              <label>
+                <span>LMS ID</span>
+                <input name="lmsId" autocomplete="username" />
+              </label>
+              <label>
+                <span>LMS 비밀번호</span>
+                <input name="lmsPassword" type="password" autocomplete="current-password" placeholder="기존 값 유지" />
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3><span class="icon" data-icon="sync"></span>자동 실행 · 구글 캘린더</h3>
             <div class="google-row gcal-row">
               <div>
                 <strong>주기적 자동 실행</strong>
@@ -1074,68 +1107,6 @@
               지정한 이름의 캘린더가 없으면 새로 만들고, 메일에서 찾은 일정을 그 캘린더에만 등록합니다.
               같은 메일은 다시 올려도 중복되지 않습니다. 메일 새로고침·동기화가 끝날 때마다 자동 반영됩니다.
             </small>
-            <div class="form-grid">
-              <label>
-                <span>LMS ID</span>
-                <input name="lmsId" autocomplete="username" />
-              </label>
-              <label>
-                <span>LMS 비밀번호</span>
-                <input name="lmsPassword" type="password" autocomplete="current-password" placeholder="기존 값 유지" />
-              </label>
-            </div>
-          </section>
-
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="sparkle"></span>AI 요약 (Gemini)</h3>
-            <label class="secret-label">
-              <span>
-                Gemini API Key
-                <em class="badge-saved" id="geminiSavedBadge" hidden>저장됨</em>
-              </span>
-              <div class="secret-field">
-                <input name="geminiKey" type="password" placeholder="새 키 입력 (저장된 키는 표시되지 않음)" autocomplete="off" spellcheck="false" />
-                <button class="icon-button" id="toggleGeminiKey" type="button" aria-label="키 표시/숨김">
-                  <span class="icon" data-icon="eye"></span>
-                </button>
-                <button class="button compact ghost" id="clearGeminiKey" type="button" hidden>키 삭제</button>
-              </div>
-              <small>키는 이 컴퓨터의 설정 파일에만 저장되며 화면에 다시 표시되지 않습니다.</small>
-            </label>
-          </section>
-
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="mail"></span>메일 알림</h3>
-            <div class="form-grid">
-              <label>
-                <span>Gmail 주소</span>
-                <input name="emailAddress" type="email" autocomplete="email" />
-              </label>
-              <label>
-                <span>
-                  Gmail 앱 비밀번호
-                  <em class="badge-saved" id="emailPwSavedBadge" hidden>저장됨</em>
-                </span>
-                <input name="emailPassword" type="password" placeholder="기존 값 유지" autocomplete="off" />
-              </label>
-              <label class="wide">
-                <span>받는 주소 (알림을 받을 메일)</span>
-                <input name="emailTo" type="email" />
-              </label>
-            </div>
-          </section>
-
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="users"></span>DGIST 조직도 (주소록)</h3>
-            <p class="settings-note" id="directoryNote">조직도를 넣어 두면 메일 쓸 때 교수님·학생 이름으로 주소를 찾을 수 있어요.</p>
-            <div class="directory-actions">
-              <button class="button compact ghost" id="directoryImportButton" type="button">
-                <span class="icon" data-icon="file"></span>
-                조직도 파일 넣기
-              </button>
-              <input type="file" id="directoryFileInput" accept=".json,.csv" hidden />
-              <span id="directoryStatus"></span>
-            </div>
           </section>
 
           <section class="settings-section">
@@ -1209,6 +1180,21 @@
             </div>
           </details>
         </div>
+
+        <section class="settings-section settings-about">
+          <h3><span class="icon" data-icon="help"></span>앱 정보</h3>
+          <div class="about-grid">
+            <div>
+              <strong>붕어빵</strong>
+              <span id="aboutVersion">버전 확인 중</span>
+            </div>
+            <p class="about-desc">
+              DGIST LMS의 강의자료를 자동으로 받아 정리하고, 과제 마감·학사일정·학교 메일을
+              한곳에서 봅니다.
+            </p>
+            <p class="about-made">DGIST 기초학부 26학번 김유준 제작</p>
+          </div>
+        </section>
 
         <div class="dialog-actions settings-view-actions">
           <button class="button primary" type="submit">설정 저장</button>
