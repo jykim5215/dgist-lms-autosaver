@@ -5,22 +5,22 @@
   --bg-deep: #f0eee6;
   --surface: #ffffff;
   --surface-soft: #f7f5ef;
-  --border: #e5e1d6;
-  --border-strong: #d4cfc0;
+  --border: #e3ded1;
+  --border-strong: #cfc9b8;
   --text: #1f1e1d;
   --text-soft: #5d5a52;
   --text-faint: #8b877c;
-  --accent: #d97757;
-  --accent-strong: #c2613f;
-  --accent-soft: #f8e8e0;
-  --green: #5e8b5e;
-  --green-soft: #e7f0e4;
-  --amber: #b8860b;
-  --amber-soft: #f7eed7;
-  --red: #b4232c;
-  --red-soft: #f9e4e4;
-  --blue: #5b7da8;
-  --blue-soft: #e6edf5;
+  --accent: #c0674a;
+  --accent-strong: #9c4e33;
+  --accent-soft: #f6e9e3;
+  --green: #4f7a55;
+  --green-soft: #e8efe7;
+  --amber: #a37413;
+  --amber-soft: #f6efdc;
+  --red: #a63440;
+  --red-soft: #f8e6e6;
+  --blue: #4d7192;
+  --blue-soft: #e7eef4;
   /* 붕어빵 로고: 베이지 바탕 + 노릇한 주황 */
   --bp-bg: #faf6ec;
   --bp-body: #f7be3c;
@@ -28,7 +28,7 @@
   --bp-line: #2b2826;
   --radius: 14px;
   --radius-sm: 9px;
-  --shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 6px 20px -8px rgba(31, 30, 29, 0.08);
+  --shadow: 0 1px 2px rgba(31, 30, 29, 0.035), 0 10px 28px -12px rgba(31, 30, 29, 0.10);
   --font-serif: "Lora", "Noto Serif KR", Georgia, serif;
   --font-sans: "Inter", "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
 }
@@ -44,7 +44,7 @@
   --text: #16181d;
   --text-soft: #545963;
   --text-faint: #888e99;
-  --accent-soft: #fdeee8;
+  --accent-soft: #fbeee8;
   --green-soft: #e7f3ea;
   --amber-soft: #fbf1d8;
   --red-soft: #fbe6e6;
@@ -62,9 +62,9 @@
   --text: #e8e6df;
   --text-soft: #b5b1a6;
   --text-faint: #8a867b;
-  --accent: #d97757;
-  --accent-strong: #e08a6d;
-  --accent-soft: #46342b;
+  --accent: #c0674a;
+  --accent-strong: #dd8b6b;
+  --accent-soft: #40312a;
   --green: #8fb58f;
   --green-soft: #2d392d;
   --amber: #d2a44a;
@@ -762,9 +762,11 @@ body {
 }
 .timetable-wrap { overflow-x: auto; }
 
+/* 요일 칸이 90px보다 좁아지면 과목명도 시각도 잘려 못 읽는다.
+   더 좁아지면 줄이지 말고 가로로 넘겨 보게 한다 (.timetable-wrap이 스크롤). */
 .timetable {
   --tt-days: 5;
-  min-width: 420px;
+  min-width: calc(34px + var(--tt-days) * 90px);
   user-select: none;
 }
 
@@ -3595,7 +3597,9 @@ tbody tr:hover {
   }
 
   /* 시간표는 가로 스크롤 + 조금 촘촘하게 */
-  .timetable { min-width: 380px; }
+  /* 좁은 화면이라고 칸을 더 줄이면 글자가 다 뭉갠다.
+     칸 폭은 지키고 가로로 넘겨 보게 둔다. */
+  .timetable { min-width: calc(34px + var(--tt-days) * 82px); }
 
   /* 메일 작성: 자료 패널을 아래로 */
   .mail-pane.compose-with-files { grid-template-columns: minmax(0, 1fr); }
@@ -6070,6 +6074,9 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
 }
+/* id 선택자(1,0,0)가 .view[hidden](0,2,0)의 display:none 을 이겨 버려서,
+   메일함으로 옮겨도 대시보드가 밑에 깔린 채 겹쳐 보였다. */
+#view-dashboard[hidden] { display: none; }
 /* 기본은 한 줄 전체. 반 폭만 한 칸을 쓴다. */
 #view-dashboard > * { grid-column: span 2; }
 #view-dashboard > .dash-half { grid-column: span 1; }
@@ -6151,4 +6158,127 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 @media (prefers-reduced-motion: reduce) {
   .fold-wrap, .fold-body > *, .fold-toggle .icon { transition: none; }
   .fold-peek { animation: none; }
+}
+
+/* ===== 편집 모드 새 단장 =====
+   예전에는 카드 위에 회색 줄이 하나 얹히는 식이라 투박했다.
+   이제 카드가 살짝 떠오르고, 조작 버튼은 떠 있는 알약 하나로 모은다. */
+.dash-editing [data-block] {
+  outline: none;
+  box-shadow: 0 0 0 1.5px var(--accent-soft), var(--shadow);
+  border-radius: var(--radius);
+  transition: box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: block-wake 0.36s cubic-bezier(0.34, 1.4, 0.5, 1) both;
+}
+.dash-editing [data-block]:hover {
+  box-shadow: 0 0 0 1.5px var(--accent), var(--shadow);
+  transform: translateY(-2px);
+}
+/* 편집을 켜면 카드들이 차례로 살짝 깨어난다 */
+@keyframes block-wake {
+  from { transform: scale(0.985); }
+  to   { transform: scale(1); }
+}
+.dash-editing [data-block]:nth-child(2) { animation-delay: 0.03s; }
+.dash-editing [data-block]:nth-child(3) { animation-delay: 0.06s; }
+.dash-editing [data-block]:nth-child(4) { animation-delay: 0.09s; }
+.dash-editing [data-block]:nth-child(n + 5) { animation-delay: 0.12s; }
+
+/* 조작 줄: 카드 안에 얹지 않고 위쪽에 떠 있는 알약으로 */
+.dash-bar {
+  position: absolute;
+  top: -13px;
+  left: 12px;
+  right: 12px;
+  z-index: 3;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px -8px rgba(31, 30, 29, 0.28);
+  animation: bar-drop 0.28s cubic-bezier(0.34, 1.4, 0.5, 1) both;
+}
+@keyframes bar-drop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* 카드 안쪽이 알약에 가리지 않도록 */
+.dash-editing [data-block] { padding-top: 22px; }
+.dash-editing .dash-bar + * { margin-top: 0; }
+
+.dash-grip {
+  color: var(--text-faint);
+  font-size: 13px;
+  letter-spacing: -2px;
+  cursor: grab;
+  padding: 0 2px;
+}
+.dash-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-btn {
+  flex: none;
+  border: none;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.12s;
+}
+.dash-btn:hover { background: var(--accent-soft); color: var(--accent-strong); transform: translateY(-1px); }
+.dash-btn:active { transform: translateY(0) scale(0.94); }
+.dash-btn.on { background: var(--accent); color: #fff; }
+
+/* 끌어 올린 카드 */
+.dash-lift {
+  z-index: 5;
+  cursor: grabbing;
+  box-shadow: 0 0 0 2px var(--accent), 0 18px 36px -12px rgba(31, 30, 29, 0.34);
+  transition: none !important;
+}
+
+/* 편집 버튼 자체도 상태가 보이게 */
+.dash-edit-toggle.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ===== 작성창 '내 자료' 접기 ===== */
+.compose-files-head { align-items: center; }
+.files-fold { margin: 0 4px 0 0; width: 22px; height: 22px; }
+.files-fold .icon { width: 14px; height: 14px; transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+.files-folded .files-fold .icon { transform: rotate(-90deg); }
+/* 접으면 머리만 남기고 본문 자리를 본문 쪽에 넘긴다 */
+.compose-files.files-folded { max-height: 44px; overflow: hidden; }
+.compose-files { transition: max-height 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+@container mailmain (min-width: 700px) {
+  /* 옆에 붙어 있을 때 접으면 폭까지 줄여 본문을 넓힌다 */
+  .mail-pane.compose-with-files:has(.files-folded) {
+    grid-template-columns: minmax(420px, 1fr) 132px;
+  }
+  .compose-files.files-folded { max-height: none; }
+  .compose-files.files-folded .compose-files-search,
+  .compose-files.files-folded .compose-files-list { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-editing [data-block],
+  .dash-bar { animation: none; }
+  .dash-btn, .compose-files, .files-fold .icon { transition: none; }
 }

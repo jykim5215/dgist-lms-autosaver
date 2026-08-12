@@ -52,7 +52,7 @@ const state = {
   emailFilter: "",
   emailQuery: "",
   emailSort: "newest",
-  emailView: "grid",
+  emailView: "list",
   emailFolder: "inbox",
   emailTab: "primary",
   mailSelected: new Set(),
@@ -4819,7 +4819,9 @@ function applyRailCollapsed(collapsed) {
 function initRail() {
   let collapsed = false;
   try {
-    collapsed = localStorage.getItem("autosaver-rail-collapsed") === "1";
+    // 실행 로그는 평소에 볼 일이 적어 접어 두는 것을 기본으로
+    const saved = localStorage.getItem("autosaver-rail-collapsed");
+    collapsed = saved === null ? true : saved === "1";
   } catch (error) {
     /* 무시 */
   }
@@ -5157,6 +5159,38 @@ function parseDirectoryFile(text, name) {
     }));
 }
 
+/* 작성창 오른쪽 '내 자료'도 접을 수 있게.
+   첨부할 게 없을 때는 본문 쓸 자리를 넓히는 게 낫다. */
+function bindComposeFilesFold() {
+  const btn = $("#composeFilesFold");
+  const panel = $("#composeFiles");
+  if (!btn || !panel) return;
+
+  const KEY = "autosaver-compose-files-fold";
+  const apply = (closed) => {
+    panel.classList.toggle("files-folded", closed);
+    btn.setAttribute("aria-expanded", String(!closed));
+  };
+  let closed = false;
+  try {
+    closed = localStorage.getItem(KEY) === "1";
+  } catch (error) {
+    /* 무시 */
+  }
+  apply(closed);
+
+  btn.addEventListener("click", () => {
+    closed = !panel.classList.contains("files-folded");
+    apply(closed);
+    try {
+      localStorage.setItem(KEY, closed ? "1" : "0");
+    } catch (error) {
+      /* 무시 */
+    }
+  });
+}
+
+
 function bindDirectory() {
   const button = $("#directoryImportButton");
   const input = $("#directoryFileInput");
@@ -5256,11 +5290,17 @@ function dashPeek(key) {
   }
 }
 
+/* 처음 쓸 때 접혀 있을 블록.
+   공지·바로가기는 급하지 않고 자리를 많이 먹어서 접어 둔다. */
+const FOLD_DEFAULT = { notices: true, links: true };
+
 function loadFold() {
   try {
-    return JSON.parse(localStorage.getItem(FOLD_STORE) || "{}") || {};
+    const saved = localStorage.getItem(FOLD_STORE);
+    if (saved === null) return { ...FOLD_DEFAULT };
+    return JSON.parse(saved) || {};
   } catch (error) {
-    return {};
+    return { ...FOLD_DEFAULT };
   }
 }
 
@@ -5372,8 +5412,10 @@ function bindDashEditor() {
   applyDashLayout();
   setupFold();
 
-  $("#dashEditToggle")?.addEventListener("click", () => {
+  $("#dashEditToggle")?.addEventListener("click", (event) => {
     state.dashEditing = !state.dashEditing;
+    // 편집 중인지 버튼 자체로도 보이게
+    event.currentTarget.classList.toggle("on", state.dashEditing);
     renderDashEditor();
   });
 
@@ -5886,6 +5928,7 @@ bindAddressPicker();
 bindComposeExtras();
 bindAcademic();
 bindDirectory();
+bindComposeFilesFold();
 bindDashEditor();
 renderNowBar();
 moveNavPill();

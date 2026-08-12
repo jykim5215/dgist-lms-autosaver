@@ -146,7 +146,6 @@
                   <span id="dashEditLabel">화면 편집</span>
                 </button>
                 <h1 id="heroTitle">안녕하세요 👋</h1>
-                <p id="heroSubtitle">LMS의 새 자료를 모아 Drive에 정리하고, 다가오는 과제 마감을 한눈에 봅니다.</p>
               </div>
 
               <!-- 학사일정 중 놓치면 큰 것(수강신청·성적확인)만 크게 -->
@@ -782,6 +781,9 @@
                     <!-- 내 자료: 여기서 왼쪽 첨부칸으로 끌어다 놓는다 -->
                     <aside class="compose-files" id="composeFiles" aria-label="내 자료">
                       <div class="compose-files-head">
+                        <button type="button" class="fold-toggle files-fold" id="composeFilesFold" aria-label="내 자료 접기/펴기" aria-expanded="true">
+                          <span class="icon" data-icon="chevronDown"></span>
+                        </button>
                         <strong>내 자료</strong>
                         <span>끌어서 첨부</span>
                       </div>
