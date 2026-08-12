@@ -502,26 +502,53 @@
             <section class="view" id="view-emails" hidden>
               <div class="mail-app">
                 <aside class="mail-rail" aria-label="메일 폴더">
-                  <button class="button primary mail-compose-btn" id="composeButton" type="button">
-                    <span class="icon" data-icon="edit"></span>
-                    메일 쓰기
-                  </button>
+                  <!-- 네이버처럼 쓰기 버튼 두 개를 나란히 -->
+                  <div class="mail-write-row">
+                    <button class="button primary mail-compose-btn" id="composeButton" type="button">메일 쓰기</button>
+                    <button class="button ghost mail-selfmail-btn" id="selfMailButton" type="button">내게 쓰기</button>
+                  </div>
+
+                  <!-- 안읽음 / 중요 / 첨부 빠른 필터 -->
+                  <div class="mail-quick" id="mailQuick"></div>
+
                   <nav class="mail-folders" id="mailFolders"></nav>
-                  <button class="mail-refresh" id="refreshEmailsButton" type="button">
-                    <span class="icon" data-icon="sync"></span>
-                    새로고침
-                  </button>
+
+                  <div class="mail-rail-foot">
+                    <button class="mail-refresh" id="refreshEmailsButton" type="button">
+                      <span class="icon" data-icon="sync"></span>
+                      새로고침
+                    </button>
+                    <p class="mail-quota" id="mailQuota"></p>
+                  </div>
                 </aside>
 
                 <div class="mail-main">
                   <!-- 목록 pane -->
                   <div class="mail-pane" id="mailListPane">
                     <div class="mail-topbar">
+                      <h1 id="mailFolderTitle">받은 편지함 <em id="mailFolderCount"></em></h1>
                       <div class="search-wrap email-search">
                         <span class="icon" data-icon="search"></span>
-                        <input id="emailSearchInput" type="search" placeholder="메일 검색 (제목, 발신자, 내용)" autocomplete="off" />
+                        <input id="emailSearchInput" type="search" placeholder="메일 검색" autocomplete="off" />
                       </div>
-                      <div class="email-toolbar-controls">
+                    </div>
+
+                    <!-- 네이버식 작업 줄: 선택 → 읽음/삭제/답장 -->
+                    <div class="mail-actionbar">
+                      <label class="mail-selectall" title="전체 선택">
+                        <input type="checkbox" id="mailSelectAll" />
+                      </label>
+                      <div class="mail-actions" id="mailActions">
+                        <button type="button" data-bulk="read">읽음</button>
+                        <button type="button" data-bulk="unread">안읽음</button>
+                        <span class="mail-actions-sep"></span>
+                        <button type="button" data-bulk="reply">답장</button>
+                        <button type="button" data-bulk="forward">전달</button>
+                        <span class="mail-actions-sep"></span>
+                        <button type="button" class="danger" data-bulk="delete">삭제</button>
+                      </div>
+                      <div class="mail-actionbar-right">
+                        <span class="mail-selected-count" id="mailSelectedCount"></span>
                         <select id="emailSortSelect" aria-label="정렬 방식">
                           <option value="newest">최신순</option>
                           <option value="oldest">오래된순</option>
@@ -530,19 +557,21 @@
                           <option value="score">관심도순</option>
                         </select>
                         <div class="view-toggle" role="group" aria-label="보기 방식">
-                          <button type="button" class="view-toggle-btn active" data-viewmode="grid" aria-label="카드 보기">
-                            <span class="icon" data-icon="grid"></span>
-                          </button>
                           <button type="button" class="view-toggle-btn" data-viewmode="list" aria-label="리스트 보기">
                             <span class="icon" data-icon="list"></span>
+                          </button>
+                          <button type="button" class="view-toggle-btn active" data-viewmode="grid" aria-label="카드 보기">
+                            <span class="icon" data-icon="grid"></span>
                           </button>
                         </div>
                       </div>
                     </div>
 
+                    <!-- Gmail식 분류 탭 -->
+                    <div class="mail-tabs" id="mailTabs" role="tablist"></div>
+
                     <div class="mail-scroll" id="mailScroll">
                       <div class="mail-header-row">
-                        <h1 id="mailFolderTitle">받은 편지함</h1>
                         <span id="emailsUpdatedAt">아직 가져온 메일이 없습니다.</span>
                         <button class="button compact ghost" id="markAllReadButton" type="button" hidden>
                           <span class="icon" data-icon="mailAllRead"></span>

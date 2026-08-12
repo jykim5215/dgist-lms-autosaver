@@ -53,6 +53,9 @@ const state = {
   emailSort: "newest",
   emailView: "grid",
   emailFolder: "inbox",
+  emailTab: "primary",
+  mailSelected: new Set(),
+  emailQuick: "",
   replyContext: null,
   attachments: [],
   interestTags: new Set(),
@@ -530,6 +533,7 @@ function newsCard(mail, featured = false) {
   return `
     <article class="news-card ${featured ? "featured" : ""} ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
       <div class="news-card-top">
+        <input type="checkbox" class="mail-pick" aria-label="선택" />
         <span class="category-chip ${color}">${icon} ${escapeHtml(mail.category || "기타")}</span>
         ${mail.unread ? '<span class="unread-dot" title="안 읽은 메일"></span>' : ""}
         <span class="card-actions">
@@ -1006,14 +1010,27 @@ function replyToCurrentEmail() {
   });
 }
 
+/* 왼쪽은 '메일함'만 둔다.
+   관심메일·LMS공지는 폴더가 아니라 위쪽 분류 탭으로 옮겼다. (Gmail식) */
 const MAIL_FOLDERS = [
   { key: "inbox", label: "받은 편지함", icon: "mail" },
-  { key: "unread", label: "안 읽음", icon: "alert" },
-  { key: "starred", label: "관심 메일", icon: "sparkle" },
   { key: "sent", label: "보낸 편지함", icon: "send" },
-  { key: "lms", label: "LMS·공지", icon: "book" },
   { key: "promo", label: "프로모션", icon: "folder" },
   { key: "all", label: "전체 메일", icon: "list" },
+];
+
+/* 위쪽 분류 탭. 받은 편지함 안에서 갈라 본다. */
+const MAIL_TABS = [
+  { key: "primary", label: "기본", icon: "mail" },
+  { key: "starred", label: "관심 메일", icon: "sparkle" },
+  { key: "lms", label: "LMS·공지", icon: "book" },
+];
+
+/* 왼쪽 위 빠른 필터 (네이버의 안읽음/중요/첨부) */
+const MAIL_QUICK = [
+  { key: "unread", label: "안읽음", icon: "alert" },
+  { key: "starred", label: "중요", icon: "sparkle" },
+  { key: "attach", label: "첨부", icon: "paperclip" },
 ];
 
 // 폴더별 메일 필터 (검색·카테고리칩과 별개)
@@ -1030,12 +1047,84 @@ function mailInFolder(mail, folder) {
     case "starred":
       return (mail.score || 0) >= 6;
     case "lms":
-      return /lms|blackboard|공지|학사|academic/i.test(`${mail.fromEmail} ${mail.fromName} ${mail.subject}`);
+      return isLmsMail(mail);
     case "all":
     default:
       return true;
   }
 }
+
+/* ===== 분류 탭 =====
+   받은 편지함을 기본 / 관심 메일 / LMS·공지로 가른다.
+   Gmail 탭처럼 각 탭에 몇 통인지와 최근 제목을 같이 보여 준다. */
+function isLmsMail(mail) {
+  return /lms|blackboard|공지|학사|academic/i.test(
+    `${mail.fromEmail} ${mail.fromName} ${mail.subject}`,
+  );
+}
+
+function isStarredMail(mail) {
+  return (mail.score || 0) >= 6;
+}
+
+function mailInTab(mail, tab) {
+  if (tab === "starred") return isStarredMail(mail);
+  if (tab === "lms") return isLmsMail(mail);
+  // 기본: 관심·LMS로 빠지지 않은 나머지
+  return !isStarredMail(mail) && !isLmsMail(mail);
+}
+
+function renderMailTabs(folderMails) {
+  const wrap = $("#mailTabs");
+  if (!wrap) return;
+  // 받은 편지함에서만 탭으로 가른다
+  const useTabs = state.emailFolder === "inbox";
+  wrap.hidden = !useTabs;
+  if (!useTabs) return;
+  // 빠른 필터가 켜져 있으면 탭 구분은 잠시 쉰다
+  wrap.classList.toggle("muted", Boolean(state.emailQuick));
+
+  wrap.innerHTML = MAIL_TABS.map((tabDef) => {
+    const mails = folderMails.filter((m) => mailInTab(m, tabDef.key));
+    const unread = mails.filter((m) => m.unread).length;
+    const latest = mails[0];
+    return `
+      <button type="button" role="tab" class="mail-tab ${state.emailTab === tabDef.key ? "active" : ""}"
+              data-tab="${tabDef.key}" aria-selected="${state.emailTab === tabDef.key}">
+        <span class="icon" data-icon="${tabDef.icon}"></span>
+        <span class="mail-tab-main">
+          <span class="mail-tab-title">
+            ${escapeHtml(tabDef.label)}
+            ${unread ? `<em class="mail-tab-badge">새 메일 ${unread}개</em>` : ""}
+          </span>
+          <span class="mail-tab-peek">${
+            latest ? escapeHtml(shortText(`${latest.fromName || latest.fromEmail} — ${latest.subject}`, 46)) : "메일 없음"
+          }</span>
+        </span>
+      </button>`;
+  }).join("");
+  installIcons(wrap);
+}
+
+function renderMailQuick(emails) {
+  const wrap = $("#mailQuick");
+  if (!wrap) return;
+  const counts = {
+    unread: emails.filter((m) => m.unread).length,
+    starred: emails.filter(isStarredMail).length,
+    attach: emails.filter((m) => m.hasAttachment || (m.attachments || []).length).length,
+  };
+  wrap.innerHTML = MAIL_QUICK.map(
+    (q) => `
+      <button type="button" class="mail-quick-item ${state.emailQuick === q.key ? "active" : ""}" data-quick="${q.key}">
+        <strong>${counts[q.key] || 0}</strong>
+        <span class="icon" data-icon="${q.icon}"></span>
+        <span>${escapeHtml(q.label)}</span>
+      </button>`,
+  ).join("");
+  installIcons(wrap);
+}
+
 
 function folderCount(emails, folder) {
   return emails.filter((m) => mailInFolder(m, folder)).length;
@@ -1057,7 +1146,14 @@ function renderMailFolders(emails) {
   }).join("");
   installIcons(nav);
   const current = MAIL_FOLDERS.find((f) => f.key === state.emailFolder);
-  $("#mailFolderTitle").textContent = current ? current.label : "메일함";
+  const title = $("#mailFolderTitle");
+  if (title) {
+    const unread = emails.filter((m) => mailInFolder(m, state.emailFolder) && m.unread).length;
+    const total = folderCount(emails, state.emailFolder);
+    title.firstChild.nodeValue = `${current ? current.label : "메일함"} `;
+    const count = $("#mailFolderCount");
+    if (count) count.textContent = total ? `${unread} / ${total}` : "";
+  }
 }
 
 function renderEmailFilterChips(emails) {
@@ -1085,6 +1181,26 @@ function renderEmailFilterChips(emails) {
     .join("");
 }
 
+/* 선택 상태를 화면에 반영한다 (체크 표시 + 개수) */
+function syncMailSelection() {
+  const chosen = state.mailSelected || new Set();
+  document.querySelectorAll("[data-mail-id]").forEach((el) => {
+    const on = chosen.has(el.dataset.mailId);
+    el.classList.toggle("picked", on);
+    const box = el.querySelector(".mail-pick");
+    if (box) box.checked = on;
+  });
+  const label = $("#mailSelectedCount");
+  if (label) label.textContent = chosen.size ? `${chosen.size}통 선택` : "";
+  const all = $("#mailSelectAll");
+  if (all) {
+    const total = document.querySelectorAll("[data-mail-id]").length;
+    all.checked = total > 0 && chosen.size === total;
+    all.indeterminate = chosen.size > 0 && chosen.size < total;
+  }
+}
+
+
 function renderEmails() {
   const data = state.emails;
   const emails = data.emails || [];
@@ -1093,10 +1209,28 @@ function renderEmails() {
 
   // 현재 폴더의 메일만 (지난 일정 숨김 설정은 받은편지함에서만 적용)
   const hidePast = Boolean(state.config?.hidePastEmails) && state.emailFolder === "inbox";
-  const folderPool = emails.filter(
+  let folderPool = emails.filter(
     (mail) => mailInFolder(mail, state.emailFolder) && !(hidePast && isPastEvent(mail)),
   );
   const isInboxLike = state.emailFolder === "inbox";
+
+  // 왼쪽 개수와 탭 개수는 '지금 보고 있는 메일함' 기준이어야 한다.
+  // 전체 메일로 세면 '중요 7'인데 눌러 보니 2통인 식으로 어긋난다.
+  renderMailQuick(folderPool);
+
+  // 분류 탭 (받은 편지함에서만) — 탭 개수는 '가르기 전' 목록으로 센다
+  renderMailTabs(folderPool);
+  // 빠른 필터를 켰을 때는 탭으로 가르지 않는다.
+  // ('중요'를 눌렀는데 기본 탭에 머물면 기본 탭에는 중요 메일이 없어 0통이 된다)
+  if (isInboxLike && !state.emailQuick) {
+    folderPool = folderPool.filter((m) => mailInTab(m, state.emailTab));
+  }
+
+  // 왼쪽 빠른 필터
+  if (state.emailQuick === "unread") folderPool = folderPool.filter((m) => m.unread);
+  else if (state.emailQuick === "starred") folderPool = folderPool.filter(isStarredMail);
+  else if (state.emailQuick === "attach")
+    folderPool = folderPool.filter((m) => m.hasAttachment || (m.attachments || []).length);
 
   const unreadInFolder = folderPool.filter((m) => m.unread).length;
   $("#emailsUpdatedAt").textContent = data.updatedAt
@@ -1161,6 +1295,8 @@ function renderEmails() {
       : rest.map((mail) => newsCard(mail)).join("");
   installIcons(grid);
   installIcons($("#newsFeatured"));
+  // 다시 그렸으니 선택 표시를 맞춰 준다
+  syncMailSelection();
   $("#emailEmpty").hidden = visible.length > 0;
 
   const badge = $("#emailBadge");
@@ -1196,6 +1332,7 @@ function emailListRow(mail) {
   const title = mail.summary || mail.subject;
   return `
     <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
+      <input type="checkbox" class="mail-pick" aria-label="선택" />
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
       <time class="list-date">${formatEmailDate(mail.date)}</time>
       <span class="category-chip ${color} list-chip">${icon}</span>
@@ -2760,6 +2897,9 @@ function bindEvents() {
     }
     state.emailFolder = btn.dataset.folder;
     state.emailFilter = "";
+    state.emailTab = "primary";
+    state.emailQuick = "";
+    state.mailSelected = new Set();
     state.attachments = [];
     // 작성/읽기 pane에 가려지지 않도록 목록으로 복귀 + 사이드바 활성 항목 동기화
     switchView("emails");
@@ -2767,10 +2907,100 @@ function bindEvents() {
     renderEmails();
   });
 
+
+  // 분류 탭 (기본 / 관심 메일 / LMS·공지)
+  $("#mailTabs")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-tab]");
+    if (!btn) return;
+    state.emailTab = btn.dataset.tab;
+    state.mailSelected = new Set();
+    $("#mailScroll")?.scrollTo?.(0, 0);
+    renderEmails();
+  });
+
+  // 왼쪽 빠른 필터 (안읽음 / 중요 / 첨부) — 다시 누르면 해제
+  $("#mailQuick")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-quick]");
+    if (!btn) return;
+    state.emailQuick = state.emailQuick === btn.dataset.quick ? "" : btn.dataset.quick;
+    state.mailSelected = new Set();
+    renderEmails();
+  });
+
+  // 내게 쓰기
+  $("#selfMailButton")?.addEventListener("click", () => {
+    switchView("compose");
+    window.setTimeout(() => {
+      const to = document.querySelector('#composeForm input[name="to"]');
+      if (to && state.config?.schoolEmail) to.value = `${state.config.schoolEmail}, `;
+    }, 300);
+  });
+
+  // 전체 선택
+  $("#mailSelectAll")?.addEventListener("change", (event) => {
+    const on = event.currentTarget.checked;
+    state.mailSelected = new Set();
+    if (on) {
+      document.querySelectorAll("[data-mail-id]").forEach((el) => state.mailSelected.add(el.dataset.mailId));
+    }
+    syncMailSelection();
+  });
+
+  // 선택한 메일에 대한 작업
+  $("#mailActions")?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-bulk]");
+    if (!btn) return;
+    const ids = [...(state.mailSelected || [])];
+    if (!ids.length) {
+      showToast("먼저 메일을 선택해 주세요.");
+      return;
+    }
+    const mails = (state.emails.emails || []).filter((m) => ids.includes(String(m.id)));
+    const kind = btn.dataset.bulk;
+
+    if (kind === "reply" || kind === "forward") {
+      if (mails.length > 1) {
+        showToast("답장·전달은 한 통씩만 됩니다.");
+        return;
+      }
+      openMail(mails[0]);
+      window.setTimeout(() => replyToCurrentEmail(), 250);
+      return;
+    }
+    if (kind === "delete") {
+      if (!window.confirm(`선택한 ${mails.length}통을 삭제할까요?`)) return;
+    }
+    // 이미 있는 한 통짜리 처리를 그대로 쓴다 (엔드포인트를 새로 만들지 않는다)
+    try {
+      for (const mail of mails) {
+        // setEmailRead(mail, seen): seen=true 가 '읽음'
+        if (kind === "read") await setEmailRead(mail, true, { silent: true });
+        else if (kind === "unread") await setEmailRead(mail, false, { silent: true });
+        else if (kind === "delete") await deleteEmail(mail);
+      }
+      state.mailSelected = new Set();
+      renderEmails();
+      showToast(
+        kind === "delete" ? `${mails.length}통을 삭제했습니다.` : `${mails.length}통을 처리했습니다.`,
+      );
+    } catch (error) {
+      showToast(error.message || "처리하지 못했습니다.");
+    }
+  });
+
   // 카드/리스트 클릭 → 읽음/삭제 액션 또는 전문 보기
   const handleMailClick = (event) => {
     const item = event.target.closest(".news-card, .email-list-row");
     if (!item) return;
+    // 체크박스는 '선택'이지 '열기'가 아니다
+    if (event.target.closest(".mail-pick")) {
+      const id = item.dataset.mailId;
+      state.mailSelected = state.mailSelected || new Set();
+      if (state.mailSelected.has(id)) state.mailSelected.delete(id);
+      else state.mailSelected.add(id);
+      syncMailSelection();
+      return;
+    }
     const mail = state.emails.emails.find((m) => String(m.id) === item.dataset.mailId);
     if (!mail) return;
     const actBtn = event.target.closest("[data-act]");

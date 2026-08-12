@@ -5452,12 +5452,24 @@ body.dash-dragging-now * { cursor: grabbing !important; }
     border-bottom: 1px solid var(--border);
     overflow-x: visible;
   }
-  .mail-folders { flex-direction: row; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .mail-folders { flex-direction: row; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1 1 100%; }
   .mail-compose-btn { flex: none; }
   /* 가로 띠에서는 폴더 칩을 작게 */
-  .mail-folder { padding: 6px 10px; font-size: 12px; }
+  .mail-folder { padding: 6px 10px; font-size: 12px; flex: 0 1 auto; min-width: 0; }
+  .mail-folder .mf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mail-folder .icon { width: 15px; height: 15px; }
-  .mail-refresh { margin-left: auto; }
+
+  /* 쓰기 버튼과 빠른 필터도 한 줄씩 차지하게 */
+  .mail-write-row { flex: 1 1 100%; }
+  .mail-quick {
+    flex: 1 1 100%;
+    padding: 0;
+    border-bottom: none;
+    gap: 4px;
+  }
+  .mail-quick-item { flex-direction: row; gap: 5px; padding: 6px 8px; }
+  .mail-rail-foot { flex: none; margin: 0; }
+  .mail-quota { display: none; }
 }
 
 /* 작성창 옆에 '내 자료'를 붙일 자리가 있을 때만 붙인다.
@@ -5510,3 +5522,155 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .file-panel thead th:nth-child(7),
   .file-panel tbody td:nth-child(7) { width: 62px; }
 }
+
+/* ===== 메일: 네이버식 왼쪽 레일 ===== */
+.mail-write-row { display: flex; gap: 6px; }
+.mail-write-row .button { flex: 1; justify-content: center; padding: 9px 8px; font-size: 12.5px; }
+
+/* 안읽음 / 중요 / 첨부 빠른 필터 */
+.mail-quick {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.mail-quick-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 10.5px;
+}
+.mail-quick-item strong { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.1; }
+.mail-quick-item .icon { width: 14px; height: 14px; }
+.mail-quick-item:hover { background: var(--surface); }
+.mail-quick-item.active { background: var(--accent-soft); color: var(--accent-strong); }
+.mail-quick-item.active strong { color: var(--accent-strong); }
+
+.mail-rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+.mail-quota { margin: 0; font-size: 10.5px; color: var(--text-faint); }
+.mail-quota:empty { display: none; }
+
+/* ===== 메일 상단: 제목 + 검색 ===== */
+.mail-topbar h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mail-topbar h1 em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  margin-left: 4px;
+}
+
+/* ===== 작업 줄 (선택 → 읽음/삭제/답장) ===== */
+.mail-actionbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+  flex-wrap: wrap;
+}
+.mail-selectall { display: flex; align-items: center; }
+.mail-actions { display: flex; align-items: center; gap: 2px; }
+.mail-actions button {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.mail-actions button:hover { background: var(--surface-soft); color: var(--text); }
+.mail-actions button.danger:hover { background: var(--red-soft); color: var(--red); }
+.mail-actions-sep { width: 1px; height: 14px; background: var(--border); margin: 0 5px; }
+.mail-actionbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.mail-selected-count { font-size: 11.5px; color: var(--accent-strong); font-weight: 600; }
+.mail-selected-count:empty { display: none; }
+
+/* 고른 메일 표시 */
+.mail-pick { flex: none; cursor: pointer; }
+.news-card.picked, .email-list-row.picked { background: var(--accent-soft); }
+
+/* ===== Gmail식 분류 탭 ===== */
+.mail-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+.mail-tabs[hidden] { display: none; }
+.mail-tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border: none;
+  background: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-faint);
+  text-align: left;
+  min-width: 0;
+}
+.mail-tab:hover { background: var(--surface-soft); }
+.mail-tab .icon { width: 17px; height: 17px; flex: none; }
+.mail-tab-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mail-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mail-tab-badge {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.mail-tab-peek {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 지금 보고 있는 탭 */
+.mail-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.mail-tab.active .icon { color: var(--accent-strong); }
+
+/* 좁으면 탭 미리보기는 접고 제목만 */
+@container mailmain (max-width: 620px) {
+  .mail-tab-peek { display: none; }
+  .mail-tab { padding: 10px; gap: 6px; }
+  .mail-actionbar { padding: 8px 12px; }
+}
+/* 빠른 필터가 켜져 있으면 탭이 잠시 쉰다는 표시 */
+.mail-tabs.muted { opacity: 0.45; }
+.mail-tabs.muted .mail-tab.active { border-bottom-color: transparent; }
