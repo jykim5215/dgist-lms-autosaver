@@ -269,9 +269,9 @@
                       <span class="icon" data-icon="file"></span>
                       이미지로 가져오기
                     </button>
-                    <button class="button compact ghost" id="timetableFromCatalog" type="button" title="DGIST 개설과목에서 찾아 넣기">
-                      <span class="icon" data-icon="search"></span>
-                      개설과목 검색
+                    <button class="button compact ghost" id="timetableFromCatalog" type="button" title="과목을 찾아 넣거나 직접 고칩니다">
+                      <span class="icon" data-icon="edit"></span>
+                      시간표 편집
                     </button>
                     <input type="file" id="timetableImageInput" accept="image/*" hidden />
                   </div>
@@ -283,6 +283,9 @@
                   </div>
                 <!-- 개설과목 검색 -->
                   <section class="catalog-panel" id="catalogPanel" hidden>
+                    <!-- 오른쪽 패널은 '과목 찾기'와 '칸 고치기' 두 장을 오간다 -->
+                    <div class="tt-side" id="ttSide" data-page="search">
+                    <div class="tt-page tt-page-search">
                     <div class="catalog-head">
                       <select id="catalogTerm" aria-label="학기 선택"></select>
                       <select id="catalogLevel" aria-label="과정 선택">
@@ -299,60 +302,66 @@
                       </button>
                     </div>
                     <div class="catalog-list" id="catalogList"></div>
+                    </div>
+
+                    <div class="tt-page tt-page-edit">
+                      <section class="event-editor tt-editor" id="ttEditor" hidden>
+                        <form id="ttForm">
+                          <div class="event-editor-head">
+                            <strong id="ttEditorTitle">과목 추가</strong>
+                            <button class="icon-button" id="ttEditorClose" type="button" aria-label="닫기">
+                              <span class="icon" data-icon="x"></span>
+                            </button>
+                          </div>
+                          <input type="hidden" name="id" />
+                          <div class="event-grid">
+                            <label class="event-field event-field-wide">
+                              <span>과목명</span>
+                              <input name="title" type="text" placeholder="예: 일반물리학Ⅰ" required autocomplete="off" list="courseNameList" />
+                              <datalist id="courseNameList"></datalist>
+                            </label>
+                            <label class="event-field">
+                              <span>요일</span>
+                              <select name="day">
+                                <option value="0">월</option>
+                                <option value="1">화</option>
+                                <option value="2">수</option>
+                                <option value="3">목</option>
+                                <option value="4">금</option>
+                                <option value="5">토</option>
+                              </select>
+                            </label>
+                            <label class="event-field">
+                              <span>강의실</span>
+                              <input name="room" type="text" placeholder="예: E7-101" autocomplete="off" />
+                            </label>
+                            <label class="event-field">
+                              <span>시작</span>
+                              <input name="start" type="time" required step="300" />
+                            </label>
+                            <label class="event-field">
+                              <span>끝</span>
+                              <input name="end" type="time" required step="300" />
+                            </label>
+                            <label class="event-field event-field-wide">
+                              <span>색</span>
+                              <div class="tt-colors" id="ttColors"></div>
+                              <input type="hidden" name="color" value="coral" />
+                            </label>
+                          </div>
+                          <div class="event-editor-foot">
+                            <button class="button primary" type="submit">저장</button>
+                            <button class="button ghost" id="ttDeleteButton" type="button" hidden>삭제</button>
+                          </div>
+                        </form>
+                      </section>
+                    </div>
+                    </div>
                   </section>
                 </div>
 
                 <!-- 칸 편집 -->
-                <section class="event-editor tt-editor" id="ttEditor" hidden>
-                  <form id="ttForm">
-                    <div class="event-editor-head">
-                      <strong id="ttEditorTitle">과목 추가</strong>
-                      <button class="icon-button" id="ttEditorClose" type="button" aria-label="닫기">
-                        <span class="icon" data-icon="x"></span>
-                      </button>
-                    </div>
-                    <input type="hidden" name="id" />
-                    <div class="event-grid">
-                      <label class="event-field event-field-wide">
-                        <span>과목명</span>
-                        <input name="title" type="text" placeholder="예: 일반물리학Ⅰ" required autocomplete="off" list="courseNameList" />
-                        <datalist id="courseNameList"></datalist>
-                      </label>
-                      <label class="event-field">
-                        <span>요일</span>
-                        <select name="day">
-                          <option value="0">월</option>
-                          <option value="1">화</option>
-                          <option value="2">수</option>
-                          <option value="3">목</option>
-                          <option value="4">금</option>
-                          <option value="5">토</option>
-                        </select>
-                      </label>
-                      <label class="event-field">
-                        <span>강의실</span>
-                        <input name="room" type="text" placeholder="예: E7-101" autocomplete="off" />
-                      </label>
-                      <label class="event-field">
-                        <span>시작</span>
-                        <input name="start" type="time" required step="300" />
-                      </label>
-                      <label class="event-field">
-                        <span>끝</span>
-                        <input name="end" type="time" required step="300" />
-                      </label>
-                      <label class="event-field event-field-wide">
-                        <span>색</span>
-                        <div class="tt-colors" id="ttColors"></div>
-                        <input type="hidden" name="color" value="coral" />
-                      </label>
-                    </div>
-                    <div class="event-editor-foot">
-                      <button class="button primary" type="submit">저장</button>
-                      <button class="button ghost" id="ttDeleteButton" type="button" hidden>삭제</button>
-                    </div>
-                  </form>
-                </section>
+
               </section>
 
               <section class="panel" aria-labelledby="upcomingTitle" data-block="upcoming" data-block-label="다가오는 마감">

@@ -68,7 +68,7 @@ const state = {
   shuttle: [],
   shuttleGroup: "",
   academicUnderOnly: true,
-  fileMode: "list",
+  fileMode: "folder",
   openFolders: {},
   shelves: [],
   showHolidays: true,
@@ -4160,6 +4160,11 @@ function ttMinutes(hhmm) {
 function renderTimetable() {
   const grid = $("#timetable");
   if (!grid) return;
+  // 같은 색이 겹쳐 있으면 먼저 정리한다 (한 번 고치면 그대로 유지)
+  if (!renderTimetable.recolored) {
+    renderTimetable.recolored = true;
+    if (normalizeTtColors()) saveTtColors();
+  }
   const entries = state.timetable || [];
   const showSat = state.ttShowSat || entries.some((e) => Number(e.day) === 5);
   const dayCount = showSat ? 6 : 5;
@@ -4235,6 +4240,77 @@ function renderTimetable() {
 /* ===== 개설과목 미리보기 =====
    목록의 과목에 커서를 올리면 시간표 위에 '들어갈 자리'를 흐리게 보여 준다.
    이미 있는 수업과 겹치면 그 수업을 빨갛게 표시해, 넣으면 대체된다는 걸 알린다. */
+/* 시간표 색 고르기.
+   전에는 (개수 % 색개수)라서, 과목을 지웠다 넣으면 같은 색이 겹쳤다.
+   에타처럼 '지금 안 쓰는 색'을 먼저 준다.
+   같은 과목(이름이 같은 여러 요일)은 같은 색을 유지한다. */
+/* 이미 저장된 시간표에서 서로 다른 과목이 같은 색을 쓰고 있으면 다시 칠한다.
+   (색 고르는 규칙을 고치기 전에 넣은 과목들이 겹쳐 있다) */
+function normalizeTtColors() {
+  const entries = state.timetable || [];
+  if (!entries.length) return false;
+
+  const titles = [...new Set(entries.map((e) => e.title))];
+  // 색이 과목 수보다 적으면 어차피 겹칠 수밖에 없다
+  const assigned = new Map();
+  const used = new Set();
+  let changed = false;
+
+  titles.forEach((title) => {
+    const current = entries.find((e) => e.title === title)?.color;
+    if (current && !used.has(current)) {
+      assigned.set(title, current);
+      used.add(current);
+      return;
+    }
+    const free = TT_COLORS.find((c) => !used.has(c));
+    const next = free || current || TT_COLORS[0];
+    assigned.set(title, next);
+    used.add(next);
+  });
+
+  entries.forEach((e) => {
+    const want = assigned.get(e.title);
+    if (want && e.color !== want) {
+      e.color = want;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+
+/** 다시 칠한 색을 서버에도 남긴다 */
+async function saveTtColors() {
+  try {
+    for (const e of state.timetable || []) {
+      await api("/api/timetable/save", { method: "POST", body: JSON.stringify(e) });
+    }
+  } catch (error) {
+    /* 색 저장에 실패해도 화면에는 반영돼 있다 */
+  }
+}
+
+
+function pickTtColor(title) {
+  const entries = state.timetable || [];
+  // 같은 이름이 이미 있으면 그 색을 그대로
+  const same = entries.find((e) => e.title === title);
+  if (same && same.color) return same.color;
+
+  const used = new Set(entries.map((e) => e.color).filter(Boolean));
+  const free = TT_COLORS.filter((c) => !used.has(c));
+  if (free.length) return free[0];
+
+  // 색이 다 쓰였으면 가장 적게 쓰인 색을 준다
+  const count = new Map(TT_COLORS.map((c) => [c, 0]));
+  entries.forEach((e) => {
+    if (count.has(e.color)) count.set(e.color, count.get(e.color) + 1);
+  });
+  return [...count.entries()].sort((a, b) => a[1] - b[1])[0][0];
+}
+
+
 function ttOverlaps(slot, entry) {
   if (Number(entry.day) !== Number(slot.day)) return false;
   // 끝시각과 시작시각이 같은 건 겹친 게 아니다
@@ -4302,7 +4378,7 @@ function openTtEditor(entry = null, preset = {}) {
   form.elements.start.value = entry?.start || preset.start || "09:00";
   form.elements.end.value = entry?.end || preset.end || "10:30";
   form.elements.room.value = entry?.room || "";
-  form.elements.color.value = entry?.color || TT_COLORS[(state.timetable || []).length % TT_COLORS.length];
+  form.elements.color.value = entry?.color || pickTtColor(entry?.title || "");
   $("#ttEditorTitle").textContent = entry?.id ? "과목 수정" : "과목 추가";
   $("#ttDeleteButton").hidden = !entry?.id;
 
@@ -4320,19 +4396,27 @@ function openTtEditor(entry = null, preset = {}) {
       .join("");
   }
 
+  // 편집창은 이제 오른쪽 패널 안의 '고치기' 장이다.
+  // 패널이 닫혀 있으면 열고, 검색 장에서 고치기 장으로 넘긴다.
   panel.hidden = false;
-  panel.classList.remove("opening");
-  void panel.offsetWidth;
-  panel.classList.add("opening");
+  showTtSide("edit");
   form.elements.title.focus();
+}
+
+/** 오른쪽 패널을 '과목 찾기'(search) / '칸 고치기'(edit) 로 넘긴다 */
+function showTtSide(page) {
+  const wrap = $("#catalogPanel");
+  const side = $("#ttSide");
+  if (!wrap || !side) return;
+  wrap.hidden = false;
+  side.dataset.page = page;
 }
 
 function closeTtEditor() {
   const panel = $("#ttEditor");
-  if (panel) {
-    panel.hidden = true;
-    panel.classList.remove("opening");
-  }
+  if (panel) panel.hidden = true;
+  // 고치기를 닫으면 검색 장으로 돌아간다 (패널 자체는 열어 둔다)
+  showTtSide("search");
 }
 
 function bindTimetable() {
@@ -4436,6 +4520,7 @@ function bindTimetable() {
   $("#timetableFromCatalog")?.addEventListener("click", async () => {
     const panel = $("#catalogPanel");
     panel.hidden = false;
+    showTtSide("search");
     // 학기 목록을 아직 안 채웠으면 채운다
     const termSel = $("#catalogTerm");
     if (termSel && !termSel.options.length) {
@@ -4471,15 +4556,22 @@ function bindTimetable() {
 
   // 과목에 커서를 올리면 시간표에 들어갈 자리를 미리 보여 준다
   const list = $("#catalogList");
+  // 커서를 스치고 지나갈 때마다 깜빡이지 않게 조금 기다렸다 보여 준다
+  let hoverTimer = null;
   list?.addEventListener("pointerover", (event) => {
     const row = event.target.closest("[data-course-index]");
     if (!row) return;
     const course = (state.catalog || [])[Number(row.dataset.courseIndex)];
-    if (course && course.slots.length) {
-      setTtPreview({ ...course, color: TT_COLORS[(state.timetable || []).length % TT_COLORS.length] });
-    }
+    if (!course || !course.slots.length) return;
+    window.clearTimeout(hoverTimer);
+    hoverTimer = window.setTimeout(() => {
+      setTtPreview({ ...course, color: pickTtColor(course.title) });
+    }, 220);
   });
-  list?.addEventListener("pointerleave", () => setTtPreview(null));
+  list?.addEventListener("pointerleave", () => {
+    window.clearTimeout(hoverTimer);
+    setTtPreview(null);
+  });
   $("#catalogSearch")?.addEventListener("input", renderCatalog);
   $("#catalogList")?.addEventListener("click", async (event) => {
     const btn = event.target.closest("[data-add-course]");
@@ -4492,7 +4584,7 @@ function bindTimetable() {
       start: s.start,
       end: s.end,
       room: s.room,
-      color: TT_COLORS[(state.timetable || []).length % TT_COLORS.length],
+      color: pickTtColor(course.title),
     }));
     // 시간이 겹치는 기존 수업은 새 것으로 대체한다
     const clash = ttConflicts(course.slots);
@@ -5054,6 +5146,22 @@ function loadDashLayout() {
     saved = [];
   }
   const present = dashBlocks().map((el) => el.dataset.block);
+  // 처음 쓸 때의 기본 순서. 급한 것부터 위로.
+  const DEFAULT_ORDER = [
+    "dday",      // 진행 중 / D-day
+    "metrics",   // 임박한 마감 · 전체 자료 같은 요약 카드
+    "timetable", // 주간 시간표
+    "upcoming",  // 다가오는 마감
+    "events",    // 다가오는 일정
+    "notices",   // 학교 공지
+    "links",     // 학교 사이트 바로가기
+    "shuttle",   // 셔틀버스
+  ];
+  present.sort((a, b) => {
+    const ia = DEFAULT_ORDER.indexOf(a);
+    const ib = DEFAULT_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
   const known = new Set();
   const layout = [];
   for (const row of Array.isArray(saved) ? saved : []) {

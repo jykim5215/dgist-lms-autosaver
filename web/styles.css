@@ -4170,7 +4170,9 @@ tbody tr:hover {
   background: var(--surface);
 }
 
-.mail-topbar .email-search { flex: 1; max-width: 560px; }
+/* flex:1 이라 제목 길이에 따라 검색란이 64px씩 밀렸다.
+   폭을 고정하고 오른쪽에 붙박이로 둔다. */
+.mail-topbar .email-search { flex: none; margin-left: auto; width: min(340px, 42%); }
 
 .mail-scroll {
   flex: 1;
@@ -6282,3 +6284,107 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   .dash-bar { animation: none; }
   .dash-btn, .compose-files, .files-fold .icon { transition: none; }
 }
+
+/* 미리보기가 툭 튀어나오지 않고 천천히 스며들게 */
+.tt-ghost { animation: tt-ghost-in 0.36s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes tt-ghost-in {
+  from { opacity: 0; transform: scale(0.94) translateY(3px); }
+  to   { opacity: 0.55; transform: scale(1) translateY(0); }
+}
+/* 겹쳐서 지워질 수업도 서서히 흐려진다 */
+.tt-block { transition: opacity 0.28s ease, outline-color 0.28s ease, filter 0.28s ease; }
+.tt-block.will-replace { transition-duration: 0.3s; }
+
+/* ===== 접었을 때는 머리의 조작 버튼을 감춘다 =====
+   '새로고침'·'전체 보기'는 펼쳐서 볼 때 쓰는 것이라,
+   접힌 줄에서는 요약만 남는 게 깔끔하다. */
+.folded .panel-header .button,
+.folded .panel-header select,
+.folded .shuttle-actions {
+  display: none;
+}
+/* 접기 버튼만 남긴다 */
+.folded .panel-header .fold-toggle { display: grid; }
+
+/* ===== 시간표 오른쪽 패널: 두 장을 오간다 =====
+   '과목 찾기'와 '칸 고치기'를 한 자리에 겹쳐 두고 가로로 밀어 넘긴다. */
+.tt-side {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+}
+.tt-side > .tt-page {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: opacity 0.24s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 지금 보는 장만 잡히게 */
+.tt-side[data-page="search"] .tt-page-edit,
+.tt-side[data-page="edit"] .tt-page-search {
+  opacity: 0;
+  pointer-events: none;
+}
+.tt-side[data-page="edit"] .tt-page-search { transform: translateX(-14px); }
+.tt-side[data-page="search"] .tt-page-edit { transform: translateX(14px); }
+.tt-side[data-page="search"] .tt-page-search,
+.tt-side[data-page="edit"] .tt-page-edit { opacity: 1; transform: translateX(0); }
+
+/* 오른쪽 패널 안에 들어온 편집창은 테두리 없이 */
+.tt-side .tt-editor {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+}
+.tt-side .tt-editor[hidden] { display: flex; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-side > .tt-page { transition: none; }
+}
+
+
+/* ===== 메일 화면 다듬기 ===== */
+.mail-topbar { display: flex; align-items: center; gap: 12px; }
+.mail-topbar h1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* '메일 쓰기'와 '내게 쓰기' 높이가 39 / 49 로 달랐다 (아이콘 유무 차이). */
+.mail-write-row .button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  justify-content: center;
+  align-items: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 메일 줄을 끌면 글자가 잡히던 것 → 줄이 눌리게 */
+.email-list-row,
+.news-card,
+.mail-tab,
+.mail-folder,
+.mail-quick-item {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 읽는 화면은 복사할 수 있어야 하니 그대로 */
+.read-doc, .read-body, .preview-doc { user-select: text; -webkit-user-select: text; }
+
+/* 줄을 통째로 고르는 느낌 */
+.email-list-row { border-radius: var(--radius-sm); transition: background 0.14s ease; }
+.email-list-row:hover { background: var(--surface-soft); }
+.email-list-row.picked { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.email-list-row.unread .list-main strong { font-weight: 700; }
+
+/* 위쪽 줄 높이를 맞춰 들쭉날쭉하지 않게 */
+.mail-actionbar { min-height: 44px; }
+.mail-tab { min-height: 52px; }
+.mail-folder { border-radius: var(--radius-sm); }
+.mail-rail { gap: 10px; }
+.mail-folders { gap: 2px; }
