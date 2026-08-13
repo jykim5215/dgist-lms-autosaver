@@ -31,6 +31,7 @@ const icons = {
   sync: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"/><path d="M16 16h5v5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>',
+  undo: '<svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9Z"/></svg>',
   moonStar: '<svg viewBox="0 0 24 24"><path d="M18 5h4"/><path d="M20 3v4"/><path d="M21.5 13.5A9 9 0 1 1 10.5 2.5a7 7 0 0 0 11 11Z"/></svg>',
   box: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M2 4h20v4H2z"/><path d="M10 12h4"/></svg>',
@@ -800,18 +801,54 @@ async function setEmailRead(mail, seen, { silent = false } = {}) {
 }
 
 async function deleteEmail(mail) {
-  const target = state.emails.emails.find((m) => m.id === mail.id);
-  if (target) {
-    state.emails.emails = state.emails.emails.filter((m) => m.id !== mail.id);
+  /* 받은 편지함에서 지우면 휴지통으로 간다 (되돌릴 수 있다).
+     휴지통에서 지우면 영영 사라지므로 반드시 한 번 더 묻는다. */
+  const inTrash = mail.folder === "trash";
+  if (inTrash) {
+    const ok = window.confirm(
+      `'${shortText(mail.subject || "(제목 없음)", 40)}'\n\n` +
+        "휴지통에서 지우면 되살릴 수 없습니다. 정말 지울까요?",
+    );
+    if (!ok) return;
   }
+
+  const before = state.emails.emails;
+  state.emails.emails = before.filter((m) => m.id !== mail.id);
   renderEmails();
   try {
-    await api("/api/delete-email", {
+    const res = await api("/api/delete-email", {
+      method: "POST",
+      body: JSON.stringify({ uid: mail.uid, folder: mail.folder, permanent: inTrash }),
+    });
+    if (!res.ok) {
+      // 서버가 한 번 더 확인을 요구한 경우 — 목록을 되돌린다
+      state.emails.emails = before;
+      renderEmails();
+      showToast(res.message || "지우지 못했습니다.");
+      return;
+    }
+    showToast(res.message || (inTrash ? "완전히 지웠습니다." : "휴지통으로 옮겼습니다."));
+  } catch (error) {
+    state.emails.emails = before;
+    renderEmails();
+    showToast(error.message);
+  }
+}
+
+/** 휴지통에 있는 메일을 받은 편지함으로 되돌린다 */
+async function restoreEmail(mail) {
+  const before = state.emails.emails;
+  state.emails.emails = before.filter((m) => m.id !== mail.id);
+  renderEmails();
+  try {
+    const res = await api("/api/restore-email", {
       method: "POST",
       body: JSON.stringify({ uid: mail.uid, folder: mail.folder }),
     });
-    showToast("메일을 삭제했습니다.");
+    showToast(res.message || "받은 편지함으로 되돌렸습니다.");
   } catch (error) {
+    state.emails.emails = before;
+    renderEmails();
     showToast(error.message);
   }
 }
@@ -1488,7 +1525,9 @@ const MAIL_FOLDERS = [
   { key: "inbox", label: "받은 편지함", icon: "mail" },
   { key: "starred", label: "중요", icon: "star" },
   { key: "sent", label: "보낸 편지함", icon: "send" },
+  { key: "draft", label: "임시보관함", icon: "edit" },
   { key: "promo", label: "프로모션", icon: "folder" },
+  { key: "trash", label: "휴지통", icon: "trash" },
   { key: "all", label: "전체 메일", icon: "list" },
 ];
 
@@ -1522,7 +1561,14 @@ function mailInFolder(mail, folder) {
       return isStarredMail(mail);
     case "lms":
       return isLmsMail(mail);
+    case "draft":
+      return mail.folder === "draft";
+    case "trash":
+      return mail.folder === "trash";
     case "all":
+      // 지운 메일과 임시 보관 중인 글까지 '전체'에 섞으면 헷갈린다.
+      // 지메일도 전체보관함에서 휴지통·스팸은 빼고 보여 준다.
+      return mail.folder !== "trash" && mail.folder !== "spam" && mail.folder !== "draft";
     default:
       return true;
   }
@@ -1876,10 +1922,17 @@ function emailListRow(mail) {
       <span class="list-from">${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
       <strong class="list-title" title="${escapeHtml(title || "")}">${escapeHtml(shortText(title, 90))}</strong>
       <span class="list-actions">
-        <button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
-          <span class="icon" data-icon="${mail.unread ? "check" : "mail"}"></span>
-        </button>
-        <button type="button" class="mail-act danger" data-act="delete" title="삭제">
+        ${
+          mail.folder === "trash"
+            ? `<button type="button" class="mail-act" data-act="restore" title="받은 편지함으로 되돌리기">
+                 <span class="icon" data-icon="undo"></span>
+               </button>`
+            : `<button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
+                 <span class="icon" data-icon="${mail.unread ? "check" : "mail"}"></span>
+               </button>`
+        }
+        <button type="button" class="mail-act danger" data-act="delete"
+          title="${mail.folder === "trash" ? "완전히 지우기" : "휴지통으로"}">
           <span class="icon" data-icon="trash"></span>
         </button>
       </span>
@@ -3886,6 +3939,8 @@ function bindEvents() {
       event.stopPropagation();
       if (actBtn.dataset.act === "read") {
         setEmailRead(mail, mail.unread); // 안읽음이면 읽음으로, 읽음이면 안읽음으로
+      } else if (actBtn.dataset.act === "restore") {
+        restoreEmail(mail);
       } else if (actBtn.dataset.act === "delete") {
         deleteEmail(mail);
       }

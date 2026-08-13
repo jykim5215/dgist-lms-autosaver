@@ -719,16 +719,45 @@ def mark_all_read(folder_key: str = "inbox") -> dict:
     return {"ok": True, "count": len(uids)}
 
 
-def delete_message(uid: int, folder_key: str = "inbox") -> dict:
-    """메일 삭제: 휴지통으로 이동 후 원본 제거."""
+def delete_message(uid: int, folder_key: str = "inbox", permanent: bool = False) -> dict:
+    """메일을 휴지통으로 옮긴다.
+
+    이미 휴지통에 있는 메일은 옮길 곳이 없다. 그대로 지우면 영영 사라지므로
+    permanent=True 로 분명히 말했을 때만 지운다.
+    """
     client = _connect()
     try:
         raw = _folder_raw(client, folder_key) or "INBOX"
         client.select_folder(raw)
         trash = client.find_folder("지운") or client.find_folder("Trash")
-        if trash and trash != raw:
+        in_trash = bool(trash) and trash == raw
+
+        if in_trash and not permanent:
+            return {
+                "ok": False,
+                "uid": uid,
+                "needsConfirm": True,
+                "message": "휴지통에서 지우면 되살릴 수 없습니다.",
+            }
+
+        if trash and not in_trash:
             client.copy_to(int(uid), trash)
-        client.store_flag(int(uid), "\\Deleted", add=True)
+        client.store_flag(int(uid), r"\Deleted", add=True)
+        client.expunge()
+    finally:
+        client.logout()
+    return {"ok": True, "uid": uid, "permanent": bool(permanent)}
+
+
+def restore_message(uid: int, folder_key: str = "trash") -> dict:
+    """휴지통에 있는 메일을 받은 편지함으로 되돌린다."""
+    client = _connect()
+    try:
+        raw = _folder_raw(client, folder_key) or "INBOX"
+        if not client.select_folder(raw):
+            raise RuntimeError("휴지통을 찾지 못했습니다.")
+        client.copy_to(int(uid), "INBOX")
+        client.store_flag(int(uid), r"\Deleted", add=True)
         client.expunge()
     finally:
         client.logout()

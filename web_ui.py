@@ -2513,7 +2513,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"ok": False, "message": f"메일 발송 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
-        if route in ("/api/mark-read", "/api/mark-all-read", "/api/delete-email"):
+        if route in ("/api/mark-read", "/api/mark-all-read", "/api/delete-email", "/api/restore-email"):
             payload = self.read_body_json()
             config = read_config(workspace)
             if not config.get("SCHOOL_EMAIL") or not config.get("SCHOOL_EMAIL_PASSWORD"):
@@ -2532,10 +2532,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     result = email_reader.mark_all_read(folder)
                     patch_email_local(workspace, None, folder, unread=False, all_in_folder=True)
                     self.send_json({"ok": True, "message": f"{result['count']}개를 읽음으로 표시했습니다."})
-                else:  # delete
-                    email_reader.delete_message(int(uid), folder)
+                elif route == "/api/restore-email":
+                    email_reader.restore_message(int(uid), folder)
                     patch_email_local(workspace, int(uid), folder, remove=True)
-                    self.send_json({"ok": True, "message": "메일을 삭제했습니다."})
+                    self.send_json({"ok": True, "message": "받은 편지함으로 되돌렸습니다."})
+                else:  # delete
+                    # 휴지통 안에서 지우는 것은 되돌릴 수 없다.
+                    # 화면에서 한 번 더 확인받은 경우에만 permanent 가 온다.
+                    permanent = bool(payload.get("permanent"))
+                    result = email_reader.delete_message(int(uid), folder, permanent)
+                    if not result.get("ok") and result.get("needsConfirm"):
+                        self.send_json(result)
+                        return
+                    patch_email_local(workspace, int(uid), folder, remove=True)
+                    self.send_json({
+                        "ok": True,
+                        "message": "완전히 지웠습니다." if permanent else "휴지통으로 옮겼습니다.",
+                    })
             except Exception as exc:
                 self.send_json({"ok": False, "message": f"작업 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
