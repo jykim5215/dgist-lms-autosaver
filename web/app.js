@@ -343,7 +343,7 @@ function renderUpcoming() {
 
   if (!upcoming.length) {
     list.innerHTML =
-      '<div class="empty-state"><strong>다가오는 미제출 과제가 없습니다 🎉</strong><span>마감 새로고침으로 최신 상태를 확인할 수 있어요.</span></div>';
+      '<div class="empty-state"><strong>다가오는 미제출 과제가 없습니다 🎉</strong><span>새로고침으로 최신 상태를 확인할 수 있어요.</span></div>';
     return;
   }
   list.innerHTML = upcoming.map(deadlineRow).join("");
@@ -436,8 +436,8 @@ function renderDeadlines() {
   $("#deadlinesCount").textContent = `${rows.length}건`;
   const updated = state.deadlines.updatedAt;
   $("#deadlinesUpdatedAt").textContent = updated
-    ? `마지막 갱신 ${updated.replace("T", " ")} · 상단의 '마감 새로고침'으로 다시 가져올 수 있습니다.`
-    : "아직 가져온 마감 정보가 없습니다. 상단의 '마감 새로고침'을 눌러 주세요.";
+    ? `마지막 갱신 ${updated.replace("T", " ")} · 상단의 '새로고침'으로 다시 가져올 수 있습니다.`
+    : "아직 가져온 마감 정보가 없습니다. 상단의 '새로고침'을 눌러 주세요.";
 
   // 완료(제출)한 과제와 남은 과제를 나눠서 보여 준다
   const done = rows.filter(isSubmitted);
@@ -503,7 +503,7 @@ function renderDeadlines() {
 
   $("#clearDoneDeadlines")?.addEventListener("click", () => {
     if (!done.length) return;
-    if (!window.confirm(`완료한 과제 ${done.length}건을 목록에서 지울까요?\n('마감 새로고침'을 하면 다시 나타납니다.)`)) return;
+    if (!window.confirm(`완료한 과제 ${done.length}건을 목록에서 지울까요?\n('새로고침'을 하면 다시 나타납니다.)`)) return;
     state.selection.hiddenDeadlines = [
       ...new Set([...(state.selection.hiddenDeadlines || []), ...done.map(deadlineKey)]),
     ];
@@ -616,6 +616,63 @@ function newsCard(mail, featured = false) {
   `;
 }
 
+/* ===== 메일 본문 그리기 =====
+   예전에는 서버가 HTML을 평문으로 눌러 보내서 표·이미지·서식이 다 날아갔다.
+   이제 원본 HTML을 함께 받아, 스크립트를 막은 iframe 안에 넣어 그린다.
+   바깥에서 불러오는 그림은 '읽었는지' 추적에 쓰이므로 처음엔 막아 둔다. */
+function mailFrameDoc(html, showImages) {
+  const blocker = showImages
+    ? ""
+    : `<style>img[src^="http"],img[src^="//"]{display:none !important}</style>`;
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue("--text").trim() || "#222";
+  const bg = cs.getPropertyValue("--surface").trim() || "#fff";
+  return `<!doctype html><html><head><meta charset="utf-8">
+    <meta name="referrer" content="no-referrer">
+    <base target="_blank">
+    <style>
+      body{margin:0;padding:2px 0;font:14px/1.6 -apple-system,'Segoe UI',sans-serif;
+           color:${text};background:${bg};word-break:break-word}
+      img,table{max-width:100% !important;height:auto}
+      table{border-collapse:collapse}
+      a{color:${cs.getPropertyValue("--accent-strong").trim() || "#c60"}}
+    </style>${blocker}</head><body>${html}</body></html>`;
+}
+
+function sizeMailFrame(frame) {
+  try {
+    const h = frame.contentDocument.body.scrollHeight;
+    frame.style.height = `${Math.min(Math.max(h + 16, 120), 4000)}px`;
+  } catch (error) {
+    frame.style.height = "420px";
+  }
+}
+
+function renderMailBody(mail) {
+  const plain = $("#readBody");
+  const frame = $("#readHtml");
+  const bar = $("#readImgBar");
+  const html = mail.bodyHtml || "";
+  state.readMail = mail;
+  state.readShowImages = false;
+
+  if (!html) {
+    // 평문 메일은 그대로
+    if (frame) frame.hidden = true;
+    if (bar) bar.hidden = true;
+    plain.hidden = false;
+    plain.textContent = mail.body || mail.snippet || "(본문을 불러오지 못했습니다)";
+    return;
+  }
+
+  plain.hidden = true;
+  frame.hidden = false;
+  frame.srcdoc = mailFrameDoc(html, false);
+  frame.onload = () => sizeMailFrame(frame);
+  // 바깥 그림이 실제로 들어 있을 때만 안내 줄을 띄운다
+  if (bar) bar.hidden = !/<img[^>]+src=["']?(https?:)?\/\//i.test(html);
+}
+
 function openEmailDetail(mail) {
   const color = CATEGORY_COLORS[mail.category] || "neutral";
   const chip = $("#readCategory");
@@ -639,7 +696,7 @@ function openEmailDetail(mail) {
     summary.hidden = true;
   }
 
-  $("#readBody").textContent = mail.body || mail.snippet || "(본문을 불러오지 못했습니다)";
+  renderMailBody(mail);
   state.replyContext = mail;
   // 읽음/안읽음 토글 아이콘
   const markBtn = $("#readMarkButton");
@@ -1602,12 +1659,12 @@ function syncMailSelection() {
     if (bar.hidden === show) bar.hidden = !show;
     bar.classList.toggle("up", show);
   }
-  const all = $("#mailSelectAll");
-  if (all) {
-    const total = document.querySelectorAll("[data-mail-id]").length;
+  const total = document.querySelectorAll("#newsGrid [data-mail-id]").length;
+  [$("#mailSelectAll"), $("#mailPickAll")].forEach((all) => {
+    if (!all) return;
     all.checked = total > 0 && chosen.size === total;
     all.indeterminate = chosen.size > 0 && chosen.size < total;
-  }
+  });
 }
 
 
@@ -2463,7 +2520,7 @@ function renderTask(task) {
   const labels = {
     sync: "동기화",
     verify: "검증",
-    deadlines: "마감 새로고침",
+    deadlines: "마감·일정 새로고침",
     emails: "메일 새로고침",
     "google-oauth": "Google OAuth",
   };
@@ -3582,6 +3639,104 @@ function bindEvents() {
   });
 
   // 전체 선택
+  /* ===== 여러 통 한꺼번에 고르기 =====
+     '전체 선택'이 작업 막대 안에 있었는데, 그 막대는 뭔가 고른 뒤에야
+     나타난다. 하나도 안 골랐을 땐 전체 선택에 닿을 수가 없었다.
+     목록 머리에 늘 보이는 것을 하나 둔다. */
+  const pickAll = (on) => {
+    state.mailSelected = new Set();
+    if (on) {
+      document
+        .querySelectorAll("#newsGrid [data-mail-id]")
+        .forEach((el) => state.mailSelected.add(el.dataset.mailId));
+    }
+    syncMailSelection();
+  };
+  $("#mailPickAll")?.addEventListener("change", (event) => pickAll(event.currentTarget.checked));
+
+  /* 눌러서 쭉 끌면 지나간 메일이 한꺼번에 골라진다.
+     그냥 누르면 메일이 열려야 하므로, 6px 넘게 움직였을 때만 고르기로 친다. */
+  const grid = $("#newsGrid");
+  if (grid) {
+    let drag = null;
+    const rowsNow = () => [...grid.querySelectorAll("[data-mail-id]")];
+    const rowAt = (y) =>
+      rowsNow().find((el) => {
+        const b = el.getBoundingClientRect();
+        return y >= b.top && y <= b.bottom;
+      });
+
+    grid.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      // 별표·버튼·체크박스를 누른 것은 끌기가 아니다
+      if (event.target.closest("[data-star], [data-act], .mail-pick")) return;
+      const row = event.target.closest("[data-mail-id]");
+      if (!row) return;
+      const rows = rowsNow();
+      drag = {
+        startIdx: rows.indexOf(row),
+        y0: event.clientY,
+        moved: false,
+        base: new Set(state.mailSelected || []),
+      };
+    });
+
+    grid.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.abs(event.clientY - drag.y0) < 6) return;
+        drag.moved = true;
+        // 끄는 동안 글자가 파랗게 잡히면 지저분하다
+        grid.classList.add("drag-picking");
+      }
+      const row = rowAt(event.clientY);
+      if (!row) return;
+      const rows = rowsNow();
+      const a = Math.min(drag.startIdx, rows.indexOf(row));
+      const b = Math.max(drag.startIdx, rows.indexOf(row));
+      const next = new Set(drag.base);
+      for (let i = a; i <= b; i += 1) next.add(rows[i].dataset.mailId);
+      state.mailSelected = next;
+      syncMailSelection();
+    });
+
+    const endDrag = () => {
+      if (!drag) return;
+      const wasDragging = drag.moved;
+      drag = null;
+      grid.classList.remove("drag-picking");
+      // 끌기로 골랐으면 뒤따라오는 click 으로 메일이 열리면 안 된다
+      if (wasDragging) {
+        grid.addEventListener("click", (e) => e.stopPropagation(), {
+          capture: true,
+          once: true,
+        });
+      }
+    };
+    grid.addEventListener("pointerup", endDrag);
+    grid.addEventListener("pointercancel", endDrag);
+    window.addEventListener("blur", endDrag);
+
+    // Shift+클릭으로도 사이를 통째로 (익숙한 방식)
+    grid.addEventListener("click", (event) => {
+      if (!event.shiftKey) return;
+      const row = event.target.closest("[data-mail-id]");
+      if (!row) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rows = rowsNow();
+      const idx = rows.indexOf(row);
+      const last = state.lastPickIdx ?? idx;
+      const next = new Set(state.mailSelected || []);
+      for (let i = Math.min(last, idx); i <= Math.max(last, idx); i += 1) {
+        next.add(rows[i].dataset.mailId);
+      }
+      state.mailSelected = next;
+      state.lastPickIdx = idx;
+      syncMailSelection();
+    }, true);
+  }
+
   $("#mailSelectAll")?.addEventListener("change", (event) => {
     const on = event.currentTarget.checked;
     state.mailSelected = new Set();
@@ -3647,6 +3802,7 @@ function bindEvents() {
     // 체크박스는 '선택'이지 '열기'가 아니다
     if (event.target.closest(".mail-pick")) {
       const id = item.dataset.mailId;
+      state.lastPickIdx = [...document.querySelectorAll("#newsGrid [data-mail-id]")].indexOf(item);
       state.mailSelected = state.mailSelected || new Set();
       if (state.mailSelected.has(id)) state.mailSelected.delete(id);
       else state.mailSelected.add(id);
@@ -3672,6 +3828,16 @@ function bindEvents() {
   $("#markAllReadButton").addEventListener("click", markAllRead);
 
   // 읽기 pane 버튼
+  $("#readShowImages")?.addEventListener("click", () => {
+    const frame = $("#readHtml");
+    const mail = state.readMail;
+    if (!frame || !mail) return;
+    state.readShowImages = true;
+    frame.srcdoc = mailFrameDoc(mail.bodyHtml || "", true);
+    frame.onload = () => sizeMailFrame(frame);
+    $("#readImgBar").hidden = true;
+  });
+
   $("#readBackButton").addEventListener("click", () => showMailPane("list"));
   $("#readReplyButton").addEventListener("click", replyToCurrentEmail);
   $("#readMarkButton").addEventListener("click", () => {
@@ -3894,12 +4060,38 @@ function bindEvents() {
   });
 
   $("#verifyButton").addEventListener("click", () => startRun("/api/verify", "검증"));
-  // LMS 마감·일정과 메일을 잇달아 가져온다. 예전엔 버튼이 따로였다.
-  $("#refreshAllButton")?.addEventListener("click", async () => {
-    splashFromButton($("#refreshAllButton"));
-    await startRun("/api/refresh-deadlines", "새로고침");
-    // 앞 작업이 끝나야 뒤가 밀리지 않는다
-    await startRun("/api/refresh-emails", "메일 새로고침");
+  /* LMS 마감·일정과 메일을 잇달아 가져온다.
+     startRun 은 '시작해 달라'고 부탁만 하고 바로 돌아온다. 그래서 곧장
+     두 번째를 부르면 서버가 '이미 실행 중'이라며 409를 돌려준다.
+     앞 작업이 실제로 끝날 때까지 기다렸다가 다음을 보낸다. */
+  const waitForTask = async (maxMs = 180000) => {
+    const until = Date.now() + maxMs;
+    while (Date.now() < until) {
+      await new Promise((r) => window.setTimeout(r, 900));
+      try {
+        const task = await api("/api/task");
+        if (!task.running) return true;
+      } catch (error) {
+        return false;
+      }
+    }
+    return false;
+  };
+
+  $("#refreshAllButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button.dataset.busy === "1") return;
+    button.dataset.busy = "1";
+    splashFromButton(button);
+    try {
+      await startRun("/api/refresh-deadlines", "마감·일정 가져오는 중");
+      await waitForTask();
+      await startRun("/api/refresh-emails", "메일 가져오는 중");
+      await waitForTask();
+      await refreshAll();
+    } finally {
+      button.dataset.busy = "";
+    }
   });
 
   $("#googleLoginButton").addEventListener("click", () => {
@@ -4047,7 +4239,7 @@ function bindEvents() {
 
   $("#exportIcsButton").addEventListener("click", async () => {
     if (!state.deadlines.items.length) {
-      showToast("내보낼 마감 정보가 없습니다. 먼저 '마감 새로고침'을 실행해 주세요.");
+      showToast("내보낼 마감 정보가 없습니다. 먼저 '새로고침'을 실행해 주세요.");
       return;
     }
     if (state.status?.mode === "multi-user") {

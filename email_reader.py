@@ -323,6 +323,54 @@ def decode_body_snippet(raw: bytes, limit: int = 350) -> str:
     return clean_html_to_text(text, limit)
 
 
+def decode_body_html(raw: bytes, limit: int = 200000) -> str:
+    """HTML 메일의 원본을 그대로 돌려준다 (평문 변환 전).
+
+    화면에서는 스크립트를 막은 iframe 안에 넣어 그린다. 여기서 태그를
+    지우면 표·이미지·서식이 전부 사라져 '깨져 보인다'는 말이 된다.
+    HTML 이 아니면 빈 문자열.
+    """
+    if not raw:
+        return ""
+    body, encoding, part_charset = strip_mime_part_headers(raw)
+
+    charsets = ["utf-8", "euc-kr", "cp949"]
+    if part_charset:
+        charsets.insert(0, part_charset.decode("ascii", "ignore"))
+
+    text = ""
+    if encoding == b"base64":
+        try:
+            stripped = re.sub(rb"\s+", b"", body)
+            decoded = base64.b64decode(stripped + b"=" * (-len(stripped) % 4), validate=False)
+        except Exception:
+            decoded = body
+    elif encoding == b"quoted-printable":
+        try:
+            decoded = quopri.decodestring(body)
+        except Exception:
+            decoded = body
+    else:
+        decoded = body
+
+    for charset in charsets:
+        try:
+            text = decoded.decode(charset)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if not text:
+        text = decoded.decode("utf-8", "replace")
+
+    if "<" not in text or not re.search(r"<(html|body|div|table|p|br|img)\b", text, re.I):
+        return ""
+
+    # 스크립트는 어차피 iframe 이 막지만, 아예 지워서 보낸다.
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.S | re.I)
+    text = re.sub(r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", text, flags=re.I)
+    return text[:limit]
+
+
 def clean_html_to_text(text: str, limit: int = 4000) -> str:
     """HTML/CSS가 섞인 메일 본문을 읽을 수 있는 평문으로 정리.
 
@@ -387,6 +435,7 @@ def _parse_one_message(client, msg_id: int, folder_key: str) -> dict | None:
     except Exception:
         pass
     full_body = decode_body_snippet(raw_body, limit=4000)
+    body_html = decode_body_html(raw_body)
     return {
         "id": f"{folder_key}:{msg_id}",
         "uid": msg_id,
@@ -402,6 +451,8 @@ def _parse_one_message(client, msg_id: int, folder_key: str) -> dict | None:
         "unread": not seen,
         "snippet": full_body[:300],
         "body": full_body,
+        # 원본 HTML (있을 때만). 화면에서 스크립트 막은 iframe 으로 그린다.
+        "bodyHtml": body_html,
     }
 
 
