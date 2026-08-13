@@ -144,11 +144,66 @@ async function api(path, options = {}) {
 
 function showToast(message) {
   const toast = $("#toast");
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.add("visible");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => toast.classList.remove("visible"), 2600);
 }
+
+/* ===== 오류를 사람 말로 =====
+   'Cannot set properties of null (setting disabled)' 같은 말은 쓰는 사람에게
+   아무 뜻이 없다. 무슨 일이 났는지 한 줄로 알려 주고, 자세한 내용은
+   실행 로그에만 남긴다. */
+function humanError(err) {
+  const raw = String((err && err.message) || err || "");
+
+  const table = [
+    [/Failed to fetch|NetworkError|ERR_CONNECTION/i, "앱과 연결이 끊겼어요. 앱을 다시 켜 주세요."],
+    [/이미 실행 중/, "앞 작업이 아직 돌고 있어요. 끝나면 다시 눌러 주세요."],
+    [/401|인증|Unauthorized/i, "로그인 정보가 맞지 않아요. 설정에서 다시 확인해 주세요."],
+    [/timed? ?out|시간 초과/i, "시간이 너무 오래 걸려 멈췄어요. 잠시 뒤 다시 해 주세요."],
+    [/JSON|Unexpected token/i, "받아 온 내용을 읽지 못했어요. 다시 시도해 주세요."],
+    // 화면 요소를 못 찾은 경우 (대개 앱을 새로 받은 뒤 옛 화면이 남아 있을 때)
+    [/Cannot (read|set) propert(y|ies)/i, "화면을 그리다 문제가 생겼어요. 앱을 다시 켜면 대개 해결됩니다."],
+    [/is not a function/i, "앱 파일이 서로 안 맞아요. 앱을 다시 켜 주세요."],
+  ];
+  for (const [re, msg] of table) {
+    if (re.test(raw)) return msg;
+  }
+  return "문제가 생겼어요. 앱을 다시 켜 보고, 계속되면 실행 로그를 확인해 주세요.";
+}
+
+/** 예기치 못한 오류를 한 번만, 사람 말로 알린다 */
+function reportError(err, where) {
+  const detail = `${where || "알 수 없는 곳"}: ${(err && err.stack) || err}`;
+  console.error(detail);
+  // 자세한 내용은 실행 로그 상자에만 남긴다
+  try {
+    const box = $("#logBox");
+    if (box) {
+      const line = document.createElement("div");
+      line.className = "log-line log-error";
+      line.textContent = detail.slice(0, 400);
+      box.prepend(line);
+    }
+  } catch (e) {
+    /* 로그를 못 남겨도 알림은 띄운다 */
+  }
+  const msg = humanError(err);
+  // 같은 말을 연달아 띄우지 않는다
+  if (reportError.last === msg && Date.now() - (reportError.at || 0) < 8000) return;
+  reportError.last = msg;
+  reportError.at = Date.now();
+  showToast(msg);
+}
+
+window.addEventListener("error", (event) => {
+  reportError(event.error || event.message, `${(event.filename || "").split("/").pop()}:${event.lineno}`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  reportError(event.reason, "요청 처리 중");
+});
 
 function escapeHtml(text) {
   return String(text ?? "")
@@ -621,6 +676,9 @@ function newsCard(mail, featured = false) {
    이제 원본 HTML을 함께 받아, 스크립트를 막은 iframe 안에 넣어 그린다.
    바깥에서 불러오는 그림은 '읽었는지' 추적에 쓰이므로 처음엔 막아 둔다. */
 function mailFrameDoc(html, showImages) {
+  /* 그림을 막았더니 그림만으로 된 안내 메일이 통째로 빈 화면이 됐다.
+     내가 받은 메일을 내가 보는 것이니 기본은 '보여 준다'.
+     대신 referrer 는 넘기지 않아 어디서 열었는지는 알려 주지 않는다. */
   const blocker = showImages
     ? ""
     : `<style>img[src^="http"],img[src^="//"]{display:none !important}</style>`;
@@ -641,8 +699,19 @@ function mailFrameDoc(html, showImages) {
 
 function sizeMailFrame(frame) {
   try {
-    const h = frame.contentDocument.body.scrollHeight;
-    frame.style.height = `${Math.min(Math.max(h + 16, 120), 4000)}px`;
+    const doc = frame.contentDocument;
+    const fit = () => {
+      const h = doc.body.scrollHeight;
+      frame.style.height = `${Math.min(Math.max(h + 16, 120), 6000)}px`;
+    };
+    fit();
+    // 그림은 늦게 온다. 하나 실릴 때마다 높이를 다시 잡아 준다.
+    doc.querySelectorAll("img").forEach((img) => {
+      if (img.complete) return;
+      img.addEventListener("load", fit, { once: true });
+      img.addEventListener("error", fit, { once: true });
+    });
+    window.setTimeout(fit, 900);
   } catch (error) {
     frame.style.height = "420px";
   }
@@ -667,10 +736,10 @@ function renderMailBody(mail) {
 
   plain.hidden = true;
   frame.hidden = false;
-  frame.srcdoc = mailFrameDoc(html, false);
+  state.readShowImages = true;
+  frame.srcdoc = mailFrameDoc(html, true);
   frame.onload = () => sizeMailFrame(frame);
-  // 바깥 그림이 실제로 들어 있을 때만 안내 줄을 띄운다
-  if (bar) bar.hidden = !/<img[^>]+src=["']?(https?:)?\/\//i.test(html);
+  if (bar) bar.hidden = true;
 }
 
 function openEmailDetail(mail) {
@@ -2525,23 +2594,21 @@ function renderTask(task) {
     "google-oauth": "Google OAuth",
   };
   const taskLabel = labels[task.kind] || "작업";
+  /* 이 버튼들은 화면마다 있을 수도, 없을 수도 있다.
+     ('마감 새로고침'은 없앴고 '지금 동기화'는 자료 화면으로 옮겼다) */
   const runButton = $("#runButton");
-  const verifyButton = $("#verifyButton");
-  const refreshButton = $("#refreshDeadlinesButton");
-  if (task.running) {
-    runButton.innerHTML = '<span class="icon" data-icon="x"></span>작업 중지';
-    runButton.classList.remove("primary");
-    runButton.classList.add("danger");
-    verifyButton.disabled = true;
-    refreshButton.disabled = true;
-  } else {
-    runButton.innerHTML = '<span class="icon" data-icon="sync"></span>지금 동기화';
-    runButton.classList.add("primary");
-    runButton.classList.remove("danger");
-    verifyButton.disabled = false;
-    refreshButton.disabled = false;
+  const busy = Boolean(task.running);
+  [$("#verifyButton"), $("#refreshAllButton")].forEach((b) => {
+    if (b) b.disabled = busy;
+  });
+  if (runButton) {
+    runButton.innerHTML = busy
+      ? '<span class="icon" data-icon="x"></span>작업 중지'
+      : '<span class="icon" data-icon="sync"></span>지금 동기화';
+    runButton.classList.toggle("danger", busy);
+    runButton.classList.toggle("primary", !busy);
+    installIcons(runButton);
   }
-  installIcons(runButton);
 
   // 진행 표시: 실행 중에는 단계 문구 + 막대, 끝나면 결과 한 줄
   const progressWrap = $("#taskProgress");
@@ -3828,16 +3895,6 @@ function bindEvents() {
   $("#markAllReadButton").addEventListener("click", markAllRead);
 
   // 읽기 pane 버튼
-  $("#readShowImages")?.addEventListener("click", () => {
-    const frame = $("#readHtml");
-    const mail = state.readMail;
-    if (!frame || !mail) return;
-    state.readShowImages = true;
-    frame.srcdoc = mailFrameDoc(mail.bodyHtml || "", true);
-    frame.onload = () => sizeMailFrame(frame);
-    $("#readImgBar").hidden = true;
-  });
-
   $("#readBackButton").addEventListener("click", () => showMailPane("list"));
   $("#readReplyButton").addEventListener("click", replyToCurrentEmail);
   $("#readMarkButton").addEventListener("click", () => {
@@ -4627,6 +4684,8 @@ async function renderStorage() {
     const sync = () => {
       const picked = box.querySelectorAll("input[type=checkbox]:checked").length;
       const btn = $("#cleanupStorageButton");
+      // 저장 공간 칸을 다시 그리는 사이에 불릴 수 있다
+      if (!btn) return;
       btn.disabled = picked === 0;
       btn.textContent = picked ? `선택한 ${picked}개 정리` : "선택 항목 정리";
     };
