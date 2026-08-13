@@ -6895,104 +6895,204 @@ function renderFglp() {
   loadFglp();
 }
 
+/* ===== 창고: FGLP 화면 =====
+   예전에는 프로그램 설명이 '핀을 누르면 사라지는' 옆 패널에 있었고,
+   주의사항은 맨 아래, 두 프로그램은 지도에 섞여 범례로만 갈라져 있었다.
+   위에서 아래로 읽히게 다시 짠다.
+     ① 어느 프로그램인지 고르고 (탭)
+     ② 공통 사실은 늘 보이고 (자격·시기·지원)
+     ③ 지도와 학교 목록을 나란히 보고
+     ④ 단서는 접어 둔다 */
+
 async function loadFglp() {
-  const pins = $("#fglpPins");
-  const notes = $("#fglpNotes");
-  if (!pins) return;
   try {
     const data = await api("/api/fglp");
     state.fglp = data;
-    pins.innerHTML = (data.schools || [])
+    state.fglpKind = state.fglpKind || "fglp";
+    renderFglpAll();
+  } catch (error) {
+    const list = $("#fglpList");
+    if (list) list.innerHTML = `<p class="fglp-empty">불러오지 못했습니다: ${escapeHtml(error.message || "")}</p>`;
+  }
+}
+
+function fglpSchools() {
+  const kind = state.fglpKind || "fglp";
+  return (state.fglp?.schools || []).filter((s) => s.kind === kind);
+}
+
+function renderFglpAll() {
+  const data = state.fglp;
+  if (!data) return;
+  const kind = state.fglpKind || "fglp";
+  const prog = data.program || {};
+  const ex = data.exchange || {};
+  const isF = kind === "fglp";
+
+  // ① 프로그램 고르기
+  const counts = {
+    fglp: (data.schools || []).filter((s) => s.kind === "fglp").length,
+    exchange: (data.schools || []).filter((s) => s.kind === "exchange").length,
+  };
+  const tabs = $("#fglpTabs");
+  if (tabs) {
+    tabs.innerHTML = [
+      { key: "fglp", label: "FGLP" },
+      { key: "exchange", label: "학점교류" },
+    ]
+      .map(
+        (x) => `<button type="button" class="fglp-tab ${kind === x.key ? "on" : ""}"
+          role="tab" aria-selected="${kind === x.key}" data-fglp-kind="${x.key}">
+          ${x.label}<em>${counts[x.key]}</em></button>`,
+      )
+      .join("");
+  }
+
+  const hint = $("#fglpHint");
+  if (hint) {
+    hint.textContent = isF
+      ? "여름방학에 해외 대학 정규 수업을 듣고 옵니다"
+      : "한 학기~1년 동안 공부하고 학점을 옮겨 옵니다";
+  }
+
+  // ② 늘 보이는 공통 사실
+  const facts = $("#fglpFacts");
+  if (facts) {
+    const rows = isF
+      ? [
+          ["지원 자격", prog.target || "-"],
+          ["학점", prog.gpa || "-"],
+          ["시기", prog.period || "-"],
+          ["지원 내용", prog.support || "-"],
+        ]
+      : [
+          ["기간", "한 학기 ~ 1년"],
+          ["지원 내용", ex.support || "-"],
+          ["학점", "이수 학점을 DGIST로 옮겨 옵니다"],
+          ["규모", ex.scale || "-"],
+        ];
+    facts.innerHTML = rows
+      .map(
+        ([k, v]) => `<div class="ff-item"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`,
+      )
+      .join("");
+  }
+
+  // ③ 지도 핀 + 학교 목록 (같은 순서, 같은 번호)
+  const schools = fglpSchools();
+  const pins = $("#fglpPins");
+  if (pins) {
+    pins.innerHTML = schools
       .map((s, i) => {
-        const p = projectLatLon(s.lat, s.lon);
+        const pt = projectLatLon(s.lat, s.lon);
         return `<button type="button" class="wm-pin k-${s.kind}" data-fglp="${i}"
-          style="left:${p.x.toFixed(2)}%;top:${p.y.toFixed(2)}%"
+          style="left:${pt.x.toFixed(2)}%;top:${pt.y.toFixed(2)}%"
           title="${escapeHtml(s.name)} · ${escapeHtml(s.country)}">
           <span class="wm-pin-dot"></span>
           <span class="wm-pin-label">${escapeHtml(shortText(s.name, 22))}</span>
         </button>`;
       })
       .join("");
-    if (notes) {
-      notes.innerHTML =
-        (data.notes || [])
-          .map((n) => `<p class="fglp-note ${n.level}">${escapeHtml(n.text)}</p>`)
-          .join("") +
-        `<p class="fglp-src">출처: <a href="${data.sourceUrl}" target="_blank" rel="noopener">${escapeHtml(data.sourceLabel || "")}</a>
-          · <a href="${data.officialUrl}" target="_blank" rel="noopener">기초학부 페이지</a>
-          · 마지막 확인 ${escapeHtml(data.verifiedOn || "")}</p>`;
-    }
-    showFglpDetail(null);
-  } catch (error) {
-    pins.innerHTML = "";
-    if (notes) notes.innerHTML = `<p class="fglp-note warn">파견 정보를 불러오지 못했습니다: ${escapeHtml(error.message || "")}</p>`;
   }
+
+  const list = $("#fglpList");
+  if (list) {
+    // 나라별로 묶어 두면 지도와 눈이 같이 움직인다
+    const byCountry = new Map();
+    schools.forEach((s, i) => {
+      if (!byCountry.has(s.country)) byCountry.set(s.country, []);
+      byCountry.get(s.country).push({ ...s, idx: i });
+    });
+    list.innerHTML = [...byCountry.entries()]
+      .map(
+        ([country, arr]) => `
+        <div class="fl-group">
+          <h4>${escapeHtml(country)} <em>${arr.length}</em></h4>
+          ${arr
+            .map(
+              (s) => `<button type="button" class="fl-row" data-fglp="${s.idx}">
+                <strong>${escapeHtml(s.name)}</strong>
+                ${s.language ? `<span>${escapeHtml(s.language)}</span>` : `<span>${escapeHtml(s.city)}</span>`}
+              </button>`,
+            )
+            .join("")}
+        </div>`,
+      )
+      .join("");
+  }
+
+  // ④ 단서는 접어 둔다
+  const notes = $("#fglpNotes");
+  if (notes) {
+    notes.innerHTML =
+      (data.notes || [])
+        .map((n) => `<p class="fglp-note ${n.level}">${escapeHtml(n.text)}</p>`)
+        .join("") +
+      `<p class="fglp-src">출처: <a href="${data.sourceUrl}" target="_blank" rel="noopener">${escapeHtml(data.sourceLabel || "")}</a>
+        · <a href="${data.officialUrl}" target="_blank" rel="noopener">기초학부 페이지</a>
+        · 마지막 확인 ${escapeHtml(data.verifiedOn || "")} · 문의 ${escapeHtml(data.contact || "")}</p>`;
+  }
+  const cc = $("#fglpCaveatCount");
+  if (cc) cc.textContent = (data.notes || []).length ? `${data.notes.length}` : "";
+
+  showFglpDetail(null);
 }
 
+/** 학교 하나를 짚는다. 목록·지도·상세가 함께 움직인다. */
 function showFglpDetail(index) {
   const box = $("#fglpDetail");
   if (!box) return;
-  const data = state.fglp;
-  if (!data) return;
-  const prog = data.program || {};
-  document.querySelectorAll("[data-fglp]").forEach((el) => {
-    el.classList.toggle("on", String(index) === el.dataset.fglp);
-  });
+  const on = (el) => el.classList.toggle("on", String(index) === el.dataset.fglp);
+  document.querySelectorAll("[data-fglp]").forEach(on);
 
   if (index === null || index === undefined) {
-    const n = (data.schools || []).filter((s) => s.kind === "fglp").length;
-    const ex = data.exchange || {};
-    box.innerHTML = `
-      <h3>${escapeHtml(prog.name || "FGLP")}</h3>
-      <p class="fd-sum">${escapeHtml(prog.summary || "")}</p>
-      <dl class="fd-list">
-        <div><dt>대상</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
-        <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div>
-        <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
-        <div><dt>지원</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>
-        <div><dt>어학</dt><dd>${escapeHtml(prog.requirement || "-")}</dd></div>
-      </dl>
-      <p class="fd-hint">지도의 빨간 점 ${n}곳이 FGLP 파견 대학입니다. 눌러 보세요.</p>
-      <h3 class="fd-sub">${escapeHtml(ex.name || "학점교류")}</h3>
-      <p class="fd-sum">${escapeHtml(ex.summary || "")} ${escapeHtml(ex.support || "")}</p>
-      <p class="fd-hint">${escapeHtml(ex.scale || "")}</p>`;
+    box.hidden = true;
+    box.innerHTML = "";
     return;
   }
-
-  const s = (data.schools || [])[index];
+  const s = fglpSchools()[index];
   if (!s) return;
-  const ex = data.exchange || {};
-  const isF = s.kind === "fglp";
+  const prog = state.fglp?.program || {};
+  box.hidden = false;
   box.innerHTML = `
-    <button type="button" class="fd-back" data-fglp-back>← 프로그램 안내</button>
-    <h3>${escapeHtml(s.name)}</h3>
-    <p class="fd-where">${escapeHtml(s.city)}, ${escapeHtml(s.country)}</p>
-    <p class="fd-tags">
-      <span class="fd-tag ${isF ? "k-fglp" : "k-exchange"}">${isF ? "FGLP" : "학점교류"}</span>
-    </p>
-    <dl class="fd-list">
-      ${
-        isF
-          ? `<div><dt>어학 기준</dt><dd><b>${escapeHtml(s.language || "-")}</b></dd></div>
-             <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div>
-             <div><dt>지원 자격</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
-             <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
-             <div><dt>지원 내용</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>`
-          : `<div><dt>기간</dt><dd>한 학기 ~ 1년</dd></div>
-             <div><dt>지원 내용</dt><dd>${escapeHtml(ex.support || "-")}</dd></div>
-             <div><dt>학점</dt><dd>이수 학점을 DGIST로 옮겨 옵니다</dd></div>`
-      }
-      <div><dt>정원</dt><dd class="fd-unknown">공개 문서에 없습니다. 국제협력팀에 확인하세요.</dd></div>
-    </dl>
-    <p class="fd-hint">문의 ${escapeHtml(prog.contact || "")}</p>`;
+    <div class="fd-head">
+      <div>
+        <h3>${escapeHtml(s.name)}</h3>
+        <p class="fd-where">${escapeHtml(s.city)}, ${escapeHtml(s.country)}</p>
+      </div>
+      <button type="button" class="icon-button" data-fglp-back aria-label="닫기">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    ${
+      s.language
+        ? `<dl class="fd-list"><div><dt>어학 기준</dt><dd><b>${escapeHtml(s.language)}</b></dd></div>
+           <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div></dl>`
+        : `<p class="fd-hint">학점교류 대학입니다. 위의 공통 안내를 참고하세요.</p>`
+    }
+    <p class="fd-hint">대학별 정원은 공개 문서에 없습니다. 국제협력팀에 확인하세요.</p>`;
+  installIcons(box);
 }
 
 function bindFglp() {
-  $("#fglpMap")?.addEventListener("click", (event) => {
-    const pin = event.target.closest("[data-fglp]");
-    if (pin) showFglpDetail(Number(pin.dataset.fglp));
-  });
-  $("#fglpDetail")?.addEventListener("click", (event) => {
-    if (event.target.closest("[data-fglp-back]")) showFglpDetail(null);
+  // 지도 핀과 목록이 같은 번호를 쓰므로 한 곳에서 받는다
+  const pick = (event) => {
+    const back = event.target.closest("[data-fglp-back]");
+    if (back) {
+      showFglpDetail(null);
+      return;
+    }
+    const hit = event.target.closest("[data-fglp]");
+    if (hit) showFglpDetail(Number(hit.dataset.fglp));
+  };
+  $("#fglpMap")?.addEventListener("click", pick);
+  $("#fglpList")?.addEventListener("click", pick);
+  $("#fglpDetail")?.addEventListener("click", pick);
+
+  $("#fglpTabs")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-fglp-kind]");
+    if (!btn) return;
+    state.fglpKind = btn.dataset.fglpKind;
+    renderFglpAll();
   });
 }

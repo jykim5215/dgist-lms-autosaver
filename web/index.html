@@ -561,18 +561,28 @@
                     <h2 id="fglpTitle">FGLP 파견 지도</h2>
                     <p id="fglpHint">점을 누르면 지원 자격과 지원 내용을 봅니다</p>
                   </div>
-                  <div class="fglp-actions">
-                    <div class="fglp-legend">
-                      <span class="fl-item"><i class="fl-dot k-fglp"></i>FGLP</span>
-                      <span class="fl-item"><i class="fl-dot k-exchange"></i>교환학생</span>
-                    </div>
-                  </div>
+                  <!-- 두 프로그램을 한 지도에 섞어 두고 범례로만 갈랐더니 헷갈렸다.
+                       한 번에 하나씩 본다. -->
+                  <div class="fglp-tabs" id="fglpTabs" role="tablist"></div>
                 </div>
+
+                <!-- 프로그램 공통 사실. 핀을 눌러도 사라지지 않게 위로 뺐다. -->
+                <div class="fglp-facts" id="fglpFacts"></div>
+
                 <div class="fglp-wrap">
                   <div class="fglp-map" id="fglpMap"></div>
-                  <aside class="fglp-detail" id="fglpDetail"></aside>
+                  <!-- 지도 옆은 '고른 학교 상세'가 아니라 '학교 목록'.
+                       비교하려면 나란히 보여야 한다. -->
+                  <aside class="fglp-side">
+                    <div class="fglp-list" id="fglpList"></div>
+                    <div class="fglp-detail" id="fglpDetail" hidden></div>
+                  </aside>
                 </div>
-                <div class="fglp-notes" id="fglpNotes"></div>
+
+                <details class="fglp-caveat" id="fglpCaveat">
+                  <summary>알아 둘 점 <span id="fglpCaveatCount"></span></summary>
+                  <div class="fglp-notes" id="fglpNotes"></div>
+                </details>
               </section>
 
               <section class="panel" aria-labelledby="shuttleTitle" id="shuttlePanel">

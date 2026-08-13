@@ -6982,15 +6982,9 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 #view-storage { display: flex; flex-direction: column; gap: 16px; }
 #view-storage[hidden] { display: none; }
 
-.fglp-legend { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--text-faint); }
-.fl-item { display: inline-flex; align-items: center; gap: 5px; }
-.fl-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.fl-dot.k-fglp { background: var(--accent); }
-.fl-dot.k-exchange { background: #6b8f9c; }
-
 .fglp-wrap {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
 }
@@ -7358,3 +7352,116 @@ a:hover { color: var(--accent); }
   color: var(--text-soft);
 }
 .read-imgbar span { flex: 1; min-width: 0; }
+
+/* ===== 창고: FGLP 화면 다시 짜기 =====
+   ① 프로그램 고르기 ② 늘 보이는 공통 사실 ③ 지도+목록 ④ 접어 둔 단서 */
+.fglp-tabs { display: flex; gap: 6px; flex: none; }
+.fglp-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.fglp-tab em { font-style: normal; font-size: 11px; opacity: 0.7; }
+.fglp-tab:hover { border-color: var(--border-strong); }
+.fglp-tab.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+/* 공통 사실: 핀을 눌러도 사라지지 않는다 */
+.fglp-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 18px;
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+}
+.ff-item dt { font-size: 11px; font-weight: 600; color: var(--text-faint); margin-bottom: 3px; }
+.ff-item dd { margin: 0; font-size: 12.5px; line-height: 1.45; }
+
+/* 지도 옆: 학교 목록 (나라별) */
+.fglp-side { position: relative; }
+.fglp-list {
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.fl-group { border-bottom: 1px solid var(--bg-deep); }
+.fl-group:last-child { border-bottom: none; }
+.fl-group h4 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  background: var(--bg-deep);
+}
+.fl-group h4 em { font-style: normal; opacity: 0.7; }
+.fl-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.13s ease;
+}
+.fl-row:hover { background: var(--surface-soft); }
+.fl-row.on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.fl-row strong { font-size: 12.5px; font-weight: 600; }
+.fl-row span { font-size: 11px; color: var(--text-faint); }
+
+/* 고른 학교 상세: 목록 위로 덮어씌운다 */
+.fglp-detail {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+.fd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.fd-head h3 { margin: 0 0 2px; font-size: 14.5px; }
+
+/* 단서는 접어 둔다 */
+.fglp-caveat { margin-top: 14px; }
+.fglp-caveat > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 6px 0;
+}
+.fglp-caveat > summary span { font-weight: 700; }
+.fglp-empty { padding: 14px; font-size: 12px; color: var(--text-faint); }
+
+@media (max-width: 900px) {
+  .fglp-wrap { grid-template-columns: minmax(0, 1fr); }
+  .fglp-list { max-height: 320px; }
+  .wm-pin-label { display: none; }
+}
