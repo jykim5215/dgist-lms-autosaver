@@ -53,3 +53,6 @@ shelves.json
 # PyInstaller 빌드 결과
 build/
 dist/
+
+# 데스크톱 OAuth 클라이언트: EXE 에는 넣지만 공개 저장소에는 올리지 않는다
+google_client.json
