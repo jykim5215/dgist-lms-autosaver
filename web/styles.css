@@ -7005,16 +7005,9 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   border-radius: var(--radius);
   overflow: hidden;
 }
-.wm-land, .wm-pins { position: absolute; inset: 0; }
-
-.wm-dot {
-  position: absolute;
-  width: 3px;
-  height: 3px;
-  margin: -1.5px 0 0 -1.5px;
-  border-radius: 50%;
-  background: var(--border);
-}
+.wm-pins { position: absolute; inset: 0; }
+/* 육지 점은 캔버스 한 장에 그린다 (예전엔 <i> 1192개였다) */
+.wm-canvas { position: absolute; inset: 0; display: block; }
 
 .wm-pin {
   position: absolute;
@@ -7131,9 +7124,10 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   --surface-soft: #26324c;
   --border: #2e3b57;
   --border-strong: #405072;
-  --text: #e3e9f5;
-  --text-soft: #adb9d1;
-  --text-faint: #7f8ca8;
+  /* 남색 위에서는 글자를 파랗게 두면 가라앉는다. 흰색 계열로 올린다. */
+  --text: #f7fafd;
+  --text-soft: #d2dbea;
+  --text-faint: #a6b3cb;
   --accent: #e08a63;
   --accent-strong: #f0a582;
   --accent-soft: #33303c;
@@ -7274,3 +7268,35 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   outline: none;
   border-bottom-color: var(--accent);
 }
+.fd-sub { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 14px; }
+
+/* 일정: 장소 찾기 */
+.place-pick { display: flex; gap: 6px; align-items: center; }
+.place-pick input { flex: 1; min-width: 0; }
+.place-pick .button { flex: none; }
+.place-results {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  max-height: 190px;
+  overflow-y: auto;
+}
+.place-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid var(--bg-deep);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.place-item:last-child { border-bottom: none; }
+.place-item:hover { background: var(--surface-soft); }
+.place-item strong { font-size: 12.5px; font-weight: 600; }
+.place-item span { font-size: 11px; color: var(--text-faint); }
+.place-empty { margin: 0; padding: 10px; font-size: 12px; color: var(--text-faint); }

@@ -92,9 +92,41 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 
+/* ===== 아이콘 =====
+   아이콘마다 <svg>와 <path>를 통째로 새로 만들어 넣었더니, 자료 300줄이
+   있는 화면에서 아이콘만 노드 2,600개를 차지했다. 모양은 문서 맨 위
+   <symbol>에 한 번만 두고, 쓸 때는 <use>로 가리키게 한다. */
+let iconSpriteReady = false;
+
+function ensureIconSprite() {
+  if (iconSpriteReady) return;
+  iconSpriteReady = true;
+  const symbols = Object.entries(icons)
+    .map(([name, svg]) => {
+      const view = (svg.match(/viewBox="([^"]+)"/) || [])[1] || "0 0 24 24";
+      const inner = svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+      return `<symbol id="ic-${name}" viewBox="${view}">${inner}</symbol>`;
+    })
+    .join("");
+  const holder = document.createElement("div");
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position:absolute;width:0;height:0;overflow:hidden";
+  holder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg">${symbols}</svg>`;
+  document.body.prepend(holder);
+}
+
 function installIcons(root = document) {
+  ensureIconSprite();
   root.querySelectorAll("[data-icon]").forEach((node) => {
-    node.innerHTML = icons[node.dataset.icon] || "";
+    const name = node.dataset.icon;
+    if (!icons[name]) {
+      node.innerHTML = "";
+      return;
+    }
+    // 이미 같은 아이콘이면 손대지 않는다 (다시 그릴 때 헛일을 줄인다)
+    if (node.dataset.iconDrawn === name) return;
+    node.dataset.iconDrawn = name;
+    node.innerHTML = `<svg><use href="#ic-${name}"></use></svg>`;
   });
 }
 
@@ -2283,7 +2315,16 @@ function renderFiles() {
   const rows = filteredFiles().slice(0, 150);
   const table = $("#filesTable");
   const empty = $("#emptyState");
-  renderFolderView(rows);
+  // 표와 폴더 보기를 늘 둘 다 그려서 안 보이는 쪽까지 150줄이 쌓였다.
+  // 지금 보고 있는 쪽만 그린다.
+  const mode = state.fileMode || "list";
+  if (mode === "folder" || mode === "shelf") {
+    renderFolderView(rows);
+    table.innerHTML = "";
+    applyFileMode();
+    if (empty) empty.hidden = rows.length > 0;
+    return;
+  }
   applyFileMode();
 
   // 화면에 없는 파일은 선택에서 제거
@@ -2571,6 +2612,65 @@ function renderCurrentView() {
 }
 
 /* ===== 캘린더 화면 ===== */
+
+/* ===== 반복·여러 날 일정 펼치기 =====
+   저장은 규칙 한 줄("매주", "9/1~9/5")로 하고, 달력에 그릴 때만 날짜로 편다.
+   규칙을 날짜마다 복사해 저장하면 나중에 고칠 때 전부 손봐야 한다. */
+const DAY_MS = 86400000;
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseYmd(s) {
+  const [y, m, d] = String(s || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+/** 한 일정이 실제로 걸치는 날짜들. 너무 많이 펴지 않게 상한을 둔다. */
+function expandEvent(ev, limit = 400) {
+  const start = parseYmd(ev.date);
+  if (!start) return [];
+
+  // 여러 날짜에 걸치면 그 사이를 모두 채운다
+  const spanEnd = parseYmd(ev.endDate);
+  const spanDays =
+    spanEnd && spanEnd > start ? Math.min(Math.round((spanEnd - start) / DAY_MS), 366) : 0;
+
+  const repeat = ev.repeat || "";
+  if (!repeat) {
+    return Array.from({ length: spanDays + 1 }, (_, i) => ymd(new Date(start.getTime() + i * DAY_MS)));
+  }
+
+  // 반복 끝. 안 적었으면 1년.
+  const until = parseYmd(ev.repeatUntil) || new Date(start.getFullYear() + 1, start.getMonth(), start.getDate());
+  const dates = [];
+  let cur = new Date(start);
+  let guard = 0;
+  while (cur <= until && dates.length < limit && guard < 1000) {
+    guard += 1;
+    for (let i = 0; i <= spanDays; i += 1) {
+      dates.push(ymd(new Date(cur.getTime() + i * DAY_MS)));
+    }
+    if (repeat === "daily") cur = new Date(cur.getTime() + DAY_MS);
+    else if (repeat === "weekly") cur = new Date(cur.getTime() + 7 * DAY_MS);
+    else if (repeat === "biweekly") cur = new Date(cur.getTime() + 14 * DAY_MS);
+    else if (repeat === "monthly") cur = new Date(cur.getFullYear(), cur.getMonth() + 1, cur.getDate());
+    else if (repeat === "yearly") cur = new Date(cur.getFullYear() + 1, cur.getMonth(), cur.getDate());
+    else break;
+  }
+  return dates;
+}
+
+const REPEAT_LABEL = {
+  daily: "매일",
+  weekly: "매주",
+  biweekly: "2주마다",
+  monthly: "매월",
+  yearly: "매년",
+};
+
 function calendarItems() {
   // 과제 마감 + 메일 이벤트(eventDate) 합치기
   const items = [];
@@ -2590,17 +2690,23 @@ function calendarItems() {
     if (Number.isNaN(dt.getTime())) return;
     items.push({ date: dt, title: m.summary || m.subject, sub: m.fromName || m.fromEmail, kind: "event", mailId: m.id });
   });
-  // 내가 직접 추가한 일정
+  // 내가 직접 추가한 일정. 반복·여러 날이면 걸치는 날마다 하나씩 놓는다.
   (state.myEvents || []).forEach((e) => {
-    const dt = new Date(`${e.date}T${e.time || "00:00"}`);
-    if (Number.isNaN(dt.getTime())) return;
-    items.push({
-      date: dt,
-      title: e.title,
-      sub: e.note || "",
-      kind: "mine",
-      eventId: e.id,
-      allDay: !e.time,
+    expandEvent(e).forEach((day) => {
+      const dt = new Date(`${day}T${e.time || "00:00"}`);
+      if (Number.isNaN(dt.getTime())) return;
+      const marks = [];
+      if (e.repeat) marks.push(REPEAT_LABEL[e.repeat] || "반복");
+      if (e.location) marks.push(e.location);
+      items.push({
+        date: dt,
+        title: e.title,
+        sub: marks.join(" · ") || e.note || "",
+        kind: "mine",
+        eventId: e.id,
+        allDay: !e.time,
+        repeat: e.repeat || "",
+      });
     });
   });
   // 학교 학사일정 (수강신청·성적확인 같은 것)
@@ -2903,11 +3009,29 @@ function openEventEditor(event = null) {
     event?.date || `${y}-${pad2(m + 1)}-${pad2(state.calSelected || today.getDate())}`;
   fillTimePicks(form);
   setTimePick(form, "time", event?.time || "");
+  setTimePick(form, "endTime", event?.endTime || "");
+  form.elements.endDate.value = event?.endDate || "";
+  form.elements.repeat.value = event?.repeat || "";
+  form.elements.repeatUntil.value = event?.repeatUntil || "";
+  form.elements.location.value = event?.location || "";
+  // 반복을 고르지 않았으면 '반복 끝'을 물어볼 이유가 없다
+  const untilField = $("#repeatUntilField");
+  if (untilField) untilField.hidden = !form.elements.repeat.value;
+  const results = $("#placeResults");
+  if (results) {
+    results.hidden = true;
+    results.innerHTML = "";
+  }
+
   if (!form.dataset.timeBound) {
     form.dataset.timeBound = "1";
     form.addEventListener("change", (ev) => {
       const sel = ev.target.closest(".tp-hour, .tp-min");
       if (sel) syncTimePick(form, sel.name.replace(/(Hour|Min)$/, ""));
+      if (ev.target.name === "repeat") {
+        const uf = $("#repeatUntilField");
+        if (uf) uf.hidden = !ev.target.value;
+      }
     });
   }
   form.elements.note.value = event?.note || "";
@@ -3250,6 +3374,52 @@ function bindEvents() {
       }
     }
   });
+  /* 장소 찾기.
+     구글 지도를 화면에 띄우려면 OAuth 가 아니라 결제가 연결된 지도 API 키가
+     따로 있어야 한다. 캘린더용 자격증명으로는 안 된다. 그래서 좌표는 키가
+     필요 없는 OpenStreetMap 에서 찾고, '지도 열기'만 구글 지도로 보낸다. */
+  $("#placeSearchButton")?.addEventListener("click", async () => {
+    const form = $("#eventForm");
+    const box = $("#placeResults");
+    const q = form.elements.location.value.trim();
+    if (!box) return;
+    if (q.length < 2) {
+      showToast("장소를 두 글자 이상 적어 주세요.");
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = `<p class="place-empty">찾는 중…</p>`;
+    try {
+      const data = await api(`/api/place-search?q=${encodeURIComponent(q)}`);
+      const places = data.places || [];
+      box.innerHTML = places.length
+        ? places
+            .map(
+              (pl, i) => `
+          <button type="button" class="place-item" data-place="${i}">
+            <strong>${escapeHtml(pl.name)}</strong>
+            <span>${escapeHtml(shortText(pl.address, 60))}</span>
+          </button>`,
+            )
+            .join("")
+        : `<p class="place-empty">찾지 못했습니다. 이름을 그대로 써도 됩니다.</p>`;
+      state.placeHits = places;
+    } catch (error) {
+      box.innerHTML = `<p class="place-empty">검색하지 못했습니다: ${escapeHtml(error.message || "")}</p>`;
+    }
+  });
+
+  $("#placeResults")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-place]");
+    if (!btn) return;
+    const pl = (state.placeHits || [])[Number(btn.dataset.place)];
+    if (!pl) return;
+    const form = $("#eventForm");
+    form.elements.location.value = pl.name;
+    $("#placeResults").hidden = true;
+    showToast(`장소를 '${pl.name}'로 정했습니다.`);
+  });
+
   $("#eventForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -3811,7 +3981,8 @@ function bindEvents() {
   document.querySelectorAll("[data-filemode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.fileMode = btn.dataset.filemode;
-      applyFileMode();
+      // 보기 방식을 바꾸면 그쪽을 이제 그려야 한다
+      renderFiles();
     });
   });
 
@@ -3993,6 +4164,9 @@ function applyTheme(theme) {
     /* localStorage 사용 불가 환경 무시 */
   }
   paintThemeCard(theme);
+  // 지도 점은 캔버스라 CSS 변수가 저절로 안 먹는다. 다시 그려 준다.
+  const cv = document.querySelector(".wm-canvas");
+  if (cv) paintWorld(cv);
 }
 
 function paintThemeCard(theme) {
@@ -6474,21 +6648,58 @@ function projectLatLon(lat, lon) {
   return { x: ((lon + 180) / 360) * 100, y: ((90 - lat) / 180) * 100 };
 }
 
-function renderFglp() {
-  const map = $("#fglpMap");
-  if (!map || map.dataset.drawn) return;
+/* 육지 점을 <i> 1192개로 찍었더니 문서 전체 노드의 40%가 지도가 됐다.
+   화면을 넘길 때 브라우저가 그걸 전부 스냅샷 뜨느라 눈에 띄게 걸렸다.
+   점은 캔버스 한 장에 그리고, 누를 수 있는 핀만 DOM으로 남긴다. */
+function paintWorld(canvas) {
+  const box = canvas.parentElement.getBoundingClientRect();
+  if (!box.width) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(box.width * dpr);
+  canvas.height = Math.round(box.height * dpr);
+  canvas.style.width = `${box.width}px`;
+  canvas.style.height = `${box.height}px`;
 
-  const dots = [];
-  for (let r = 0; r < WORLD_LAND.length; r += 1) {
-    const lat = 90 - r * LAT_STEP - LAT_STEP / 2;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, box.width, box.height);
+  ctx.fillStyle =
+    getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#ccc";
+
+  const r = Math.max(1.1, box.width / 620);
+  for (let row = 0; row < WORLD_LAND.length; row += 1) {
+    const lat = 90 - row * LAT_STEP - LAT_STEP / 2;
     for (let lon = -180; lon < 180; lon += LON_STEP) {
       if (!isLand(lat, lon + LON_STEP / 2)) continue;
-      const p = projectLatLon(lat, lon + LON_STEP / 2);
-      dots.push(`<i class="wm-dot" style="left:${p.x.toFixed(2)}%;top:${p.y.toFixed(2)}%"></i>`);
+      const pt = projectLatLon(lat, lon + LON_STEP / 2);
+      ctx.beginPath();
+      ctx.arc((pt.x / 100) * box.width, (pt.y / 100) * box.height, r, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
-  map.innerHTML = `<div class="wm-land">${dots.join("")}</div><div class="wm-pins" id="fglpPins"></div>`;
+}
+
+function renderFglp() {
+  const map = $("#fglpMap");
+  if (!map) return;
+  if (map.dataset.drawn) {
+    // 창을 넓히거나 테마를 바꾼 뒤 다시 들어오면 다시 그려야 선명하다
+    const cv = map.querySelector(".wm-canvas");
+    if (cv) paintWorld(cv);
+    return;
+  }
+  map.innerHTML = `<canvas class="wm-canvas"></canvas><div class="wm-pins" id="fglpPins"></div>`;
   map.dataset.drawn = "1";
+  const canvas = map.querySelector(".wm-canvas");
+  paintWorld(canvas);
+
+  // 폭이 바뀌면 다시 그린다. 잦게 부르지 않게 한 박자 늦춘다.
+  let timer = 0;
+  new ResizeObserver(() => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => paintWorld(canvas), 120);
+  }).observe(map);
+
   loadFglp();
 }
 
@@ -6515,7 +6726,8 @@ async function loadFglp() {
         (data.notes || [])
           .map((n) => `<p class="fglp-note ${n.level}">${escapeHtml(n.text)}</p>`)
           .join("") +
-        `<p class="fglp-src">공식 안내: <a href="${data.officialUrl}" target="_blank" rel="noopener">기초학부 글로벌 프로그램</a>
+        `<p class="fglp-src">출처: <a href="${data.sourceUrl}" target="_blank" rel="noopener">${escapeHtml(data.sourceLabel || "")}</a>
+          · <a href="${data.officialUrl}" target="_blank" rel="noopener">기초학부 페이지</a>
           · 마지막 확인 ${escapeHtml(data.verifiedOn || "")}</p>`;
     }
     showFglpDetail(null);
@@ -6537,41 +6749,48 @@ function showFglpDetail(index) {
 
   if (index === null || index === undefined) {
     const n = (data.schools || []).filter((s) => s.kind === "fglp").length;
+    const ex = data.exchange || {};
     box.innerHTML = `
       <h3>${escapeHtml(prog.name || "FGLP")}</h3>
       <p class="fd-sum">${escapeHtml(prog.summary || "")}</p>
       <dl class="fd-list">
         <div><dt>대상</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
+        <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div>
         <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
         <div><dt>지원</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>
         <div><dt>어학</dt><dd>${escapeHtml(prog.requirement || "-")}</dd></div>
-        <div><dt>문의</dt><dd>${escapeHtml(prog.contact || "-")}</dd></div>
       </dl>
-      <p class="fd-hint">지도에 찍힌 ${n}곳이 FGLP 파견 대학입니다. 점을 눌러 보세요.</p>`;
+      <p class="fd-hint">지도의 빨간 점 ${n}곳이 FGLP 파견 대학입니다. 눌러 보세요.</p>
+      <h3 class="fd-sub">${escapeHtml(ex.name || "학점교류")}</h3>
+      <p class="fd-sum">${escapeHtml(ex.summary || "")} ${escapeHtml(ex.support || "")}</p>
+      <p class="fd-hint">${escapeHtml(ex.scale || "")}</p>`;
     return;
   }
 
   const s = (data.schools || [])[index];
   if (!s) return;
-  const srcLabel =
-    s.source === "official"
-      ? `<span class="fd-tag ok">공식 페이지 기재</span>`
-      : `<span class="fd-tag warn">학내 신문 보도</span>`;
+  const ex = data.exchange || {};
+  const isF = s.kind === "fglp";
   box.innerHTML = `
     <button type="button" class="fd-back" data-fglp-back>← 프로그램 안내</button>
     <h3>${escapeHtml(s.name)}</h3>
     <p class="fd-where">${escapeHtml(s.city)}, ${escapeHtml(s.country)}</p>
     <p class="fd-tags">
-      <span class="fd-tag ${s.kind === "fglp" ? "k-fglp" : "k-exchange"}">${s.kind === "fglp" ? "FGLP" : "교환학생"}</span>
-      <span class="fd-tag">${s.since}년부터</span>
-      ${srcLabel}
+      <span class="fd-tag ${isF ? "k-fglp" : "k-exchange"}">${isF ? "FGLP" : "학점교류"}</span>
     </p>
     <dl class="fd-list">
-      <div><dt>지원 자격</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
-      <div><dt>어학 요건</dt><dd>${escapeHtml(prog.requirement || "-")}</dd></div>
-      <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
-      <div><dt>지원 내용</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>
-      <div><dt>정원</dt><dd class="fd-unknown">공개된 문서에 없습니다. 국제협력팀에 확인하세요.</dd></div>
+      ${
+        isF
+          ? `<div><dt>어학 기준</dt><dd><b>${escapeHtml(s.language || "-")}</b></dd></div>
+             <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div>
+             <div><dt>지원 자격</dt><dd>${escapeHtml(prog.target || "-")}</dd></div>
+             <div><dt>시기</dt><dd>${escapeHtml(prog.period || "-")}</dd></div>
+             <div><dt>지원 내용</dt><dd>${escapeHtml(prog.support || "-")}</dd></div>`
+          : `<div><dt>기간</dt><dd>한 학기 ~ 1년</dd></div>
+             <div><dt>지원 내용</dt><dd>${escapeHtml(ex.support || "-")}</dd></div>
+             <div><dt>학점</dt><dd>이수 학점을 DGIST로 옮겨 옵니다</dd></div>`
+      }
+      <div><dt>정원</dt><dd class="fd-unknown">공개 문서에 없습니다. 국제협력팀에 확인하세요.</dd></div>
     </dl>
     <p class="fd-hint">문의 ${escapeHtml(prog.contact || "")}</p>`;
 }

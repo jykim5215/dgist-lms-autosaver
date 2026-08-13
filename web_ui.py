@@ -25,7 +25,8 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+import urllib.request
+from urllib.parse import parse_qs, urlencode, urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -1527,6 +1528,45 @@ def get_my_events(workspace: UserWorkspace) -> dict[str, Any]:
     return {"events": cleaned}
 
 
+def search_place(query: str) -> dict[str, Any]:
+    """장소 이름으로 좌표를 찾는다 (OpenStreetMap Nominatim).
+
+    구글 지도 JavaScript API 는 OAuth 가 아니라 결제가 연결된 API 키를 요구한다.
+    캘린더용 OAuth 자격증명으로는 지도를 띄울 수 없어, 키 없이 쓸 수 있는
+    OpenStreetMap 검색으로 좌표를 얻고 링크만 구글 지도로 연다.
+    """
+    query = (query or "").strip()
+    if len(query) < 2:
+        return {"ok": True, "places": []}
+
+    url = "https://nominatim.openstreetmap.org/search?" + urlencode(
+        {"q": query, "format": "jsonv2", "limit": "6", "accept-language": "ko"}
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            # Nominatim 은 신원을 밝히지 않으면 막는다
+            "User-Agent": "bungeoppang-dgist-autosaver/1.0 (personal student app)",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        rows = json.loads(resp.read().decode("utf-8", "ignore"))
+
+    places = []
+    for row in rows:
+        name = row.get("display_name") or ""
+        places.append(
+            {
+                "name": name.split(",")[0].strip(),
+                "address": name,
+                "lat": float(row.get("lat", 0) or 0),
+                "lon": float(row.get("lon", 0) or 0),
+            }
+        )
+    return {"ok": True, "places": places}
+
+
 def save_my_event(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
     """일정 추가 또는 수정 (id가 있으면 수정)."""
     title = str(payload.get("title", "")).strip()
@@ -1538,11 +1578,25 @@ def save_my_event(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str
 
     events = get_my_events(workspace)["events"]
     event_id = str(payload.get("id", "")).strip()
+    # 반복 규칙. 화면에서 펼쳐 그리므로 여기서는 규칙만 적어 둔다.
+    repeat = str(payload.get("repeat", "")).strip()
+    if repeat not in ("", "none", "daily", "weekly", "biweekly", "monthly", "yearly"):
+        repeat = ""
+    if repeat == "none":
+        repeat = ""
+
     entry = {
         "id": event_id or f"my-{secrets.token_hex(6)}",
         "title": title[:200],
-        "date": date,                                   # YYYY-MM-DD
+        "date": date,                                   # YYYY-MM-DD (시작일)
         "time": str(payload.get("time", "")).strip(),   # HH:MM (빈 값이면 종일)
+        "endTime": str(payload.get("endTime", "")).strip(),
+        # 여러 날에 걸친 일정이면 마지막 날. 비어 있으면 하루짜리.
+        "endDate": str(payload.get("endDate", "")).strip(),
+        "repeat": repeat,
+        # 반복을 언제까지 할지. 비어 있으면 1년치만 펼친다.
+        "repeatUntil": str(payload.get("repeatUntil", "")).strip(),
+        "location": str(payload.get("location", "")).strip()[:200],
         "note": str(payload.get("note", "")).strip()[:500],
         "updatedAt": now_iso(),
     }
@@ -2096,6 +2150,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 )
             except Exception as exc:
                 self.send_json({"ok": False, "routes": [], "message": str(exc)})
+            return
+        if route == "/api/place-search":
+            # 지도 검색. 구글 지도는 별도 API 키가 필요해서, 키 없이 쓸 수 있는
+            # OpenStreetMap 검색을 쓴다. 브라우저에서 바로 부르면 CORS와
+            # User-Agent 규칙에 걸려서 여기서 대신 불러 준다.
+            try:
+                self.send_json(search_place(params.get("q", [""])[0]))
+            except Exception as exc:
+                self.send_json({"ok": False, "places": [], "message": str(exc)})
             return
         if route == "/api/fglp":
             try:

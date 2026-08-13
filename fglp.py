@@ -1,105 +1,130 @@
 """FGLP(Freshmen Global Leadership Program) 파견 대학 정보.
 
-출처와 기준 연도를 함께 들고 다닌다. 학교 공식 페이지(기초학부 > 글로벌 프로그램)는
-2026년 8월 현재까지도 '2023년 기준 6개 대학'으로 적혀 있고, 그 뒤 늘어난 학교는
-학내 신문(DGIST DNA) 보도로만 확인된다. 화면에서 둘을 구분해 보여 주려고
-대학마다 source 를 달아 둔다. 잘못된 정보를 확정처럼 보이게 두는 게 제일 나쁘다.
+출처: DGIST 2026 UNDERGRADUATE ADMISSIONS GUIDE FOR INTERNATIONAL STUDENTS
+      (학교가 낸 공식 안내서, 2025년 7월 배포) 12~15쪽.
+      대학별 어학 기준과 GPA 기준까지 그 문서에 그대로 실려 있다.
 
-정원(선발인원)은 어느 공개 문서에도 대학별로 나와 있지 않다. 없는 숫자를 지어내지
-않고, 확인된 범위(전체 규모·자격·지원 내용)만 싣는다.
+기초학부 홈페이지(https://www.dgist.ac.kr/college/sub05_04.do)는 2026년 8월
+현재까지도 '2023년 기준 6개 대학, 1인당 최대 1,000만원'으로 남아 있어 최신이
+아니다. 둘이 어긋날 때는 더 최근 문서인 입학 안내서를 따른다.
+
+정원(대학별 선발 인원)은 두 문서 어디에도 없다. 없는 숫자는 지어내지 않는다.
 """
 
 from __future__ import annotations
 
-# 마지막으로 사람이 직접 확인한 날. 화면에 같이 띄운다.
 VERIFIED_ON = "2026-08-13"
 
+SOURCE_LABEL = "DGIST 2026 학부 입학안내서 (2025.7)"
+SOURCE_URL = "https://kecla.org/uploads/board/attach1/20250723134701.pdf"
 OFFICIAL_URL = "https://www.dgist.ac.kr/college/sub05_04.do"
 CONTACT = "국제협력팀 053-785-1163 / amatista@dgist.ac.kr"
 
-# source
-#   official : 학교 공식 페이지에 이름이 적혀 있는 대학 (2023년 기준)
-#   press    : 학내 신문 보도로만 확인된 대학 (2024년 추가분)
+# 공통 지원 자격: DGIST 학점 4.3 만점에 3.23 이상
+GPA_REQUIREMENT = "DGIST 학점 3.23 / 4.3 이상"
+
+# (이름, 국가, 도시, 위도, 경도, 어학 기준)
 _FGLP = [
-    # --- 공식 페이지에 실린 6곳 (2023년 기준) ---
-    ("UC Berkeley", "미국", "버클리", 37.872, -122.259, 2023, "official"),
-    ("UCLA", "미국", "로스앤젤레스", 34.069, -118.445, 2023, "official"),
-    ("Stanford University", "미국", "스탠퍼드", 37.428, -122.169, 2023, "official"),
-    ("Harvard University", "미국", "케임브리지(MA)", 42.377, -71.117, 2023, "official"),
-    ("University of Wisconsin–Madison", "미국", "매디슨", 43.077, -89.412, 2023, "official"),
-    ("Boston University", "미국", "보스턴", 42.350, -71.105, 2023, "official"),
-    # --- 2024학년도에 더해진 8곳 (학내 신문 보도) ---
-    ("Purdue University", "미국", "웨스트라피엣", 40.425, -86.921, 2024, "press"),
-    ("University of Virginia", "미국", "샬러츠빌", 38.033, -78.508, 2024, "press"),
-    ("University of Washington", "미국", "시애틀", 47.655, -122.308, 2024, "press"),
-    ("Johns Hopkins University", "미국", "볼티모어", 39.329, -76.620, 2024, "press"),
-    ("University of Cambridge", "영국", "케임브리지", 52.204, 0.119, 2024, "press"),
-    ("Maastricht University", "네덜란드", "마스트리흐트", 50.848, 5.687, 2024, "press"),
-    ("Chinese University of Hong Kong", "홍콩", "샤틴", 22.420, 114.207, 2024, "press"),
-    ("Nanyang Technological University", "싱가포르", "싱가포르", 1.348, 103.683, 2024, "press"),
+    ("Harvard University", "미국", "케임브리지(MA)", 42.377, -71.117, "TOEFL iBT 100 · IELTS 7.0"),
+    ("Stanford University", "미국", "스탠퍼드", 37.428, -122.169, "TOEFL iBT 100 · IELTS 7.0"),
+    ("Johns Hopkins University", "미국", "볼티모어", 39.329, -76.620, "TOEFL iBT 100 · IELTS 7.0"),
+    ("University of Virginia", "미국", "샬러츠빌", 38.033, -78.508, "TOEFL iBT 90 · IELTS 7.0"),
+    ("Boston University", "미국", "보스턴", 42.350, -71.105, "TOEFL iBT 84 · IELTS 7.0"),
+    ("Purdue University", "미국", "웨스트라피엣", 40.425, -86.921, "TOEFL iBT 88 · IELTS 6.5"),
+    ("UC Berkeley", "미국", "버클리", 37.872, -122.259, "TOEIC 800 · TOEFL iBT 80 · IELTS 6.5"),
+    ("UCLA", "미국", "로스앤젤레스", 34.069, -118.445, "TOEIC 800 · TOEFL iBT 80 · IELTS 6.5"),
+    ("University of Wisconsin–Madison", "미국", "매디슨", 43.077, -89.412, "TOEIC 800 · TOEFL iBT 80 · IELTS 6.5"),
+    ("Arizona State University", "미국", "템피", 33.424, -111.928, "TOEIC 800 · TOEFL iBT 80 · IELTS 6.5"),
+    ("University of Cambridge", "영국", "케임브리지", 52.204, 0.119, "TOEFL iBT 92 · IELTS 6.5"),
+    ("Maastricht University", "네덜란드", "마스트리흐트", 50.848, 5.687, "TOEFL iBT 90 · IELTS 6.5"),
+    ("HKUST", "홍콩", "칭수이완", 22.337, 114.263, "TOEFL iBT 90 · IELTS 6.0"),
+    ("Chinese University of Hong Kong", "홍콩", "샤틴", 22.420, 114.207, "TOEFL iBT 71 · IELTS 6.0"),
+    ("Nanyang Technological University", "싱가포르", "싱가포르", 1.348, 103.683, "TOEFL iBT 90 · IELTS 6.0"),
+    ("Hokkaido University", "일본", "삿포로", 43.077, 141.340, "TOEIC 800 · TOEFL iBT 80 · IELTS 6.5"),
 ]
 
-# 같은 공식 페이지에 나란히 실린 '해외대학 교환학생' 프로그램.
-# FGLP 와는 다른 제도라 따로 묶는다.
+# 학점교류(Credit Exchange). 안내서에 '10개국 20개교'라 적혀 있고 그중 10곳만
+# 이름이 나와 있다. 나머지 10곳은 문서에 없어 넣지 않았다.
 _EXCHANGE = [
-    ("INSA Lyon", "프랑스", "리옹", 45.783, 4.879, 2023, "official"),
-    ("Maastricht University", "네덜란드", "마스트리흐트", 50.848, 5.687, 2023, "official"),
-    ("Ulm University", "독일", "울름", 48.422, 9.956, 2023, "official"),
-    ("Koç University", "튀르키예", "이스탄불", 41.204, 29.061, 2023, "official"),
+    ("INSA Lyon", "프랑스", "리옹", 45.783, 4.879),
+    ("Aalto University", "핀란드", "에스포", 60.187, 24.828),
+    ("University of Innsbruck", "오스트리아", "인스브루크", 47.264, 11.384),
+    ("Ulm University", "독일", "울름", 48.422, 9.956),
+    ("Koç University", "튀르키예", "이스탄불", 41.204, 29.061),
+    ("University of Groningen", "네덜란드", "흐로닝언", 53.219, 6.562),
+    ("Universiti Malaya", "말레이시아", "쿠알라룸푸르", 3.121, 101.654),
+    ("National Yang Ming Chiao Tung University", "대만", "신주", 24.787, 120.997),
+    ("Osaka University", "일본", "스이타", 34.822, 135.524),
+    ("Dalian University of Technology", "중국", "다롄", 38.881, 121.529),
 ]
 
 
-def _pack(rows, kind):
-    return [
+def get_fglp() -> dict:
+    schools = [
         {
             "name": name,
             "country": country,
             "city": city,
             "lat": lat,
             "lon": lon,
-            "since": since,
-            "source": source,
-            "kind": kind,
+            "kind": "fglp",
+            "language": lang,
         }
-        for (name, country, city, lat, lon, since, source) in rows
+        for (name, country, city, lat, lon, lang) in _FGLP
+    ] + [
+        {
+            "name": name,
+            "country": country,
+            "city": city,
+            "lat": lat,
+            "lon": lon,
+            "kind": "exchange",
+            "language": "",
+        }
+        for (name, country, city, lat, lon) in _EXCHANGE
     ]
 
-
-def get_fglp() -> dict:
-    schools = _pack(_FGLP, "fglp")
-    exchange = _pack(_EXCHANGE, "exchange")
     return {
         "ok": True,
         "verifiedOn": VERIFIED_ON,
+        "sourceLabel": SOURCE_LABEL,
+        "sourceUrl": SOURCE_URL,
         "officialUrl": OFFICIAL_URL,
         "contact": CONTACT,
-        "schools": schools + exchange,
+        "schools": schools,
         "program": {
             "name": "FGLP (Freshmen Global Leadership Program)",
-            "summary": "해외 유수대학의 여름학기 수업을 듣고 오는 기초학부 글로벌 프로그램.",
+            "summary": "여름방학에 해외 유수 대학의 정규 수업을 듣고 오는 기초학부 프로그램.",
             "target": "1·2학년(4학기 이내) 재학생",
+            "gpa": GPA_REQUIREMENT,
             "period": "하계 방학 중",
-            "support": "수업료·기숙사비 지원 (항공료·비자 발급비는 본인 부담)",
-            "requirement": "파견 대학별 어학성적 요건 등 상이",
+            "support": "한 학기 최소 이수학점까지 수업료·기숙사비 전액 지원",
+            "requirement": "대학마다 어학 기준이 다릅니다 (아래 참고)",
             "contact": CONTACT,
+            "count": len(_FGLP),
         },
-        # 화면에 그대로 띄울 단서들. 확정된 것과 아닌 것을 갈라 둔다.
+        "exchange": {
+            "name": "학점교류 (Credit Exchange Program)",
+            "summary": "한 학기~1년 동안 해외 대학에서 공부하고 학점을 옮겨 옵니다.",
+            "support": "기간에 따라 150만~300만원 지원",
+            "scale": "10개국 20개교 (안내서에 이름이 나온 10곳만 지도에 표시)",
+        },
         "notes": [
             {
-                "level": "warn",
-                "text": "학교 공식 페이지는 아직 2023년 기준(6개 대학, 1인당 최대 1,000만원)으로 적혀 있습니다.",
+                "level": "info",
+                "text": f"{SOURCE_LABEL} 기준입니다. 파견 대학 {len(_FGLP)}곳과 대학별 어학 기준이 이 문서에 실려 있습니다.",
             },
             {
                 "level": "info",
-                "text": "2024학년도에 8개교가 더해져 14개교가 되었고 지원 상한선이 없어졌다는 것은 학내 신문(DGIST DNA) 보도로 확인한 내용입니다.",
-            },
-            {
-                "level": "info",
-                "text": "2025학년도에 일본이 파견 국가로 더해져 16개교가 되었다고 보도되었으나, 어느 대학인지는 공개된 자료에서 찾지 못해 지도에 넣지 않았습니다.",
+                "text": f"공통 지원 자격: {GPA_REQUIREMENT}. 1·2학년(4학기 이내) 재학생.",
             },
             {
                 "level": "warn",
-                "text": "대학별 정원(선발인원)은 공개된 문서에 없습니다. 지원 전에 국제협력팀에 확인하세요.",
+                "text": "기초학부 홈페이지는 아직 2023년 기준(6개 대학·1인당 1,000만원)으로 남아 있어 서로 다릅니다.",
+            },
+            {
+                "level": "warn",
+                "text": "대학별 정원(선발 인원)은 두 문서 어디에도 없습니다. 지원 전에 국제협력팀에 확인하세요.",
             },
         ],
     }

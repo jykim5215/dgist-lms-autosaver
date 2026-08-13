@@ -456,9 +456,45 @@
                       </span>
                       <input name="time" type="hidden" />
                     </label>
+                    <label class="event-field">
+                      <span>끝나는 날 <em>(여러 날이면)</em></span>
+                      <input name="endDate" type="date" />
+                    </label>
+                    <label class="event-field">
+                      <span>끝 시각</span>
+                      <span class="time-pick">
+                        <select name="endTimeHour" class="tp-hour" data-allow-empty aria-label="끝 시"></select>
+                        <b>:</b>
+                        <select name="endTimeMin" class="tp-min" data-allow-empty aria-label="끝 분"></select>
+                      </span>
+                      <input name="endTime" type="hidden" />
+                    </label>
+                    <label class="event-field">
+                      <span>반복</span>
+                      <select name="repeat">
+                        <option value="">반복 안 함</option>
+                        <option value="daily">매일</option>
+                        <option value="weekly">매주</option>
+                        <option value="biweekly">2주마다</option>
+                        <option value="monthly">매월</option>
+                        <option value="yearly">매년</option>
+                      </select>
+                    </label>
+                    <label class="event-field" id="repeatUntilField" hidden>
+                      <span>반복 끝 <em>(비우면 1년)</em></span>
+                      <input name="repeatUntil" type="date" />
+                    </label>
+                    <label class="event-field event-field-wide">
+                      <span>장소</span>
+                      <span class="place-pick">
+                        <input name="location" type="text" placeholder="예: E7 대강당" autocomplete="off" />
+                        <button class="button compact ghost" id="placeSearchButton" type="button">지도에서 찾기</button>
+                      </span>
+                      <div class="place-results" id="placeResults" hidden></div>
+                    </label>
                     <label class="event-field event-field-wide">
                       <span>메모</span>
-                      <input name="note" type="text" placeholder="장소, 준비물 등" autocomplete="off" />
+                      <input name="note" type="text" placeholder="준비물 등" autocomplete="off" />
                     </label>
                   </div>
                     <div class="event-editor-foot">
