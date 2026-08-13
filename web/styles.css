@@ -7300,3 +7300,22 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 .place-item strong { font-size: 12.5px; font-weight: 600; }
 .place-item span { font-size: 11px; color: var(--text-faint); }
 .place-empty { margin: 0; padding: 10px; font-size: 12px; color: var(--text-faint); }
+
+/* ===== 폼 요소는 앱 글자색을 따른다 =====
+   <button>·<select>는 색을 지정하지 않으면 브라우저 기본(검정)을 쓴다.
+   밝은 테마에서는 우연히 맞아떨어져 몰랐는데, 남색·다크에서 자료 화면의
+   폴더 제목이 검게 나왔다. 색을 따로 준 규칙은 특이도로 이걸 이긴다. */
+button,
+select,
+textarea,
+input {
+  color: inherit;
+}
+
+/* 링크도 색을 준 적이 없어 브라우저 기본 파랑(#0000EE)이 나왔다.
+   밝은 테마에선 그럭저럭 보였지만 남색·다크에서는 배경에 묻힌다. */
+a {
+  color: var(--accent-strong);
+  text-underline-offset: 2px;
+}
+a:hover { color: var(--accent); }
