@@ -13,6 +13,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 VERIFIED_ON = "2026-08-13"
 
 SOURCE_LABEL = "DGIST 2026 학부 입학안내서 (2025.7)"
@@ -59,7 +63,37 @@ _EXCHANGE = [
 ]
 
 
+def _load_photos() -> dict:
+    """tools/fetch_uni_photos.py 가 받아 둔 사진 정보.
+
+    앱 안에 넣어 두었으므로 인터넷이 없어도 보이고, 어느 대학을 들여다보는지
+    바깥에 알려지지도 않는다. 라이선스 표기는 화면에 같이 띄운다.
+    """
+    path = Path(__file__).resolve().parent / "uni_photos.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
 def get_fglp() -> dict:
+    photos = _load_photos()
+
+    def photo_of(name: str) -> dict:
+        meta = photos.get(_slug(name))
+        if not meta:
+            return {}
+        return {
+            "photo": f"/img/uni/{meta['file']}",
+            "photoBy": meta.get("author", ""),
+            "photoLicense": meta.get("license", ""),
+            "photoSource": meta.get("source", ""),
+        }
+
     schools = [
         {
             "name": name,
@@ -69,6 +103,7 @@ def get_fglp() -> dict:
             "lon": lon,
             "kind": "fglp",
             "language": lang,
+            **photo_of(name),
         }
         for (name, country, city, lat, lon, lang) in _FGLP
     ] + [
@@ -80,6 +115,7 @@ def get_fglp() -> dict:
             "lon": lon,
             "kind": "exchange",
             "language": "",
+            **photo_of(name),
         }
         for (name, country, city, lat, lon) in _EXCHANGE
     ]

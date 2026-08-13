@@ -7465,3 +7465,59 @@ a:hover { color: var(--accent); }
   .fglp-list { max-height: 320px; }
   .wm-pin-label { display: none; }
 }
+
+/* ===== FGLP: 대륙 보기 + 대학 사진 ===== */
+.fglp-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.fglp-view {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.fglp-view:hover { border-color: var(--border-strong); color: var(--text-soft); }
+.fglp-view.on { background: var(--surface-soft); border-color: var(--border-strong); color: var(--text); }
+
+/* 대륙을 옮기는 동안 살짝 흐려지며 이어지게 */
+.fglp-map { transition: opacity 0.16s ease; }
+.fglp-map.shifting { opacity: 0.35; }
+/* 핀은 제자리로 미끄러진다 */
+.wm-pin { transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+.wm-pin.off { opacity: 0; pointer-events: none; }
+
+/* 목록 속 작은 사진 */
+.fl-row { flex-direction: row; align-items: center; gap: 9px; }
+.fl-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.fl-thumb {
+  width: 42px;
+  height: 32px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 5px;
+  background: var(--bg-deep);
+}
+.fl-thumb.empty { display: block; }
+
+/* 상세의 큰 사진 */
+.fd-photo { margin: 0 0 12px; }
+.fd-photo img {
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  display: block;
+}
+.fd-photo figcaption {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-pin, .fglp-map { transition: none; }
+}

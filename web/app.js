@@ -6884,6 +6884,15 @@ const WORLD_LAND = [
   [[-180, 180]],
 ];
 
+/* 대륙별로 들여다보기.
+   [서경, 남위, 동경, 북위] — 이 네모가 지도에 꽉 차게 확대한다. */
+const CONTINENTS = [
+  { key: "world", label: "전체", box: [-180, -60, 180, 84] },
+  { key: "america", label: "아메리카", box: [-130, 20, -60, 55] },
+  { key: "europe", label: "유럽", box: [-12, 35, 40, 62] },
+  { key: "asia", label: "아시아", box: [95, 0, 150, 48] },
+];
+
 const LON_STEP = 5;
 const LAT_STEP = 5;
 
@@ -6894,9 +6903,16 @@ function isLand(lat, lon) {
   return spans.some(([a, b]) => lon >= a && lon <= b);
 }
 
-/** 위경도 → 지도 안의 % 좌표 (정각원통도법) */
-function projectLatLon(lat, lon) {
-  return { x: ((lon + 180) / 360) * 100, y: ((90 - lat) / 180) * 100 };
+/** 위경도 → 지도 안의 % 좌표.
+    보고 있는 구역(box)이 지도를 꽉 채우도록 맞춰 준다. */
+function fglpBox() {
+  const c = CONTINENTS.find((x) => x.key === (state.fglpView || "world"));
+  return (c || CONTINENTS[0]).box;
+}
+
+function projectLatLon(lat, lon, box) {
+  const [w, s, e, n] = box || fglpBox();
+  return { x: ((lon - w) / (e - w)) * 100, y: ((n - lat) / (n - s)) * 100 };
 }
 
 /* 육지 점을 <i> 1192개로 찍었더니 문서 전체 노드의 40%가 지도가 됐다.
@@ -6917,12 +6933,18 @@ function paintWorld(canvas) {
   ctx.fillStyle =
     getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#ccc";
 
-  const r = Math.max(1.1, box.width / 620);
-  for (let row = 0; row < WORLD_LAND.length; row += 1) {
-    const lat = 90 - row * LAT_STEP - LAT_STEP / 2;
-    for (let lon = -180; lon < 180; lon += LON_STEP) {
-      if (!isLand(lat, lon + LON_STEP / 2)) continue;
-      const pt = projectLatLon(lat, lon + LON_STEP / 2);
+  const view = fglpBox();
+  const [w, s, e, n] = view;
+  // 좁게 볼수록 점을 크고 촘촘하게 (확대해도 성기지 않게)
+  const zoom = 360 / (e - w);
+  const r = Math.max(1.1, (box.width / 620) * Math.min(zoom, 3));
+  const step = zoom > 2 ? LON_STEP / 2 : LON_STEP;
+  for (let lat = 84; lat > -60; lat -= step) {
+    if (lat > n + 5 || lat < s - 5) continue;
+    for (let lon = -180; lon < 180; lon += step) {
+      if (lon > e + 5 || lon < w - 5) continue;
+      if (!isLand(lat, lon)) continue;
+      const pt = projectLatLon(lat, lon, view);
       ctx.beginPath();
       ctx.arc((pt.x / 100) * box.width, (pt.y / 100) * box.height, r, 0, Math.PI * 2);
       ctx.fill();
@@ -7039,12 +7061,24 @@ function renderFglpAll() {
 
   // ③ 지도 핀 + 학교 목록 (같은 순서, 같은 번호)
   const schools = fglpSchools();
+  // 대륙 고르개
+  const views = $("#fglpViews");
+  if (views) {
+    views.innerHTML = CONTINENTS.map(
+      (c) => `<button type="button" class="fglp-view ${(state.fglpView || "world") === c.key ? "on" : ""}"
+        data-fglp-view="${c.key}">${c.label}</button>`,
+    ).join("");
+  }
+
   const pins = $("#fglpPins");
   if (pins) {
+    const box = fglpBox();
     pins.innerHTML = schools
       .map((s, i) => {
-        const pt = projectLatLon(s.lat, s.lon);
-        return `<button type="button" class="wm-pin k-${s.kind}" data-fglp="${i}"
+        const pt = projectLatLon(s.lat, s.lon, box);
+        // 보고 있는 칸 밖이면 숨긴다
+        const out = pt.x < -2 || pt.x > 102 || pt.y < -2 || pt.y > 102;
+        return `<button type="button" class="wm-pin k-${s.kind} ${out ? "off" : ""}" data-fglp="${i}"
           style="left:${pt.x.toFixed(2)}%;top:${pt.y.toFixed(2)}%"
           title="${escapeHtml(s.name)} · ${escapeHtml(s.country)}">
           <span class="wm-pin-dot"></span>
@@ -7070,8 +7104,11 @@ function renderFglpAll() {
           ${arr
             .map(
               (s) => `<button type="button" class="fl-row" data-fglp="${s.idx}">
-                <strong>${escapeHtml(s.name)}</strong>
-                ${s.language ? `<span>${escapeHtml(s.language)}</span>` : `<span>${escapeHtml(s.city)}</span>`}
+                ${s.photo ? `<img class="fl-thumb" src="${s.photo}" alt="" loading="lazy" />` : `<span class="fl-thumb empty"></span>`}
+                <span class="fl-text">
+                  <strong>${escapeHtml(s.name)}</strong>
+                  ${s.language ? `<span>${escapeHtml(s.language)}</span>` : `<span>${escapeHtml(s.city)}</span>`}
+                </span>
               </button>`,
             )
             .join("")}
@@ -7114,6 +7151,14 @@ function showFglpDetail(index) {
   const prog = state.fglp?.program || {};
   box.hidden = false;
   box.innerHTML = `
+    ${
+      s.photo
+        ? `<figure class="fd-photo">
+             <img src="${s.photo}" alt="${escapeHtml(s.name)} 캠퍼스" />
+             <figcaption>사진 ${escapeHtml(s.photoBy || "위키미디어")} · ${escapeHtml(s.photoLicense || "")}</figcaption>
+           </figure>`
+        : ""
+    }
     <div class="fd-head">
       <div>
         <h3>${escapeHtml(s.name)}</h3>
@@ -7147,6 +7192,21 @@ function bindFglp() {
   $("#fglpMap")?.addEventListener("click", pick);
   $("#fglpList")?.addEventListener("click", pick);
   $("#fglpDetail")?.addEventListener("click", pick);
+
+  $("#fglpViews")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-fglp-view]");
+    if (!btn) return;
+    state.fglpView = btn.dataset.fglpView;
+    const map = $("#fglpMap");
+    // 옮겨가는 동안 살짝 흐려지게 해서 뚝 끊기지 않게
+    map?.classList.add("shifting");
+    window.setTimeout(() => {
+      const cv = map?.querySelector(".wm-canvas");
+      if (cv) paintWorld(cv);
+      renderFglpAll();
+      map?.classList.remove("shifting");
+    }, 160);
+  });
 
   $("#fglpTabs")?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-fglp-kind]");
