@@ -4413,9 +4413,6 @@ function applyTheme(theme) {
     /* localStorage 사용 불가 환경 무시 */
   }
   paintThemeCard(theme);
-  // 지도 점은 캔버스라 CSS 변수가 저절로 안 먹는다. 다시 그려 준다.
-  const cv = document.querySelector(".wm-canvas");
-  if (cv) paintWorld(cv);
 }
 
 function paintThemeCard(theme) {
@@ -6842,148 +6839,90 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ===== 창고: FGLP 파견 지도 =====
-   세계지도를 점으로 찍는다. 외부 지도 라이브러리를 붙이면 인터넷이 없을 때
-   빈 화면이 되므로, 5°짜리 육지 표를 안에 들고 있다가 직접 점을 찍는다.
-   위도 90..-90(36줄), 경도 -180..180(72칸). 값은 육지인 경도 구간 목록. */
-const WORLD_LAND = [
-  [], // 90~85N
-  [[-70, -20], [-110, -75]],
-  [[-60, -18], [-125, -65], [8, 30], [50, 105]],
-  [[-58, -18], [-140, -65], [10, 32], [35, 180]],
-  [[-168, -140], [-140, -60], [-52, -20], [4, 32], [28, 180]],
-  [[-168, -138], [-140, -55], [-25, -14], [4, 32], [28, 180]],
-  [[-166, -136], [-138, -55], [-11, 2], [4, 32], [28, 180]],
-  [[-132, -55], [-10, 2], [3, 32], [28, 180]],
-  [[-128, -62], [-6, 32], [32, 180]],
-  [[-125, -68], [-10, 46], [46, 92], [90, 136], [138, 146]],
-  [[-122, -74], [-8, 42], [26, 62], [68, 124], [126, 142]],
-  [[-120, -76], [-11, 36], [34, 62], [62, 124], [128, 140]],
-  [[-116, -79], [-17, 36], [34, 60], [66, 124]],
-  [[-112, -96], [-88, -74], [-17, 36], [36, 58], [66, 94], [94, 112]],
-  [[-106, -88], [-86, -60], [-17, 42], [40, 56], [70, 94], [94, 112], [118, 126]],
-  [[-96, -82], [-76, -58], [-17, 48], [42, 54], [72, 82], [95, 110], [118, 127]],
-  [[-86, -76], [-80, -58], [-14, 48], [78, 82], [98, 120], [119, 127]],
-  [[-80, -44], [6, 46], [94, 136]],
-  [[-82, -34], [8, 44], [96, 142]],
-  [[-80, -34], [10, 42], [98, 152]],
-  [[-76, -34], [11, 41], [42, 51], [118, 152], [123, 146]],
-  [[-72, -37], [11, 40], [42, 51], [112, 152]],
-  [[-71, -39], [12, 36], [42, 49], [112, 154]],
-  [[-72, -47], [14, 34], [112, 154]],
-  [[-74, -52], [16, 33], [113, 153]],
-  [[-74, -56], [140, 149], [171, 179]],
-  [[-74, -61], [166, 179]],
-  [[-76, -65], []],
-  [[-76, -66], []],
-  [[-73, -65], []],
-  [], // 60~65S 바다
-  [[-180, -20], [60, 180]],
-  [[-180, 180]],
-  [[-180, 180]],
-  [[-180, 180]],
-  [[-180, 180]],
-];
+   예전에는 5° 격자로 육지를 손수 찍었는데, 그렇게 만든 점들은 대륙 모양이
+   아니라 그냥 점 무늬였다. 진짜 세계지도 그림(정각원통도법, 3840x1920)을
+   받아 두고 그 위에 좌표로 점을 찍는다.
+   그림이 정확히 2:1 이라 경도 -180~180, 위도 90~-90 이 그대로 대응된다.
+   상용 지도 서비스를 쓰지 않으므로 인터넷 없이도 보인다. */
+
+const WORLD_IMG = "/img/world.png";
 
 /* 대륙별로 들여다보기.
-   [서경, 남위, 동경, 북위] — 이 네모가 지도에 꽉 차게 확대한다. */
+   가운데와 '가로로 몇 도를 보여 줄지'만 정한다. 세로는 화면 비율에서
+   저절로 나온다 (그래야 지도가 안 찌그러진다). */
 const CONTINENTS = [
-  { key: "world", label: "전체", box: [-180, -60, 180, 84] },
-  { key: "america", label: "아메리카", box: [-130, 20, -60, 55] },
-  { key: "europe", label: "유럽", box: [-12, 35, 40, 62] },
-  { key: "asia", label: "아시아", box: [95, 0, 150, 48] },
+  // 전체는 지도를 통째로. cy 를 0 이 아닌 값으로 두면 위도가 ±90 밖으로
+  // 나가 위아래에 빈 띠가 생긴다.
+  { key: "world", label: "전체", cx: 0, cy: 0, span: 360 },
+  { key: "america", label: "아메리카", cx: -96, cy: 39, span: 96 },
+  { key: "europe", label: "유럽", cx: 14, cy: 50, span: 64 },
+  { key: "asia", label: "아시아", cx: 118, cy: 26, span: 76 },
 ];
 
-const LON_STEP = 5;
-const LAT_STEP = 5;
-
-function isLand(lat, lon) {
-  const r = Math.floor((90 - lat) / LAT_STEP);
-  const spans = WORLD_LAND[r];
-  if (!spans) return false;
-  return spans.some(([a, b]) => lon >= a && lon <= b);
-}
-
-/** 위경도 → 지도 안의 % 좌표.
-    보고 있는 구역(box)이 지도를 꽉 채우도록 맞춰 준다. */
+/** 지금 보고 있는 칸 [서경, 남위, 동경, 북위] */
 function fglpBox() {
-  const c = CONTINENTS.find((x) => x.key === (state.fglpView || "world"));
-  return (c || CONTINENTS[0]).box;
+  const c = CONTINENTS.find((x) => x.key === (state.fglpView || "world")) || CONTINENTS[0];
+  const map = $("#fglpMap");
+  const rect = map ? map.getBoundingClientRect() : { width: 2, height: 1 };
+  const ratio = rect.height > 0 ? rect.width / rect.height : 2;
+  // 정각원통도법에서는 가로 1도와 세로 1도의 길이가 같다.
+  // 그래서 세로로 보이는 각도는 화면 비율만큼 줄어든다.
+  const latSpan = c.span / (ratio || 2);
+  let s = c.cy - latSpan / 2;
+  let n = c.cy + latSpan / 2;
+  // 지도 밖(위도 ±90)으로 나가면 그만큼 안으로 밀어 넣는다.
+  // 안 그러면 위아래에 지도가 없는 빈 띠가 생긴다.
+  if (n > 90) {
+    s -= n - 90;
+    n = 90;
+  }
+  if (s < -90) {
+    n += -90 - s;
+    s = -90;
+  }
+  return [c.cx - c.span / 2, s, c.cx + c.span / 2, n];
 }
 
+/** 위경도 → 지금 보는 칸 안에서의 % 좌표 */
 function projectLatLon(lat, lon, box) {
   const [w, s, e, n] = box || fglpBox();
   return { x: ((lon - w) / (e - w)) * 100, y: ((n - lat) / (n - s)) * 100 };
 }
 
-/* 육지 점을 <i> 1192개로 찍었더니 문서 전체 노드의 40%가 지도가 됐다.
-   화면을 넘길 때 브라우저가 그걸 전부 스냅샷 뜨느라 눈에 띄게 걸렸다.
-   점은 캔버스 한 장에 그리고, 누를 수 있는 핀만 DOM으로 남긴다. */
-function paintWorld(canvas) {
-  const box = canvas.parentElement.getBoundingClientRect();
-  if (!box.width) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(box.width * dpr);
-  canvas.height = Math.round(box.height * dpr);
-  canvas.style.width = `${box.width}px`;
-  canvas.style.height = `${box.height}px`;
-
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, box.width, box.height);
-  ctx.fillStyle =
-    getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#ccc";
-
-  const view = fglpBox();
-  const [w, s, e, n] = view;
-  // 좁게 볼수록 점을 크고 촘촘하게 (확대해도 성기지 않게)
-  const zoom = 360 / (e - w);
-  const r = Math.max(1.1, (box.width / 620) * Math.min(zoom, 3));
-  const step = zoom > 2 ? LON_STEP / 2 : LON_STEP;
-  for (let lat = 84; lat > -60; lat -= step) {
-    if (lat > n + 5 || lat < s - 5) continue;
-    for (let lon = -180; lon < 180; lon += step) {
-      if (lon > e + 5 || lon < w - 5) continue;
-      if (!isLand(lat, lon)) continue;
-      const pt = projectLatLon(lat, lon, view);
-      ctx.beginPath();
-      ctx.arc((pt.x / 100) * box.width, (pt.y / 100) * box.height, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+/** 지도 그림을 지금 보는 칸에 맞춰 늘리고 옮긴다 */
+function placeWorldImg(box) {
+  const img = $("#fglpMap")?.querySelector(".wm-img");
+  if (!img) return;
+  const [w, s, e, n] = box || fglpBox();
+  const wideDeg = e - w;
+  const tallDeg = n - s;
+  img.style.width = `${(360 / wideDeg) * 100}%`;
+  img.style.height = `${(180 / tallDeg) * 100}%`;
+  img.style.left = `${(-(w + 180) / wideDeg) * 100}%`;
+  img.style.top = `${(-(90 - n) / tallDeg) * 100}%`;
 }
 
 function renderFglp() {
   const map = $("#fglpMap");
   if (!map) return;
-  if (map.dataset.drawn) {
-    // 창을 넓히거나 테마를 바꾼 뒤 다시 들어오면 다시 그려야 선명하다
-    const cv = map.querySelector(".wm-canvas");
-    if (cv) paintWorld(cv);
+  if (!map.dataset.drawn) {
+    map.innerHTML = `<img class="wm-img" src="${WORLD_IMG}" alt="세계지도" draggable="false" />
+      <div class="wm-pins" id="fglpPins"></div>`;
+    map.dataset.drawn = "1";
+    // 창 크기가 바뀌면 보이는 각도도 달라진다
+    let timer = 0;
+    new ResizeObserver(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        placeWorldImg();
+        renderFglpAll();
+      }, 140);
+    }).observe(map);
+    loadFglp();
     return;
   }
-  map.innerHTML = `<canvas class="wm-canvas"></canvas><div class="wm-pins" id="fglpPins"></div>`;
-  map.dataset.drawn = "1";
-  const canvas = map.querySelector(".wm-canvas");
-  paintWorld(canvas);
-
-  // 폭이 바뀌면 다시 그린다. 잦게 부르지 않게 한 박자 늦춘다.
-  let timer = 0;
-  new ResizeObserver(() => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => paintWorld(canvas), 120);
-  }).observe(map);
-
-  loadFglp();
+  placeWorldImg();
 }
-
-/* ===== 창고: FGLP 화면 =====
-   예전에는 프로그램 설명이 '핀을 누르면 사라지는' 옆 패널에 있었고,
-   주의사항은 맨 아래, 두 프로그램은 지도에 섞여 범례로만 갈라져 있었다.
-   위에서 아래로 읽히게 다시 짠다.
-     ① 어느 프로그램인지 고르고 (탭)
-     ② 공통 사실은 늘 보이고 (자격·시기·지원)
-     ③ 지도와 학교 목록을 나란히 보고
-     ④ 단서는 접어 둔다 */
 
 async function loadFglp() {
   try {
@@ -7073,6 +7012,8 @@ function renderFglpAll() {
   const pins = $("#fglpPins");
   if (pins) {
     const box = fglpBox();
+    // 핀과 지도 그림은 반드시 같은 칸을 봐야 한다
+    placeWorldImg(box);
     pins.innerHTML = schools
       .map((s, i) => {
         const pt = projectLatLon(s.lat, s.lon, box);
@@ -7197,15 +7138,9 @@ function bindFglp() {
     const btn = event.target.closest("[data-fglp-view]");
     if (!btn) return;
     state.fglpView = btn.dataset.fglpView;
-    const map = $("#fglpMap");
-    // 옮겨가는 동안 살짝 흐려지게 해서 뚝 끊기지 않게
-    map?.classList.add("shifting");
-    window.setTimeout(() => {
-      const cv = map?.querySelector(".wm-canvas");
-      if (cv) paintWorld(cv);
-      renderFglpAll();
-      map?.classList.remove("shifting");
-    }, 160);
+    // 지도와 핀이 같은 박자로 미끄러진다
+    placeWorldImg();
+    renderFglpAll();
   });
 
   $("#fglpTabs")?.addEventListener("click", (event) => {

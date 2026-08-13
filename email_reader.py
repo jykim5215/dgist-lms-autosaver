@@ -179,24 +179,34 @@ class MiniIMAP:
     def expunge(self) -> None:
         self.cmd("EXPUNGE")
 
-    def fetch_message(self, msg_id: int) -> tuple[bytes, bytes, bool]:
-        """UID로 (헤더 리터럴, 본문 첫 부분 리터럴, 읽음 여부)."""
+    def fetch_message(self, msg_id: int) -> tuple[bytes, bytes, bool, bytes]:
+        """UID로 (헤더, 본문 파트1, 읽음 여부, 본문 파트2).
+
+        파트 1만 받아 오면 HTML 메일의 서식과 그림을 통째로 놓친다.
+        multipart/alternative 메일은 보통 파트 1이 평문, 파트 2가 HTML이라
+        둘 다 받아 둔다. 파트 2가 없으면 서버가 빈 값을 준다.
+        """
         status, lines = self.cmd(
-            f"UID FETCH {msg_id} (FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO)] BODY.PEEK[1]<0.20000>)"
+            f"UID FETCH {msg_id} (FLAGS "
+            f"BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO)] "
+            f"BODY.PEEK[1]<0.20000> BODY.PEEK[2]<0.200000>)"
         )
-        headers = body = b""
+        headers = body = body2 = b""
         seen = False
         for line, literal in lines:
             flags_match = re.search(rb"FLAGS \(([^)]*)\)", line)
-            if flags_match and b"\\SEEN" in flags_match.group(1).upper():
+            if flags_match and rb"\SEEN" in flags_match.group(1).upper():
                 seen = True
             if literal is None:
                 continue
-            if b"HEADER.FIELDS" in line.upper():
+            upper = line.upper()
+            if b"HEADER.FIELDS" in upper:
                 headers = literal
+            elif b"BODY[2]" in upper:
+                body2 = literal
             else:
                 body = literal
-        return headers, body, seen
+        return headers, body, seen, body2
 
     def logout(self) -> None:
         try:
@@ -425,7 +435,7 @@ def classify_folder(decoded_name: str) -> str | None:
 
 
 def _parse_one_message(client, msg_id: int, folder_key: str) -> dict | None:
-    raw_headers, raw_body, seen = client.fetch_message(msg_id)
+    raw_headers, raw_body, seen, raw_body2 = client.fetch_message(msg_id)
     headers = parse_headers(raw_headers)
     from_name, from_email = parseaddr(decode_mime_words(headers.get("from", "")))
     to_name, to_email = parseaddr(decode_mime_words(headers.get("to", "")))
@@ -435,7 +445,12 @@ def _parse_one_message(client, msg_id: int, folder_key: str) -> dict | None:
     except Exception:
         pass
     full_body = decode_body_snippet(raw_body, limit=4000)
-    body_html = decode_body_html(raw_body)
+    # HTML 은 파트 2에 있는 경우가 대부분이고, 파트 1이 통째로 HTML 인
+    # 메일도 있다. 둘 다 보고 먼저 잡히는 쪽을 쓴다.
+    body_html = decode_body_html(raw_body2) or decode_body_html(raw_body)
+    if not full_body.strip() and body_html:
+        # 그림·표뿐이라 평문이 비는 메일도 있다. 목록 미리보기가 비지 않게.
+        full_body = clean_html_to_text(body_html, 4000)
     return {
         "id": f"{folder_key}:{msg_id}",
         "uid": msg_id,

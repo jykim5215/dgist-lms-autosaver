@@ -6999,9 +6999,22 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   border-radius: var(--radius);
   overflow: hidden;
 }
-.wm-pins { position: absolute; inset: 0; }
-/* 육지 점은 캔버스 한 장에 그린다 (예전엔 <i> 1192개였다) */
-.wm-canvas { position: absolute; inset: 0; display: block; }
+.wm-pins { position: absolute; inset: 0; z-index: 2; }
+/* 진짜 세계지도 그림. 보고 있는 칸에 맞춰 늘리고 옮긴다. */
+.wm-img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  /* 대륙을 바꿀 때 미끄러지듯 */
+  transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+              height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+              left 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+              top 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 흑백 지도라 테마 색에 맞춰 은은하게 */
+  opacity: 0.5;
+}
+[data-theme="dark"] .wm-img,
+[data-theme="navy"] .wm-img { filter: invert(1); opacity: 0.28; }
 
 .wm-pin {
   position: absolute;
@@ -7439,6 +7452,9 @@ a:hover { color: var(--accent); }
 .fglp-detail {
   position: absolute;
   inset: 0;
+  /* 목록의 나라 머리글이 sticky + z-index:1 이라 그냥 두면 이 패널을
+     뚫고 위로 올라온다. 확실히 덮도록 층을 올린다. */
+  z-index: 6;
   overflow-y: auto;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
@@ -7483,8 +7499,6 @@ a:hover { color: var(--accent); }
 .fglp-view.on { background: var(--surface-soft); border-color: var(--border-strong); color: var(--text); }
 
 /* 대륙을 옮기는 동안 살짝 흐려지며 이어지게 */
-.fglp-map { transition: opacity 0.16s ease; }
-.fglp-map.shifting { opacity: 0.35; }
 /* 핀은 제자리로 미끄러진다 */
 .wm-pin { transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
 .wm-pin.off { opacity: 0; pointer-events: none; }
@@ -7521,3 +7535,6 @@ a:hover { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .wm-pin, .fglp-map { transition: none; }
 }
+
+/* 핀은 지도 그림과 같은 박자로 */
+.wm-pin { transition: left 0.42s cubic-bezier(0.22, 1, 0.36, 1), top 0.42s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease; }
