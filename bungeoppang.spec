@@ -18,12 +18,25 @@ from pathlib import Path
 PROJECT = Path(SPECPATH)
 
 # 화면 파일과 사진은 그대로 함께 넣는다
+#
+# google_client.json (데스크톱 앱 OAuth 클라이언트)이 있으면 같이 넣는다.
+# 웹 클라이언트와 달리 데스크톱 클라이언트의 secret 은 구글도 비밀로 보지
+# 않는다(설치형 앱에서는 어차피 숨길 수 없다). 보안은 127.0.0.1 로만
+# 되돌아오는 점과 PKCE 가 맡는다. 그래서 넣어 두면 받은 사람이 파일을
+# 따로 챙기지 않아도 바로 로그인할 수 있다.
 datas = [
     (str(PROJECT / "web"), "web"),
     (str(PROJECT / "uni_photos.json"), "."),
     (str(PROJECT / "VERSION"), "."),
     (str(PROJECT / "config.example.py"), "."),
 ]
+
+_client = PROJECT / "google_client.json"
+if _client.exists():
+    datas.append((str(_client), "."))
+else:
+    print("[붕어빵] google_client.json 이 없어 로그인 준비물 없이 묶습니다. "
+          "받는 사람이 설정에서 직접 넣어야 합니다.")
 
 hiddenimports = [
     # 구글 라이브러리는 늦게 불러오는 곳이 있어 PyInstaller 가 놓친다

@@ -54,6 +54,9 @@ def authorize_drive(force=False):
                 f"Google OAuth credentials file not found: {CREDENTIALS_PATH}"
             )
         flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+        # PKCE: 매번 새로 만드는 검증값이 있어야 인증 코드를 토큰으로 바꿀 수 있다.
+        # 데스크톱 앱은 client_secret 을 비밀로 지킬 수 없으므로, 보안이 여기에 기댄다.
+        flow.autogenerate_code_verifier = True
         creds = flow.run_local_server(port=0)
 
     os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)

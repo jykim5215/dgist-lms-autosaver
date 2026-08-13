@@ -400,7 +400,34 @@ def get_download_path(workspace: UserWorkspace, config: dict[str, Any] | None = 
     return Path(str(config.get("DOWNLOAD_PATH", workspace.default_download_path)))
 
 
+# 앱과 함께 넣어 두는 '데스크톱 앱' 구글 클라이언트.
+#
+# 왜 이건 같이 넣어도 되나
+#   구글 OAuth 클라이언트에는 '웹'과 '데스크톱 앱' 두 종류가 있다.
+#   웹 클라이언트의 secret 은 진짜 비밀이라 남에게 넘어가면 안 된다.
+#   데스크톱 앱 클라이언트는 구글 문서에도 "설치형 앱에서는 secret 을
+#   비밀로 취급하지 않는다"고 적혀 있다. 어차피 사용자 컴퓨터에 배포되는
+#   파일에서 뽑아낼 수 있기 때문이고, 그래서 보안이 secret 이 아니라
+#   다음 두 가지에 기대도록 설계되어 있다.
+#     1) 되돌아오는 주소가 127.0.0.1 (그 컴퓨터 밖으로 안 나간다)
+#     2) PKCE (매번 새로 만드는 검증값이 있어야 코드를 토큰으로 못 바꾼다)
+#   gcloud CLI, rclone 같은 도구도 전부 이 방식으로 클라이언트를 넣어 배포한다.
+BUNDLED_GOOGLE_CLIENT = PROJECT_ROOT / "google_client.json"
+
+
 def read_google_client_config() -> tuple[str | None, dict[str, Any]]:
+    # 이 컴퓨터에 따로 넣어 둔 것이 있으면 그걸 먼저 쓴다.
+    # (내 계정 전용 클라이언트를 쓰고 싶은 경우)
+    if not DRIVE_CREDENTIALS_PATH.exists() and BUNDLED_GOOGLE_CLIENT.exists():
+        try:
+            data = json.loads(BUNDLED_GOOGLE_CLIENT.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        kind = "installed" if "installed" in data else "web" if "web" in data else None
+        if kind == "installed":
+            return kind, data.get(kind, {})
+        # 웹 클라이언트를 앱에 넣어 배포하는 것은 위험하다. 못 본 척한다.
+
     if not DRIVE_CREDENTIALS_PATH.exists():
         client_id = os.environ.get("AUTOSAVER_GOOGLE_CLIENT_ID", "").strip()
         client_secret = os.environ.get("AUTOSAVER_GOOGLE_CLIENT_SECRET", "").strip()
