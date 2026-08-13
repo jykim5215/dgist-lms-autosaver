@@ -2091,6 +2091,9 @@ function renderStatus() {
 /* ===== 설정: 구글 계정 섹션 ===== */
 function renderGoogleSection() {
   const oauth = state.status?.googleOAuth || {};
+  // 준비물이 없을 때만 '파일 고르기'를 띄운다
+  const drop = $("#credDrop");
+  if (drop) drop.hidden = Boolean(oauth.credentialsExists);
   const statusText = $("#googleStatusText");
   const loginButton = $("#googleLoginButton");
   const disconnectButton = $("#disconnectGoogleButton");
@@ -4308,6 +4311,29 @@ function bindEvents() {
       showToast(data.message || "캘린더 파일을 저장했습니다.");
     } catch (error) {
       showToast(error.message);
+    }
+  });
+
+  /* 다른 컴퓨터에서 처음 켰을 때 구글 준비물을 넣는 자리.
+     파일을 앱에 같이 넣어 돌리지 않으므로, 쓰는 사람이 한 번만 넣으면 된다. */
+  $("#credPickButton")?.addEventListener("click", () => $("#credFileInput")?.click());
+  $("#credHelpButton")?.addEventListener("click", () => $("#googleHelpDialog")?.showModal());
+  $("#credFileInput")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = await api("/api/google/credentials", {
+        method: "POST",
+        body: JSON.stringify({ json: text }),
+      });
+      showToast(res.message || "넣었습니다.");
+      await refreshAll();
+      renderGoogleSection();
+    } catch (error) {
+      showToast(error.message || "파일을 읽지 못했어요.");
+    } finally {
+      event.target.value = "";
     }
   });
 

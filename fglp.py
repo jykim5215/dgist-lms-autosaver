@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 VERIFIED_ON = "2026-08-13"
@@ -69,7 +70,9 @@ def _load_photos() -> dict:
     앱 안에 넣어 두었으므로 인터넷이 없어도 보이고, 어느 대학을 들여다보는지
     바깥에 알려지지도 않는다. 라이선스 표기는 화면에 같이 띄운다.
     """
-    path = Path(__file__).resolve().parent / "uni_photos.json"
+    # EXE 로 묶였을 때도 찾도록
+    base = Path(getattr(sys, "_MEIPASS", "") or Path(__file__).resolve().parent)
+    path = base / "uni_photos.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:

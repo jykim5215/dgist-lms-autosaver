@@ -1123,6 +1123,16 @@
                 </button>
               </div>
             </div>
+            <!-- 다른 컴퓨터에서 처음 켰을 때: 구글 클라이언트 파일을 넣는 자리.
+                 앱에 같이 넣어 배포하면 남이 내 앱 이름을 쓸 수 있어 따로 받는다. -->
+            <div class="cred-drop" id="credDrop" hidden>
+              <p>이 컴퓨터에는 구글 로그인 준비물(<code>credentials.json</code>)이 없습니다.</p>
+              <div class="cred-drop-actions">
+                <button class="button compact" id="credPickButton" type="button">파일 고르기</button>
+                <button class="text-button" id="credHelpButton" type="button">어디서 받나요?</button>
+              </div>
+              <input type="file" id="credFileInput" accept=".json,application/json" hidden />
+            </div>
             <button class="text-button" id="disconnectGoogleButton" type="button" hidden>
               이 컴퓨터의 구글 로그인 해제
             </button>

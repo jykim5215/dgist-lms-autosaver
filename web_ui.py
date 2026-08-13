@@ -29,7 +29,19 @@ import urllib.request
 from urllib.parse import parse_qs, urlencode, urlparse
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+def _bundle_root() -> Path:
+    """소스로 돌 때와 EXE로 묶였을 때 모두 맞는 '앱 파일이 있는 곳'.
+
+    PyInstaller 로 묶으면 화면 파일이 exe 옆 _internal 폴더로 들어가고
+    __file__ 은 그 안을 가리키지 않는다. sys._MEIPASS 를 봐야 한다.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base)
+    return Path(__file__).resolve().parent
+
+
+PROJECT_ROOT = _bundle_root()
 WEB_ROOT = PROJECT_ROOT / "web"
 DEFAULT_AUTOSAVER_ROOT = Path(r"C:\lms-autosaver") if os.name == "nt" else Path.home() / ".lms-autosaver"
 AUTOSAVER_ROOT = Path(os.environ.get("AUTOSAVER_ROOT", str(DEFAULT_AUTOSAVER_ROOT)))
@@ -413,6 +425,43 @@ def read_google_client_config() -> tuple[str | None, dict[str, Any]]:
     data = json.loads(DRIVE_CREDENTIALS_PATH.read_text(encoding="utf-8"))
     credential_type = "installed" if "installed" in data else "web" if "web" in data else None
     return credential_type, data.get(credential_type, {}) if credential_type else {}
+
+
+def save_google_credentials(payload: dict[str, Any]) -> dict[str, Any]:
+    """사용자가 고른 credentials.json 내용을 이 컴퓨터에 저장한다.
+
+    구글 클라우드 콘솔에서 받은 OAuth 클라이언트 파일을 그대로 붙여 넣으면 된다.
+    앱과 함께 배포하지 않고 쓰는 사람이 각자 넣는 방식이라, 남에게 내 비밀이
+    넘어가지 않는다.
+    """
+    raw = (payload or {}).get("json", "")
+    if isinstance(raw, dict):
+        data = raw
+    else:
+        text = str(raw).strip()
+        if not text:
+            raise ValueError("credentials.json 내용을 넣어 주세요.")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            raise ValueError("구글에서 받은 credentials.json 파일이 아닌 것 같아요.")
+
+    kind = "installed" if "installed" in data else "web" if "web" in data else None
+    if not kind:
+        raise ValueError("구글 OAuth 클라이언트 파일이 아닙니다. (installed/web 항목이 없어요)")
+    cfg = data.get(kind) or {}
+    if not cfg.get("client_id") or not cfg.get("client_secret"):
+        raise ValueError("client_id 또는 client_secret 이 없습니다.")
+
+    DRIVE_CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DRIVE_CREDENTIALS_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {
+        "ok": True,
+        "message": "구글 로그인 준비가 끝났습니다. 이제 '구글 계정 연결'을 눌러 주세요.",
+        "path": str(DRIVE_CREDENTIALS_PATH),
+    }
 
 
 def google_credentials_available() -> bool:
@@ -2584,6 +2633,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/storage/cleanup":
             try:
                 self.send_json(cleanup_storage(workspace, self.read_body_json()))
+            except Exception as exc:
+                self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/google/credentials":
+            # 다른 컴퓨터에서도 구글 로그인을 할 수 있게, credentials.json 을
+            # 앱 화면에서 직접 넣는다. 이 파일은 배포판에 넣지 않는다.
+            # (들어 있으면 받은 사람이 내 앱 이름으로 동의 화면을 띄울 수 있다)
+            try:
+                self.send_json(save_google_credentials(self.read_body_json()))
             except Exception as exc:
                 self.send_json({"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return

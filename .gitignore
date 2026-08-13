@@ -49,3 +49,7 @@ artifacts/
 doc2paper/
 hw_synth/
 shelves.json
+
+# PyInstaller 빌드 결과
+build/
+dist/

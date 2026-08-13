@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 import time
 import urllib.request
@@ -35,10 +36,13 @@ WINDOW_TITLE = "붕어빵"
 # 작업표시줄이 pythonw.exe나 옛 캐시가 아니라 이 앱을 별도 앱으로 인식하게 하는 식별자.
 # 바로가기(install.ps1)에도 같은 값을 넣어야 아이콘이 완전히 일치한다.
 APP_USER_MODEL_ID = "DGIST.Bungeoppang.App"
-APP_ICON = Path(__file__).resolve().parent / "web" / "app.png"
+# EXE 로 묶이면 화면 파일이 exe 옆 _internal 로 들어간다. 그때는 __file__ 이
+# 아니라 sys._MEIPASS 를 봐야 아이콘을 찾는다.
+_APP_ROOT = Path(getattr(sys, "_MEIPASS", "") or Path(__file__).resolve().parent)
+APP_ICON = _APP_ROOT / "web" / "app.png"
 
 
-APP_ICO = Path(__file__).resolve().parent / "web" / "app.ico"
+APP_ICO = _APP_ROOT / "web" / "app.ico"
 
 
 def set_app_user_model_id() -> None:
