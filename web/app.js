@@ -10456,6 +10456,8 @@ async function checkForUpdate(manual = false) {
   const pill = $("#updateReadyButton");
   if (pill) {
     pill.hidden = !ready;
+    // '새 업데이트 내용' 알약과 같은 강조(점·색)를 쓴다
+    pill.classList.toggle("fresh", ready);
     $("#updateReadyLabel").textContent = ready ? `새 버전 v${d.latest} 설치` : "새 버전 설치";
   }
 }
@@ -10501,8 +10503,9 @@ async function startAppUpdate() {
 $("#checkUpdateButton")?.addEventListener("click", () => checkForUpdate(true));
 $("#applyUpdateButton")?.addEventListener("click", startAppUpdate);
 $("#updateReadyButton")?.addEventListener("click", () => {
-  switchView("settings");
-  window.setTimeout(() => $("#updateRow")?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+  openSettings(); // 사이드바의 '설정' 도 같이 켜지게
+  // 화면 전환 효과가 끝난 뒤에 내려가야 먹는다 (150ms 로는 맨 위에 그대로 있었다)
+  window.setTimeout(() => $("#updateRow")?.scrollIntoView({ block: "center" }), 500);
 });
 window.setTimeout(() => checkForUpdate(false), 4000);
 window.setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000);
