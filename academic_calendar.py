@@ -33,9 +33,11 @@ _RANGE_RE = re.compile(r"(\d{1,2})\s*\.\s*(\d{1,2})(?:\s*~\s*(\d{1,2})\s*\.\s*(\
 
 
 def _clean(html: str) -> str:
-    text = _TAG_RE.sub("", html)
-    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-    return " ".join(text.split())
+    """태그를 걷고 문자 코드를 모두 푼다 ('&#039;27.2월 졸업생' 이 그대로 보였다)."""
+    import html as html_lib
+
+    text = html_lib.unescape(_TAG_RE.sub("", html))
+    return " ".join(text.replace(" ", " ").split())
 
 
 def _kind_of(title: str) -> str:
@@ -70,12 +72,60 @@ def _fetch(year: int, timeout: int = 20, tries: int = 3) -> str:
     raise last if last else RuntimeError("학사일정을 받지 못했습니다.")
 
 
-def fetch_academic_calendar(year: int | None = None) -> dict[str, Any]:
-    """학사일정을 {날짜, 제목, 구분} 목록으로 돌려준다."""
-    year = int(year or date.today().year)
+def _api_events(year: int) -> list[dict[str, Any]]:
+    """공식 오픈API 쪽 학사일정. 키가 없거나 실패하면 빈 목록."""
     try:
-        html = _fetch(year)
-    except Exception as exc:
+        import dgist_api
+
+        if not dgist_api.has_key():
+            return []
+        return dgist_api.fetch_schedule(year).get("events", []) or []
+    except Exception:
+        return []
+
+
+def _merge_events(primary: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 날 같은 제목이면 한 건으로 본다. primary 쪽 값을 남긴다.
+
+    API 는 시작·종료 '시각'까지 주고 홈페이지는 날짜만 준다.
+    그래서 API 를 primary 로 두고, 홈페이지에만 있는 일정을 여기서 채운다.
+    """
+    seen = {(e.get("start", ""), e.get("title", "")) for e in primary}
+    merged = list(primary)
+    for event in extra:
+        if (event.get("start", ""), event.get("title", "")) not in seen:
+            merged.append(event)
+    merged.sort(key=lambda e: (e["start"], e["title"]))
+    return merged
+
+
+def fetch_academic_calendar(year: int | None = None) -> dict[str, Any]:
+    """학사일정을 {날짜, 제목, 구분} 목록으로 돌려준다.
+
+    공식 오픈API가 먼저, 홈페이지 크롤링이 보조다.
+    둘 중 하나만 살아 있어도 화면은 그대로 뜬다.
+    """
+    year = int(year or date.today().year)
+
+    # 공식 API 와 홈페이지는 서로 다른 서버다. 줄 세울 이유가 없어서 같이 부른다.
+    # (키가 없으면 _api_events 는 네트워크를 안 쓰고 바로 빈 목록을 준다)
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        api_future = pool.submit(_api_events, year)
+        html_future = pool.submit(_fetch, year)
+        from_api = api_future.result()
+        html_error: Exception | None = None
+        try:
+            html = html_future.result()
+        except Exception as exc:
+            html_error = exc
+
+    if html_error is not None:
+        exc = html_error
+        if from_api:
+            return {"ok": True, "source": "openapi", "year": year,
+                    "count": len(from_api), "events": from_api}
         return {"ok": False, "year": year, "events": [], "message": f"학사일정을 받지 못했습니다: {exc}"}
 
     events: list[dict[str, Any]] = []
@@ -115,7 +165,11 @@ def fetch_academic_calendar(year: int | None = None) -> dict[str, Any]:
         )
 
     events.sort(key=lambda e: (e["start"], e["title"]))
-    return {"ok": True, "year": year, "count": len(events), "events": events}
+    if from_api:
+        events = _merge_events(from_api, events)
+        return {"ok": True, "source": "openapi+crawl", "year": year,
+                "count": len(events), "events": events}
+    return {"ok": True, "source": "crawl", "year": year, "count": len(events), "events": events}
 
 
 if __name__ == "__main__":

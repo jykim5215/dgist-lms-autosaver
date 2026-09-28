@@ -67,11 +67,9 @@ def save_directory(path: Path, people: list[dict[str, Any]]) -> dict[str, Any]:
             "role": str(p.get("role", "")).strip(),
         }
     people = sorted(seen.values(), key=lambda x: (x["name"], x["email"]))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"count": len(people), "people": people}, ensure_ascii=False, indent=1),
-        encoding="utf-8",
-    )
+    from runtime_config import atomic_write_text
+
+    atomic_write_text(path, json.dumps({"count": len(people), "people": people}, ensure_ascii=False, indent=1))
     return {"ok": True, "count": len(people)}
 
 

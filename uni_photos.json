@@ -180,5 +180,54 @@
     "author": "Jason M. C., Han",
     "license": "CC BY-SA 4.0",
     "source": "https://commons.wikimedia.org/wiki/File:Autumn%205th.jpg"
+  },
+  "uc-irvine": {
+    "file": "uc-irvine.jpg",
+    "title": "University of California, Irvine",
+    "author": "Mikejuinwind123",
+    "license": "CC BY-SA 2.5",
+    "source": "https://commons.wikimedia.org/wiki/File:UC%20Irvine%2C%20Main%20Circle%20-%20University%20Center%20View.JPG"
+  },
+  "university-of-british-columbia": {
+    "file": "university-of-british-columbia.jpg",
+    "title": "University of British Columbia",
+    "author": "Xicotencatl",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Asian%20Center%20UBC.JPG"
+  },
+  "utrecht-university": {
+    "file": "utrecht-university.jpg",
+    "title": "Utrecht University",
+    "author": "Naberacka",
+    "license": "CC0",
+    "source": "https://commons.wikimedia.org/wiki/File:Utrecht%20University%20campus%20panorama.jpg"
+  },
+  "rwth-aachen-university": {
+    "file": "rwth-aachen-university.jpg",
+    "title": "RWTH Aachen University",
+    "author": "Kleon3",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:2022%20Aachen%2C%20Intzestrasse%2C%20RWTH%20%2801%29.jpg"
+  },
+  "university-of-calgary": {
+    "file": "university-of-calgary.jpg",
+    "title": "University of Calgary",
+    "author": "Jgcab",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Administration%20University%20of%20Calgary.jpg"
+  },
+  "rmit-university": {
+    "file": "rmit-university.jpg",
+    "title": "RMIT University",
+    "author": "Donaldytong",
+    "license": "CC BY 3.0",
+    "source": "https://commons.wikimedia.org/wiki/File:%28VIC%29%20RMIT%20University%20City%20Campus%20Building%202%20%26%204%20Nov%202010.jpg"
+  },
+  "tu-wien": {
+    "file": "tu-wien.jpg",
+    "title": "TU Wien",
+    "author": "Herzi Pinki",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Audimax%20TU%20Wien%2C%20Getreidemarkt.jpg"
   }
 }

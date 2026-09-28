@@ -18,18 +18,11 @@ async def verify():
         browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS)
         page = await browser.new_page()
 
-        print("로그인 중...")
-        await page.goto(LOGIN_URL)
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(2)
-        await page.fill('input[placeholder="Login ID"]', LMS_ID)
-        await page.fill('input[type="password"]', LMS_PASSWORD)
-        await page.click('button:has-text("Login")')
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(5)
-        await page.goto(f"{LMS_URL}/ultra/institution-page")
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(3)
+        # 로그인 절차를 여기에 따로 베껴 두면 한쪽만 고쳐지고 다른 쪽은 그대로 남는다.
+        # (실제로 networkidle 대기 때문에 멈추는 문제를 여기서도 똑같이 겪었다)
+        from lms_crawler import login_lms
+
+        await login_lms(page)
 
         # 로컬 다운로드 파일 목록
         import os

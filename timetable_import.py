@@ -349,6 +349,22 @@ def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict
     undergraduate: True면 학부(대학) 과목만.
     """
     year_term = (year_term or "").strip() or current_term_value()
+
+    # 공식 오픈API 키가 있으면 그쪽이 우선이다.
+    # 홈페이지 화면이 바뀌어도 안 깨지고, 요일·시간이 이미 정리돼서 온다.
+    try:
+        import dgist_api
+
+        if dgist_api.has_key():
+            result = dgist_api.fetch_courses(
+                year_term=year_term, undergraduate=undergraduate
+            )
+            if result.get("courses"):
+                return result
+    except Exception:
+        # 키가 잘못됐거나 포털이 죽어도 아래 크롤링으로 계속 간다
+        pass
+
     org = ORG_UNDERGRAD if undergraduate else ORG_GRADUATE
     # 이제 브라우저를 안 쓰므로 그냥 부른다
     korean, english = _fetch_dgist(year_term=year_term, org=org)
@@ -386,6 +402,7 @@ def fetch_dgist_catalog(year_term: str = "", undergraduate: bool = True) -> dict
     with_time = [c for c in courses if c["slots"]]
     return {
         "ok": True,
+        "source": "crawl",
         "count": len(courses),
         "withTime": len(with_time),
         "yearTerm": year_term,

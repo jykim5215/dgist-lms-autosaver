@@ -17,6 +17,7 @@ from runtime_config import (
     LOGIN_URL,
     LMS_URL,
     PLAYWRIGHT_HEADLESS,
+    atomic_write_json,
     course_upload_enabled,
     extract_course_label,
     load_upload_selection,
@@ -38,8 +39,7 @@ def load_last_sync():
 
 def save_last_sync():
     from datetime import datetime as _dt
-    with open(LAST_SYNC_PATH, 'w', encoding='utf-8') as f:
-        json.dump({'lastSync': _dt.now(timezone.utc).isoformat()}, f)
+    atomic_write_json(LAST_SYNC_PATH, {'lastSync': _dt.now(timezone.utc).isoformat()})
 
 
 def is_modified_since(content, since):
@@ -62,8 +62,7 @@ def load_downloaded_files():
     return []
 
 def save_downloaded_files(files):
-    with open(DOWNLOADED_FILES_LOG, 'w', encoding='utf-8') as f:
-        json.dump(files, f, ensure_ascii=False, indent=2)
+    atomic_write_json(DOWNLOADED_FILES_LOG, files, ensure_ascii=False, indent=2)
 
 def load_file_metadata():
     if os.path.exists(FILE_METADATA_LOG):
@@ -72,8 +71,7 @@ def load_file_metadata():
     return {}
 
 def save_file_metadata(metadata):
-    with open(FILE_METADATA_LOG, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
+    atomic_write_json(FILE_METADATA_LOG, metadata, ensure_ascii=False, indent=2)
 
 # 전역 변수로 page 저장 (get_all_courses용)
 _page = None
@@ -87,6 +85,20 @@ def sanitize_name(value, fallback="item", max_length=48):
 def resolve_download_target(file_name, course_name, folder_path, file_metadata):
     """Avoid overwriting same-named files from different courses."""
     original_name = sanitize_name(file_name, "file", 180)
+
+    # 같은 과목의 같은 파일이 다시 오면(교수가 파일을 고쳐 다시 올린 경우)
+    # 새 이름으로 하나 더 만들지 말고 원래 자리에 덮어쓴다.
+    # 예전에는 URL 이 바뀌었다는 이유로 'BS101_Lecture_01.pdf' 가
+    # 두 벌씩 쌓였다. (실제로 다변수 과목에서 5건이 그랬다)
+    for local_name, meta in file_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get('original_name') == original_name and meta.get('course') == course_name:
+            stored = str(meta.get('stored') or local_name)
+            path = os.path.join(DOWNLOAD_PATH, stored)
+            os.makedirs(os.path.dirname(path) or DOWNLOAD_PATH, exist_ok=True)
+            return path, local_name
+
     existing = file_metadata.get(original_name)
     base_path = os.path.join(DOWNLOAD_PATH, original_name)
     if not os.path.exists(base_path) and not existing:
@@ -163,8 +175,59 @@ def filename_from_disposition(header_value):
     return ''
 
 
+def remember_lms_place(file_metadata, course_name, file_name, folder_path, order):
+    """이미 받아 둔 파일의 LMS 속 자리(폴더 경로와 순서)를 최신으로 맞춘다.
+
+    받아 둔 파일은 다시 내려받지 않고 건너뛰기 때문에, 예전에는 교수가
+    LMS 에서 폴더를 옮기거나 순서를 바꿔도 앱의 기록은 처음 받은 때 그대로였다.
+    화면에서 LMS 와 같은 폴더와 순서로 보여 주려면 이 정보가 맞아야 한다.
+    """
+    original_name = sanitize_name(file_name, "file", 180)
+    for meta in file_metadata.values():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get('course') != course_name:
+            continue
+        if meta.get('original_name') not in (file_name, original_name):
+            continue
+        meta['folder_path'] = list(folder_path)
+        if order:
+            meta['lms_order'] = list(order)
+        return True
+    return False
+
+
+# 이보다 큰 파일은 메모리에 통째로 올리지 않고 디스크로 흘려 받는다.
+# 실측(2026-09-28): 일반물리실험Ⅱ '02주차 등전위선 측정.pptx' 가
+# "Cannot create a string longer than 0x1fffffe8 characters" 로 매번 실패했다 (Playwright 가 512MB 넘는 본문을 못 담음).
+_STREAM_OVER_BYTES = 300 * 1024 * 1024
+
+
+def _stream_to_file(cookies, url, save_path):
+    """로그인 쿠키를 그대로 들고 조각조각 받아 임시 파일에 쓴 뒤 바꿔 끼운다."""
+    import requests
+
+    session = requests.Session()
+    for c in cookies:
+        session.cookies.set(c['name'], c['value'], domain=c.get('domain'), path=c.get('path', '/'))
+    tmp = save_path + '.part'
+    try:
+        with session.get(url, stream=True, timeout=(30, 600)) as r:
+            r.raise_for_status()
+            with open(tmp, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        f.write(chunk)
+        os.replace(tmp, save_path)
+    finally:
+        # 실패해서 남은 반쪽 파일은 치운다 (남겨 두면 다음에 '-2' 이름으로 또 받는다)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 async def download_lms_file(page, url, file_name, course_name, folder_path,
-                            downloaded_files, new_files, file_metadata, indent=""):
+                            downloaded_files, new_files, file_metadata, indent="",
+                            order=()):
     """파일 1개 다운로드 (중복/동영상 스킵 포함). 성공 시 True."""
     if file_name.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
         print(f"{indent}동영상 스킵: {file_name}")
@@ -172,6 +235,7 @@ async def download_lms_file(page, url, file_name, course_name, folder_path,
 
     url_key = url.split('?')[0]
     if url_key in downloaded_files:
+        remember_lms_place(file_metadata, course_name, file_name, folder_path, order)
         return False
 
     full_url = url if url.startswith('http') else f"{LMS_URL}{url}"
@@ -192,13 +256,34 @@ async def download_lms_file(page, url, file_name, course_name, folder_path,
         save_path, local_name = resolve_download_target(
             file_name, course_name, folder_path, file_metadata
         )
-        with open(save_path, 'wb') as f:
-            f.write(await dl_resp.body())
-        file_metadata[local_name] = {
+        size = int(dl_resp.headers.get('content-length') or 0)
+        body = None
+        if size <= _STREAM_OVER_BYTES:
+            try:
+                body = await dl_resp.body()
+            except Exception as e:
+                if 'string longer' not in str(e):
+                    raise
+        if body is None:
+            print(f"{indent}큰 파일이라 나눠 받는 중: {file_name} ({size // (1024 * 1024) or '?'}MB)")
+            await dl_resp.dispose()
+            cookies = await page.context.cookies()
+            await asyncio.to_thread(_stream_to_file, cookies, full_url, save_path)
+        else:
+            with open(save_path, 'wb') as f:
+                f.write(body)
+        # 같은 자리에 덮어쓴 경우, 정리된 위치(stored)를 잃으면 화면이 파일을 못 찾는다
+        prev = file_metadata.get(local_name)
+        entry = {
             'course': course_name,
             'folder_path': list(folder_path),
             'original_name': file_name
         }
+        if order:
+            entry['lms_order'] = list(order)
+        if isinstance(prev, dict) and prev.get('stored'):
+            entry['stored'] = prev['stored']
+        file_metadata[local_name] = entry
         new_files.append({
             'name': file_name,
             'local_name': local_name,
@@ -270,27 +355,44 @@ async def get_all_courses():
     return _last_courses
 
 async def login_lms(page, max_attempts=2):
-    """SAML 로그인 후 LMS 세션 완성까지 진행. 실패 시 1회 재시도."""
+    """SAML 로그인 후 LMS 세션 완성까지 진행. 실패 시 1회 재시도.
+
+    예전에는 단계마다 wait_for_load_state('networkidle') 로 기다렸다.
+    LMS(Blackboard Ultra)는 배경 요청이 끊이지 않는 화면이라 '네트워크가
+    조용해지는 순간'이 아예 안 온다. 그래서 될 때도 있고 30초 타임아웃으로
+    죽을 때도 있었다(자료 동기화가 여기서 계속 실패했다).
+    기다리는 기준을 '화면이 조용해질 때'가 아니라 '필요한 것이 생겼을 때'로 바꾼다.
+    """
     for attempt in range(1, max_attempts + 1):
         print(f"LMS 로그인 중... (시도 {attempt}/{max_attempts})")
-        await page.goto(LOGIN_URL)
-        await page.wait_for_load_state('networkidle')
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded")
+
+        # 로그인 칸이 실제로 그려질 때까지
+        await page.wait_for_selector('input[placeholder="Login ID"]', timeout=45000)
         await page.fill('input[placeholder="Login ID"]', LMS_ID)
         await page.fill('input[type="password"]', LMS_PASSWORD)
         await page.click('button:has-text("Login")')
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(3)
 
-        await page.goto(f"{LMS_URL}/ultra/institution-page")
-        await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(3)
+        # SAML 이 몇 번 되튕긴 뒤 LMS 도메인으로 넘어온다
+        try:
+            await page.wait_for_url(f"{LMS_URL}/**", timeout=45000)
+        except Exception:
+            # 주소가 안 바뀌어도 쿠키가 이미 섰을 수 있으니 아래 검증으로 판단한다
+            pass
 
-        # 세션이 실제로 만들어졌는지 검증
-        check = await page.request.get(f"{LMS_URL}/learn/api/public/v1/users/me")
-        if check.status == 200:
-            print("로그인 완료!")
-            return
-        print(f"로그인 검증 실패 (HTTP {check.status})")
+        await page.goto(f"{LMS_URL}/ultra/institution-page", wait_until="domcontentloaded")
+
+        # 세션 쿠키는 화면이 다 그려진 뒤에 서기도 한다.
+        # 완성될 때까지 API 로 직접 물어본다. (최대 40초)
+        status = 0
+        for _ in range(20):
+            check = await page.request.get(f"{LMS_URL}/learn/api/public/v1/users/me")
+            status = check.status
+            if status == 200:
+                print("로그인 완료!")
+                return
+            await asyncio.sleep(2)
+        print(f"로그인 검증 실패 (HTTP {status})")
 
     raise RuntimeError(
         "LMS 로그인에 실패했습니다. 설정에서 LMS ID/비밀번호를 확인해 주세요."
@@ -365,8 +467,7 @@ def diagnose_course_changes(courses):
             print(f"[과목 변경 감지] 추가 {len(added)}개, 사라짐 {len(removed)}개")
 
     try:
-        with open(COURSES_STATE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(new_state, f, ensure_ascii=False, indent=2)
+        atomic_write_json(COURSES_STATE_PATH, new_state, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[과목 변경] 저장 실패: {e}")
     return new_state
@@ -463,14 +564,18 @@ async def fetch_deadlines(page, courses):
         'items': items,
         'events': events,
     }
-    with open(DEADLINES_LOG, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(DEADLINES_LOG, payload, ensure_ascii=False, indent=2)
     print(f"[과제 마감일] {len(items)}건, 캘린더 {len(events)}건 저장")
     return payload
 
 
 async def crawl_deadlines_only():
     """파일 다운로드 없이 마감일/캘린더만 갱신."""
+    from browser_setup import ensure_browser
+
+    if not ensure_browser():
+        return
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS)
         context = await browser.new_context()
@@ -484,9 +589,16 @@ async def crawl_deadlines_only():
         return payload
 
 
+# 이번 수집에서 실패한 과목 수. 실패가 있으면 '마지막 동기화 시각'을 앞당기지 않는다.
+# 예전에는 한 과목이 시간 초과로 실패해도 시각이 앞으로 가서, 빠른 동기화(시각 - 2일 이후만 검사)가
+# 그 과목의 그 사이 자료를 다시는 보지 않았다.
+_course_failures = 0
+
+
 async def crawl_course(page, course, downloaded_files, new_files, file_metadata,
                        fast_since, semaphore):
     """과목 1개 크롤 (병렬 실행 단위)."""
+    global _course_failures
     async with semaphore:
         course_id = course['id']
         course_name = course['text']
@@ -500,11 +612,12 @@ async def crawl_course(page, course, downloaded_files, new_files, file_metadata,
             )
             if contents_status == 200:
                 print(f"  [{course_name[:20]}] 콘텐츠 {len(contents)}개")
-                for content in contents:
+                for position, content in enumerate(contents):
                     await process_content(
                         page, course_id, content, course_name,
                         downloaded_files, new_files, file_metadata,
-                        folder_path=[], depth=0, fast_since=fast_since
+                        folder_path=[], depth=0, fast_since=fast_since,
+                        order=(position,)
                     )
             else:
                 print(f"  [{course_name[:20]}] 콘텐츠 API 실패 ({contents_status})")
@@ -518,6 +631,7 @@ async def crawl_course(page, course, downloaded_files, new_files, file_metadata,
             save_downloaded_files(downloaded_files)
             save_file_metadata(file_metadata)
         except Exception as e:
+            _course_failures += 1
             print(f"강의 처리 실패: {course_name[:30]} - {e}")
 
 
@@ -549,6 +663,14 @@ async def crawl_lms(fast=None):
             print("[빠른 동기화] 이전 동기화 기록이 없어 전체 검사로 진행")
 
     new_files = []
+    global _course_failures
+    _course_failures = 0
+
+    from browser_setup import ensure_browser
+
+    # 부르는 쪽(main.run_job)이 목록을 그대로 훑으므로 빈 목록으로 돌려줘야 한다
+    if not ensure_browser():
+        return new_files
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS)
@@ -589,7 +711,16 @@ async def crawl_lms(fast=None):
         await browser.close()
         _page = None
 
-    save_last_sync()
+    if _course_failures:
+        print(f"[빠른 동기화] 과목 {_course_failures}개가 실패해 마지막 동기화 시각을 그대로 둡니다 (다음에 다시 봅니다).")
+    else:
+        save_last_sync()
+        if not fast:
+            # 매일 한 번 '꼼꼼히' 가 오늘 이미 끝났는지는 이 파일로 안다.
+            # last_sync.json 은 3시간마다 도는 빠른 동기화도 고치므로 그걸로는 알 수 없었다.
+            from datetime import datetime as _dt
+            atomic_write_json(os.path.join(os.path.dirname(LAST_SYNC_PATH), "last_full_sync.json"),
+                              {"lastFullSync": _dt.now().astimezone().isoformat(timespec="seconds")})
     print(f"\n총 {len(new_files)}개 새 파일 발견!")
     return new_files
 
@@ -618,7 +749,13 @@ async def crawl_announcements(page, course_id, course_name, downloaded_files, ne
                 downloaded_files, new_files, file_metadata, "    "
             )
 
-async def process_content(page, course_id, content, course_name, downloaded_files, new_files, file_metadata, folder_path, depth=0, fast_since=None):
+# 폴더 경로에 넣지 않는 이름.
+#  - Weekly Schedule: 주차 폴더를 한 번 더 감싸기만 하는 껍데기
+#  - ultraDocumentBody: Ultra 문서가 본문을 담아 두는 내부 항목 (LMS 화면에는 안 보인다)
+HIDDEN_FOLDER_TITLES = {'weekly schedule', 'ultradocumentbody'}
+
+
+async def process_content(page, course_id, content, course_name, downloaded_files, new_files, file_metadata, folder_path, depth=0, fast_since=None, order=()):
     if depth > 10:
         return
 
@@ -646,6 +783,9 @@ async def process_content(page, course_id, content, course_name, downloaded_file
     is_leaf = 'resource/x-bb-file' in content_type or 'resource/x-bb-document' in content_type
     leaf_changed = is_modified_since(content, fast_since) if is_leaf else True
 
+    # 이 항목에서 받을 파일을 먼저 모은다 (몇 개인지 알아야 폴더를 한 칸 더 둘지 정한다)
+    leaf_files = []  # [(파일이름, URL)]
+
     # 1) 첨부파일 (x-bb-file 등)
     if is_leaf and leaf_changed:
         attach_resp = await page.request.get(
@@ -656,21 +796,33 @@ async def process_content(page, course_id, content, course_name, downloaded_file
             for attachment in attach_data.get('results', []):
                 file_id = attachment.get('id', '')
                 file_name = attachment.get('fileName', content_title)
-                download_url = (
+                leaf_files.append((
+                    file_name,
                     f"{LMS_URL}/learn/api/public/v1/courses/{course_id}"
-                    f"/contents/{content_id}/attachments/{file_id}/download"
-                )
-                await download_lms_file(
-                    page, download_url, file_name, course_name, folder_path,
-                    downloaded_files, new_files, file_metadata, indent
-                )
+                    f"/contents/{content_id}/attachments/{file_id}/download",
+                ))
 
     # 2) 본문 내장 파일 (Ultra 문서는 본문 HTML에 파일이 들어 있음)
     if leaf_changed:
-        for file_name, url in extract_body_files(content.get('body', '')):
+        leaf_files.extend(extract_body_files(content.get('body', '')))
+
+    if leaf_files:
+        # LMS 화면에서 문서(x-bb-document)는 제 이름 아래에 파일을 달고 있다.
+        # 파일 항목이거나, 문서 이름이 곧 파일 이름인 한 개짜리면 한 칸을 더 두지 않는다.
+        leaf_path = folder_path
+        if ('resource/x-bb-document' in content_type and content_title.strip()
+                and content_title.strip().lower() not in HIDDEN_FOLDER_TITLES):
+            only_stem = (
+                os.path.splitext(leaf_files[0][0])[0].strip().lower()
+                if len(leaf_files) == 1 else None
+            )
+            if only_stem != content_title.strip().lower():
+                leaf_path = folder_path + [content_title.strip()]
+        for position, (file_name, url) in enumerate(leaf_files):
             await download_lms_file(
-                page, url, file_name, course_name, folder_path,
-                downloaded_files, new_files, file_metadata, indent
+                page, url, file_name, course_name, leaf_path,
+                downloaded_files, new_files, file_metadata, indent,
+                order=tuple(order) + (position,)
             )
 
     # 3) 하위 콘텐츠 재귀 (파일 단일 항목은 자식이 없으므로 제외)
@@ -683,15 +835,16 @@ async def process_content(page, course_id, content, course_name, downloaded_file
         )
         if children_status == 200 and sub_contents:
             print(f"{indent}📁 {content_title}")
-            if content_title.lower() == 'weekly schedule':
+            if content_title.strip().lower() in HIDDEN_FOLDER_TITLES:
                 new_path = folder_path
             else:
                 new_path = folder_path + [content_title]
-            for sub_content in sub_contents:
+            for position, sub_content in enumerate(sub_contents):
                 await process_content(
                     page, course_id, sub_content, course_name,
                     downloaded_files, new_files, file_metadata,
-                    folder_path=new_path, depth=depth+1, fast_since=fast_since
+                    folder_path=new_path, depth=depth+1, fast_since=fast_since,
+                    order=tuple(order) + (position,)
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"{indent}⚠ '{content_title[:30]}' 안쪽을 읽지 못했습니다: {e}")

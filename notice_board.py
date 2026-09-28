@@ -120,11 +120,23 @@ def fetch_board(key: str, limit: int = 20) -> dict[str, Any]:
 
 
 def fetch_all(limit: int = 12) -> dict[str, Any]:
-    """볼 수 있는 게시판을 모두 읽어 한 목록으로 합친다."""
+    """볼 수 있는 게시판을 모두 읽어 한 목록으로 합친다.
+
+    게시판끼리는 서로 기다릴 이유가 없다. 예전에는 하나씩 순서대로 받아서
+    학교 서버가 느린 날이면 그 지연이 게시판 수만큼 그대로 쌓였다.
+    (한 곳이 세 번 재시도하면 최악 60초까지 갔다)
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     items: list[dict[str, Any]] = []
     failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=len(BOARDS)) as pool:
+        futures = {key: pool.submit(fetch_board, key, limit) for key in BOARDS}
     for key, board in BOARDS.items():
-        result = fetch_board(key, limit)
+        try:
+            result = futures[key].result()
+        except Exception:
+            result = {"ok": False}
         if result.get("ok"):
             items.extend(result["items"])
         else:

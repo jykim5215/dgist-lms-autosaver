@@ -17,6 +17,44 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
+def atomic_write_text(path: Any, text: str, encoding: str = "utf-8") -> int:
+    """임시 파일에 다 쓴 뒤 한 번에 바꿔 끼운다.
+
+    예전에는 작업 프로세스가 file_metadata.json 을 제자리에서 다시 쓰는 동안 화면 서버가
+    반쯤 쓰인 파일을 읽어 JSON 오류 → '자료 0개' 로 보이고, 그 결과가 30초 캐시에 남았다
+    (2026-09-24 동기화 중 '자료가 다 없어짐'). 바꿔 끼우기는 읽는 쪽이 늘 온전한 파일을 본다.
+    Windows 에서는 다른 프로세스가 파일을 열고 있으면 교체가 잠깐 거절되므로 몇 번 다시 한다.
+    """
+    import threading
+    import time
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    with open(tmp, "w", encoding=encoding) as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    for _ in range(40):
+        try:
+            os.replace(tmp, target)
+            return len(text)
+        except PermissionError:
+            time.sleep(0.05)
+    try:
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            os.remove(tmp)
+        finally:
+            raise
+    return len(text)
+
+
+def atomic_write_json(path: Any, data: Any, **dump_kwargs: Any) -> None:
+    atomic_write_text(path, json.dumps(data, **dump_kwargs))
+
+
 def _default_root() -> Path:
     if os.name == "nt":
         return Path(r"C:\lms-autosaver")
@@ -61,7 +99,9 @@ def _read_legacy_config() -> dict[str, Any]:
 
 
 DPAPI_PREFIX = "dpapi:"
-SECRET_KEYS = ("LMS_PASSWORD", "EMAIL_PASSWORD", "SCHOOL_EMAIL_PASSWORD", "GEMINI_API_KEY")
+# web_ui.SECRET_KEYS 와 같아야 한다. 여기서 빠지면 설정 화면이 암호화해 저장한 값을
+# 작업 프로세스와 dgist_api 가 'dpapi:...' 암호문 그대로 받아 API 호출이 실패한다.
+SECRET_KEYS = ("LMS_PASSWORD", "EMAIL_PASSWORD", "SCHOOL_EMAIL_PASSWORD", "GEMINI_API_KEY", "DGIST_API_KEY")
 
 
 def _dpapi_unprotect(text: str) -> str:
@@ -120,6 +160,8 @@ _CONFIG = _load_config()
 LMS_ID = str(_CONFIG.get("LMS_ID", ""))
 LMS_PASSWORD = str(_CONFIG.get("LMS_PASSWORD", ""))
 GEMINI_API_KEY = str(_CONFIG.get("GEMINI_API_KEY", ""))
+# 공공데이터포털(data.go.kr) 인증키 — 개설강좌·학사일정·세미나 조회에 쓴다
+DGIST_API_KEY = str(_CONFIG.get("DGIST_API_KEY", ""))
 EMAIL_ADDRESS = str(_CONFIG.get("EMAIL_ADDRESS", ""))
 EMAIL_PASSWORD = str(_CONFIG.get("EMAIL_PASSWORD", ""))
 EMAIL_TO = str(_CONFIG.get("EMAIL_TO", EMAIL_ADDRESS))
@@ -132,6 +174,8 @@ SCHOOL_SMTP_HOST = str(_CONFIG.get("SCHOOL_SMTP_HOST", "smtp.dgist.ac.kr"))
 SCHOOL_SMTP_PORT = int(_CONFIG.get("SCHOOL_SMTP_PORT", 465))
 EMAIL_INTERESTS = str(_CONFIG.get("EMAIL_INTERESTS", "전공 탐색, 취업, 음악, 세미나"))
 LOCAL_SAVE_PATH = str(_CONFIG.get("LOCAL_SAVE_PATH", ""))
+# 동기화 때 구글 드라이브에도 올릴지. 예전 설정에는 이 키가 없고, 그때는 늘 올렸다.
+DRIVE_UPLOAD = _CONFIG.get("AUTO_DRIVE_UPLOAD", True) is not False
 LMS_URL = str(_CONFIG.get("LMS_URL", "https://lms.dgist.ac.kr"))
 LOGIN_URL = str(
     _CONFIG.get(
@@ -199,3 +243,11 @@ PLAYWRIGHT_HEADLESS = os.environ.get("AUTOSAVER_HEADLESS", "1").lower() not in {
     "no",
     "off",
 }
+
+# ===== 하위 작업(새로고침·동기화) 실행 방식 =====
+# 소스로 돌 때는 `python -c "..."` 로 하위 프로세스를 띄우면 된다.
+# 그런데 EXE 로 묶이면 sys.executable 이 '붕어빵.exe' 라서, 같은 방식으로 부르면
+# -c 가 무시된 채 앱이 통째로 다시 켜진다. (새로고침할 때마다 창이 하나씩 더 뜨고,
+#  정작 크롤링은 돌지 않는다) 그래서 EXE 일 때는 이 인자를 붙여
+# app.py 가 창을 띄우지 않고 작업만 하고 끝나도록 한다.
+WORKER_FLAG = "--autosaver-job"

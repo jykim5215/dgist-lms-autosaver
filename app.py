@@ -153,7 +153,9 @@ def downloaded_count(workspace) -> int:
 def run_scheduled_sync(workspace) -> None:
     """예약 동기화 실행 후 결과를 토스트로 알림."""
     before = downloaded_count(workspace)
-    ok, _message = web_ui.start_task(workspace, "sync")
+    # '하루 한 번 꼼꼼히' 는 이름 그대로 전체를 훑어야 한다. 예전에는 기본값(fast)으로 불려
+    # 변경 시각이 옛날인 채로 나중에 공개된 자료를 영영 못 봤다.
+    ok, _message = web_ui.start_task(workspace, "sync", sync_mode="full", auto=True)
     if not ok:
         return
     # 작업 종료 대기 (최대 30분)
@@ -176,43 +178,110 @@ def run_scheduled_sync(workspace) -> None:
 def scheduler_loop() -> None:
     """앱이 켜져 있는 동안 매일 예약 시간(SCHEDULE_TIME)에 자동 동기화."""
     workspace = web_ui.workspace_for_user("local")
-    # 앱 시작 시점에 이미 예약 시간이 지났다면 오늘은 건너뜀 (켤 때마다 동기화 방지)
-    last_run_day = None
-    try:
-        config = web_ui.read_config(workspace)
-        schedule_time = str(config.get("SCHEDULE_TIME", "08:00")).strip() or "08:00"
-        if datetime.now().strftime("%H:%M") >= schedule_time:
-            last_run_day = datetime.now().strftime("%Y-%m-%d")
-    except Exception:
-        pass
-    last_interval_run = time.monotonic()
+
+    def last_sync_day() -> str | None:
+        """마지막으로 자료 동기화가 실제로 끝난 날(로컬 날짜).
+
+        예전에는 '앱을 켤 때 이미 예약 시간이 지났으면 오늘은 건너뜀' 이었다.
+        그러면 08:00 이후에 앱을 켜는 날은 동기화가 영영 안 돈다 — 실제로
+        LMS 에 새로 올라온 학술 글쓰기 자료가 하루 넘게 안 들어왔다.
+        메모리 대신 last_sync.json 을 보면 '오늘 아직 안 했다' 를 정확히 안다.
+        """
+        try:
+            # 빠른 동기화(3시간마다)도 last_sync.json 을 고치므로, 그걸 보면 '오늘은 이미 했다' 로
+            # 보여 전체 검사가 한 번도 돌지 않았다. 전체 검사만 적는 파일을 본다.
+            data = web_ui.read_json(workspace.root / "last_full_sync.json", {})
+            raw = str((data or {}).get("lastFullSync", ""))
+            if not raw:
+                return None
+            when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return when.astimezone().strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    last_run_day = last_sync_day()
+    # 켜자마자 LMS 를 두드리지 않도록 2분만 숨을 고른다
+    started_at = time.monotonic()
     while True:
         try:
             config = web_ui.read_config(workspace)
             schedule_time = str(config.get("SCHEDULE_TIME", "08:00")).strip() or "08:00"
             now = datetime.now()
             today = now.strftime("%Y-%m-%d")
-            if now.strftime("%H:%M") >= schedule_time and last_run_day != today:
+            due_today = now.strftime("%H:%M") >= schedule_time and last_run_day != today
+            if due_today and time.monotonic() - started_at > 120:
                 with web_ui.task_lock:
                     running = web_ui.task_states.get(workspace.user_id, {}).get("running", False)
                 if not running:
                     last_run_day = today
                     run_scheduled_sync(workspace)
 
-            # 주기 실행 (설정에서 켠 경우에만)
-            interval = int(config.get("AUTO_INTERVAL_MINUTES", 0) or 0)
-            if interval > 0 and time.monotonic() - last_interval_run >= interval * 60:
+            # 종류별 자동 실행. 자동이 기본이고, 새로고침 버튼은 '지금 당장' 용.
+            # 기준은 메모리가 아니라 health.json 의 마지막 성공 시각이라,
+            # 앱을 껐다 켜도 방금 한 걸 또 하지 않고, 오래 안 했으면 곧 한다.
+            # 한 번에 하나만 돌린다 (LMS 로그인이 겹치지 않게).
+            if time.monotonic() - started_at > 45:
                 with web_ui.task_lock:
                     running = web_ui.task_states.get(workspace.user_id, {}).get("running", False)
                 if not running:
-                    last_interval_run = time.monotonic()
-                    kind = str(config.get("AUTO_INTERVAL_KIND", "emails")).strip() or "emails"
-                    if kind not in ("emails", "deadlines", "sync"):
-                        kind = "emails"
-                    web_ui.start_task(workspace, kind)
+                    kind = next_due_job(workspace, web_ui.auto_minutes(config))
+                    if kind:
+                        web_ui.start_task(workspace, kind, auto=True)
         except Exception:
             pass
         time.sleep(30)
+
+
+def next_due_job(workspace, minutes: dict[str, int]) -> str | None:
+    """지금 돌 차례인 자동 작업 하나. 없으면 None.
+
+    급한 순서: 메일(짧은 주기) → 마감 → 자료.
+    막 실패한 작업을 30초마다 다시 두드리지 않도록, 실패 뒤에는 주기의
+    절반(최소 5분)은 쉰다.
+    """
+    health = web_ui.read_json(workspace.root / "health.json", {}) or {}
+    success = health.get("lastSuccess") or {}
+    failure = health.get("lastFailure") or {}
+    now = datetime.now()
+
+    def age_minutes(stamp) -> float:
+        try:
+            when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+            if when.tzinfo is not None:
+                when = when.astimezone().replace(tzinfo=None)
+            return (now - when).total_seconds() / 60
+        except (TypeError, ValueError):
+            return float("inf")
+
+    streaks = health.get("failStreak") or {}
+    auth = health.get("authFailed") or {}
+    try:
+        st = workspace.config_path.stat()
+        config_stamp = [st.st_mtime_ns, st.st_size]
+    except OSError:
+        config_stamp = None
+
+    for kind in ("emails", "deadlines", "sync"):
+        every = int(minutes.get(kind, 0) or 0)
+        if every <= 0:
+            continue
+        if age_minutes(success.get(kind)) < every:
+            continue
+        # 서버가 로그인을 거절했으면 설정(비밀번호)이 바뀔 때까지 자동으로는 다시 하지 않는다.
+        # 틀린 비밀번호로 5분마다 두드리면 학교 계정이 잠길 수 있다. 수동 새로고침은 그대로 된다.
+        # 다만 학교 서버가 가끔 멀쩡한 비밀번호도 거절한다(9/26 성공 → 9/27 거절). 영영 멈추지 않고 2시간 뒤 한 번 더 본다.
+        locked = auth.get(kind)
+        if locked and locked.get("configStamp") == config_stamp and age_minutes(locked.get("at")) < 120:
+            continue
+        # 그 밖의 실패는 연속으로 실패할수록 간격을 두 배로 (최대 6시간)
+        streak = int(streaks.get(kind, 0) or 0)
+        wait = min(max(5, every) * (2 ** max(0, streak - 1)), 360) if streak else 0
+        if failure.get("kind") == kind:
+            wait = max(wait, max(5, every / 2))
+        if wait and age_minutes((failure.get("at") if failure.get("kind") == kind else None) or success.get(kind)) < wait:
+            continue
+        return kind
+    return None
 
 
 def port_in_use(host: str, port: int) -> bool:
@@ -222,29 +291,154 @@ def port_in_use(host: str, port: int) -> bool:
 
 
 def existing_dashboard(host: str, port: int) -> bool:
-    """포트를 점유한 프로세스가 이 앱의 대시보드인지 확인."""
+    """포트를 점유한 프로세스가 이 앱(붕어빵)의 대시보드인지 확인.
+
+    200 만 보면 안 된다. 다른 웹 서버도 /healthz 에 200 을 줄 수 있다.
+    우리 서버만 돌려주는 모양(ok·mode)까지 본다.
+    """
     try:
         with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=1.5) as resp:
-            return resp.status == 200
+            if resp.status != 200:
+                return False
+            body = resp.read(2048).decode("utf-8", "replace")
+            return '"ok"' in body and '"mode"' in body
     except Exception:
         return False
 
 
-def start_server() -> ThreadingHTTPServer | None:
-    """서버를 띄우고 반환. 이미 대시보드가 떠 있으면 None."""
-    if port_in_use(HOST, PORT):
-        if existing_dashboard(HOST, PORT):
-            return None
-        raise RuntimeError(
-            f"포트 {PORT}를 다른 프로그램이 사용 중입니다. "
-            "AUTOSAVER_UI_PORT 환경 변수로 포트를 바꿔 주세요."
-        )
+# 8765 가 막혀 있으면 이 범위에서 빈 곳을 찾는다.
+# (실제로 다른 개발 도구가 8765 에 웹 서버를 띄워 붕어빵이 "포트 사용 중" 으로 멈췄다)
+PORT_CANDIDATES = [PORT] + [p for p in range(8766, 8786) if p != PORT]
 
+
+class ExclusiveHTTPServer(ThreadingHTTPServer):
+    """다른 프로그램과 같은 포트를 겹쳐 잡지 않는 서버.
+
+    파이썬 기본 HTTP 서버는 SO_REUSEADDR 를 켜는데, Windows 에서는 이것이
+    '이미 누가 쓰는 포트도 같이 잡기' 를 허락한다. 그러면 두 서버가 한 포트를
+    나눠 가져 요청이 엉뚱한 쪽으로 간다. 혼자만 잡도록 막는다.
+    """
+
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        super().server_bind()
+
+
+def start_server() -> ThreadingHTTPServer | None:
+    """서버를 띄우고 반환. 이미 붕어빵 대시보드가 떠 있으면 None.
+
+    쓰기로 한 포트는 전역 PORT 와 환경 변수에 적어 둔다
+    (창 주소와 작업 프로세스가 같은 포트를 보게).
+    """
+    global PORT
+
+    # 1) 이미 켜진 붕어빵이 있으면 서버를 또 띄우지 않고 그 창만 연다
+    for port in PORT_CANDIDATES:
+        if port_in_use(HOST, port) and existing_dashboard(HOST, port):
+            PORT = port
+            os.environ["AUTOSAVER_UI_PORT"] = str(port)
+            return None
+
+    # 2) 빈 포트에 띄운다
     web_ui.ensure_data_files(web_ui.workspace_for_user("local"))
-    server = ThreadingHTTPServer((HOST, PORT), web_ui.DashboardHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server
+    for port in PORT_CANDIDATES:
+        if port_in_use(HOST, port):
+            continue
+        try:
+            server = ExclusiveHTTPServer((HOST, port), web_ui.DashboardHandler)
+        except OSError:
+            continue
+        PORT = port
+        os.environ["AUTOSAVER_UI_PORT"] = str(port)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server
+
+    raise RuntimeError(
+        f"붕어빵이 쓸 포트를 찾지 못했습니다 ({PORT_CANDIDATES[0]}~{PORT_CANDIDATES[-1]} 모두 사용 중). "
+        "다른 프로그램을 몇 개 닫고 다시 켜 주세요."
+    )
+
+
+def _bind_worker_output() -> None:
+    """창 없는 EXE(console=False)는 sys.stdout 이 None 이다.
+
+    그대로 두면 작업 로그를 찍는 print() 가 터지면서, 화면에는 이유 없이
+    실패한 것처럼 보인다. 부모가 파이프를 물려 줬으면 그 손잡이를 다시 잡는다.
+    """
+    import io
+
+    for name, fd in (("stdout", 1), ("stderr", 2)):
+        current = getattr(sys, name, None)
+        if current is not None:
+            # 파이프가 붙어 있어도 인코딩은 시스템 기본(한국어 Windows 는 cp949)이라
+            # 로그에 └ ─ 같은 글자가 하나 섞이면 UnicodeEncodeError 로 작업이 죽는다.
+            # (playwright 가 안내문을 상자로 그려서 실제로 이렇게 터졌다)
+            try:
+                current.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+            continue
+        try:
+            stream = io.TextIOWrapper(
+                open(fd, "wb", buffering=0), encoding="utf-8", errors="replace", write_through=True
+            )
+        except Exception:
+            # 파이프도 없으면 조용히 버린다 (print 가 죽는 것만은 막는다)
+            stream = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True)
+        setattr(sys, name, stream)
+
+
+def run_worker(job: str) -> int:
+    """새로고침·동기화 같은 하위 작업을 창 없이 실행한다.
+
+    EXE 로 묶이면 sys.executable 이 '붕어빵.exe' 라서 `-c "..."` 방식이 통하지 않는다.
+    그대로 두면 새로고침할 때마다 앱이 통째로 한 번 더 켜지고(창이 계속 늘어남),
+    정작 크롤링은 시작도 못 한다. 그래서 EXE 는 이 함수로 들어온다.
+
+    여기서는 서버도 창도 만들지 않는다. 로그는 표준출력으로 나가고,
+    부르는 쪽(web_ui.run_process)이 그대로 읽어 화면에 보여 준다.
+    """
+    import asyncio
+
+    _bind_worker_output()
+
+    try:
+        if job == "sync":
+            import main as sync_main
+
+            asyncio.run(sync_main.run_job())
+        elif job == "deadlines":
+            import lms_crawler
+
+            asyncio.run(lms_crawler.crawl_deadlines_only())
+        elif job == "emails":
+            import email_reader
+
+            email_reader.refresh_emails()
+        elif job == "verify":
+            import verify
+
+            asyncio.run(verify.verify())
+        elif job == "google-oauth":
+            from drive_uploader import authorize_drive
+
+            authorize_drive(force=True)
+        else:
+            print(f"알 수 없는 작업입니다: {job}")
+            return 1
+    except Exception as exc:
+        # 하위 프로세스가 조용히 죽으면 화면에 아무 설명도 안 뜬다
+        import traceback
+
+        traceback.print_exc()
+        print(f"작업이 실패했습니다: {exc}")
+        return 1
+    return 0
 
 
 def main() -> None:
@@ -254,9 +448,12 @@ def main() -> None:
     try:
         server = start_server()
     except RuntimeError as exc:
-        import ctypes
+        if os.name == "nt":
+            import ctypes
 
-        ctypes.windll.user32.MessageBoxW(0, str(exc), WINDOW_TITLE, 0x10)
+            ctypes.windll.user32.MessageBoxW(0, str(exc), WINDOW_TITLE, 0x10)
+        else:
+            print(f"{WINDOW_TITLE}: {exc}", file=sys.stderr)
         return
 
     try:
@@ -295,4 +492,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # 작업 인자로 불렸으면 창을 만들지 않고 그 작업만 하고 끝낸다.
+    # (web_ui.start_task 가 EXE 일 때 이 형태로 부른다)
+    from runtime_config import WORKER_FLAG
+
+    if len(sys.argv) >= 3 and sys.argv[1] == WORKER_FLAG:
+        sys.exit(run_worker(sys.argv[2]))
     main()

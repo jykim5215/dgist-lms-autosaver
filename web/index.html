@@ -67,10 +67,6 @@
             메일함
             <span class="nav-badge" id="emailBadge" hidden>0</span>
           </button>
-          <button class="nav-item" type="button" data-view="compose">
-            <span class="icon" data-icon="edit"></span>
-            메일 쓰기
-          </button>
 
           <span class="nav-group-label">창고</span>
           <button class="nav-item" type="button" data-view="storage">
@@ -85,20 +81,72 @@
           </button>
         </nav>
 
-        <div class="sidebar-footer">
+        <!-- 설치할 새 버전이 있을 때만 보인다. 누르면 설정의 '새 버전' 줄로 간다 -->
+        <button class="whats-new update-ready" id="updateReadyButton" type="button" hidden>
+          <span class="whats-new-dot" aria-hidden="true"></span>
+          <span id="updateReadyLabel">새 버전 설치</span>
+        </button>
+        <!-- 업데이트 소식: 새 버전이면 점이 붙고, 누르면 바뀐 내용을 보여 준다 -->
+        <button class="whats-new" id="whatsNewButton" type="button" hidden>
+          <span class="whats-new-dot" aria-hidden="true"></span>
+          <span id="whatsNewLabel">업데이트 내용</span>
+        </button>
+        <!-- 상태판: 무엇이 잘 되고 있는지, 다음에 무엇을 언제 가져오는지. 누르면 고칠 곳으로 간다.
+             예전 '설정 필요 / 매일 08:00 실행' 은 쓰지 않는 설정(Gemini·Gmail 알림)까지 요구해 늘 '설정 필요' 였다. -->
+        <button class="sidebar-footer status-card" id="statusCard" type="button">
           <span class="status-dot" id="sidebarStatusDot"></span>
           <div>
             <strong id="sidebarStatus">상태 확인 중</strong>
-            <span id="sidebarSchedule">예약 시간 불러오는 중</span>
+            <span id="sidebarSchedule">잠시만요</span>
+            <span class="status-lights" id="statusLights" aria-label="연결 상태"></span>
+          </div>
+        </button>
+      </aside>
+
+      <!-- 첫 실행 소개: 달구가 메뉴를 하나씩 비추며 알려 준다 -->
+      <div class="tour" id="tour" hidden role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+        <!-- 비추는 곳 둘레를 네 장으로 덮어 어둡게 한다 -->
+        <div class="tour-dim" data-dim="top"></div>
+        <div class="tour-dim" data-dim="bottom"></div>
+        <div class="tour-dim" data-dim="left"></div>
+        <div class="tour-dim" data-dim="right"></div>
+        <div class="tour-spot" id="tourSpot"></div>
+        <div class="tour-card" id="tourCard">
+          <div class="tour-bubble">
+            <span class="tour-count" id="tourCount"></span>
+            <h2 id="tourTitle"></h2>
+            <p id="tourText"></p>
+          </div>
+          <div class="tour-dots" id="tourDots" aria-hidden="true"></div>
+          <div class="tour-actions">
+            <button type="button" class="tour-skip" id="tourSkip">건너뛰기</button>
+            <span class="tour-gap"></span>
+            <button type="button" class="button compact ghost" id="tourPrev">이전</button>
+            <button type="button" class="button compact primary" id="tourNext">다음</button>
           </div>
         </div>
-      </aside>
+        <!-- 달구: 카드에 붙어 있지 않고, 단계마다 비추는 곳 옆으로 걸어가거나 뛰어간다 -->
+        <div class="tour-buddy" id="tourBuddy" aria-hidden="true"><img id="tourBuddyImg" src="/img/dalgu/yay.png" alt="" /></div>
+      </div>
+
+      <dialog class="whats-new-dialog" id="whatsNewDialog" aria-labelledby="whatsNewTitle">
+        <div class="whats-new-head">
+          <h2 id="whatsNewTitle">업데이트 내용</h2>
+          <button type="button" class="whats-new-close" id="whatsNewClose" aria-label="닫기">
+            <span class="icon" data-icon="x"></span>
+          </button>
+        </div>
+        <div class="whats-new-body" id="whatsNewBody"></div>
+      </dialog>
 
       <main class="main">
         <header class="topbar">
           <div class="search-wrap">
             <span class="icon" data-icon="search"></span>
-            <input id="searchInput" type="search" placeholder="과목, 과제, 파일명 검색" autocomplete="off" />
+            <input id="searchInput" type="search" placeholder="과목·자료·과제·메일·일정 찾기" autocomplete="off" />
+            <kbd class="search-kbd" aria-hidden="true">Ctrl K</kbd>
+            <!-- 통합 검색 결과: 과목·자료·과제·메일·일정·공지·설정을 한 번에 -->
+            <div class="search-pop" id="searchPop" role="listbox" aria-label="검색 결과" hidden></div>
           </div>
           <div class="topbar-actions">
             <!-- 작업 진행 표시: 동기화/새로고침을 누르면 물방울이 튀어나와 여기서 부풀어 오름 -->
@@ -112,11 +160,15 @@
               </span>
               <span class="top-progress-pct" id="topProgressPct">0%</span>
             </div>
-            <!-- LMS 마감·일정과 메일을 한 번에 -->
-            <button class="button primary" id="refreshAllButton" type="button" title="LMS 마감·일정과 메일을 함께 다시 가져옵니다.">
-              <span class="icon" data-icon="sync"></span>
-              새로고침
-            </button>
+            <!-- 자동으로 가져오는 게 기본. 보고 있는 화면의 마지막 동기화 시각 -->
+            <!-- 언제 가져왔는지 + 지금 다시 가져오기를 한 알약에 묶는다 (따로 떠 있으면 높이·줄이 안 맞았다) -->
+            <div class="sync-pill">
+              <span class="last-sync" id="lastSync" hidden></span>
+              <button class="sync-button" id="refreshAllButton" type="button" title="LMS 마감·일정과 메일을 함께 다시 가져옵니다.">
+                <span class="icon" data-icon="sync"></span>
+                새로고침
+              </button>
+            </div>
             <!-- 테마: 누를 때마다 카드가 넘어가듯 다음 테마로 -->
             <button class="theme-flip" id="themeFlip" type="button" aria-label="테마 바꾸기">
               <span class="tf-card" id="themeCard">
@@ -140,7 +192,18 @@
                   <span class="icon" data-icon="edit"></span>
                   <span id="dashEditLabel">화면 편집</span>
                 </button>
-                <h1 id="heroTitle">안녕하세요 👋</h1>
+                <h1 id="heroTitle" class="hero-greeting">
+                  <svg class="hero-spark" viewBox="0 0 32 32" aria-hidden="true">
+                    <g fill="currentColor">
+                      <rect x="14.6" y="1" width="2.8" height="30" rx="1.4" />
+                      <rect x="14.6" y="1" width="2.8" height="30" rx="1.4" transform="rotate(45 16 16)" />
+                      <rect x="14.6" y="1" width="2.8" height="30" rx="1.4" transform="rotate(90 16 16)" />
+                      <rect x="14.6" y="1" width="2.8" height="30" rx="1.4" transform="rotate(135 16 16)" />
+                    </g>
+                  </svg>
+                  <span id="heroText">안녕하세요</span>
+                </h1>
+                <p class="hero-sub" id="heroSub"></p>
               </div>
 
               <!-- 학사일정 중 놓치면 큰 것(수강신청·성적확인)만 크게 -->
@@ -149,6 +212,7 @@
                 <div class="dday-body">
                   <strong id="ddayTitle"></strong>
                   <span id="ddayWhen"></span>
+                  <span class="dday-next" id="ddayNext"></span>
                 </div>
               </section>
 
@@ -186,7 +250,6 @@
                     <h2 id="noticeTitle">학교 공지</h2>
                     <p>공식 홈페이지의 일반공지·보도자료·채용정보</p>
                   </div>
-                  <button class="button compact ghost" id="refreshNotices" type="button">새로고침</button>
                 </div>
                 <div class="notice-list" id="noticeList"></div>
               </section>
@@ -404,7 +467,8 @@
               </div>
               <div class="calendar-legend">
                 <span><i class="dot cal-deadline"></i> 과제 마감</span>
-                <span><i class="dot cal-event"></i> 메일 일정</span>
+                <span><i class="dot cal-school"></i> 학교 행사</span>
+                <span><i class="dot cal-event"></i> 세미나</span>
                 <span><i class="dot cal-done"></i> 제출 완료</span>
                 <span><i class="dot cal-mine"></i> 내 일정</span>
                 <span><i class="dot cal-academic"></i> 학사일정</span>
@@ -596,7 +660,6 @@
                   </div>
                   <div class="shuttle-actions">
                     <select id="shuttleGroup" aria-label="노선 갈래"></select>
-                    <button class="button compact ghost" id="refreshShuttle" type="button">새로고침</button>
                   </div>
                 </div>
                 <div class="shuttle-list" id="shuttleList"></div>
@@ -621,10 +684,6 @@
                   <nav class="mail-folders" id="mailFolders"></nav>
 
                   <div class="mail-rail-foot">
-                    <button class="mail-refresh" id="refreshEmailsButton" type="button">
-                      <span class="icon" data-icon="sync"></span>
-                      새로고침
-                    </button>
                     <p class="mail-quota" id="mailQuota"></p>
                   </div>
                 </aside>
@@ -637,6 +696,10 @@
                         <span class="icon" data-icon="menu"></span>
                       </button>
                       <h1 id="mailFolderTitle">받은 편지함 <em id="mailFolderCount"></em></h1>
+                      <button class="mail-refresh" id="mailRefreshButton" type="button" title="메일 새로고침">
+                        <span class="icon" data-icon="sync"></span>
+                        <span class="mail-refresh-ago" id="mailRefreshAgo"></span>
+                      </button>
                       <div class="search-wrap email-search">
                         <span class="icon" data-icon="search"></span>
                         <input id="emailSearchInput" type="search" placeholder="메일 검색" autocomplete="off" />
@@ -721,10 +784,37 @@
                         <span class="back-label">목록</span>
                       </button>
                       <span class="category-chip" id="readCategory"></span>
+                      <!-- 이전/다음 메일 (삼성 이메일의 위·아래 화살표와 같은 자리) -->
+                      <div class="mail-nav">
+                        <button class="icon-button" id="readPrevButton" type="button" title="이전 메일">
+                          <span class="icon" data-icon="chevronUp"></span>
+                        </button>
+                        <button class="icon-button" id="readNextButton" type="button" title="다음 메일">
+                          <span class="icon" data-icon="chevronDown"></span>
+                        </button>
+                      </div>
                       <div class="mail-pane-actions">
+                        <button class="icon-button" id="readStarButton" type="button" title="별표"><span class="icon" data-icon="star"></span></button>
                         <button class="icon-button" id="readReplyButton" type="button" title="답장"><span class="icon" data-icon="reply"></span></button>
+                        <button class="icon-button" id="readReplyAllButton" type="button" title="전체 답장"><span class="icon" data-icon="replyAll"></span></button>
+                        <button class="icon-button" id="readForwardButton" type="button" title="전달"><span class="icon" data-icon="forward"></span></button>
                         <button class="icon-button" id="readMarkButton" type="button" title="읽음/안읽음"><span class="icon" data-icon="check"></span></button>
                         <button class="icon-button danger" id="readDeleteButton" type="button" title="삭제"><span class="icon" data-icon="trash"></span></button>
+                        <!-- 더보기: 삼성 이메일의 ⋮ 메뉴와 같은 항목들 -->
+                        <div class="mail-more">
+                          <button class="icon-button" id="readMoreButton" type="button" title="더보기" aria-expanded="false">
+                            <span class="icon" data-icon="more"></span>
+                          </button>
+                          <div class="mail-more-menu" id="readMoreMenu" hidden>
+                            <button type="button" data-more="translate">한국어로 번역</button>
+                            <button type="button" data-more="snooze">다시 알림</button>
+                            <button type="button" data-more="move">이메일 이동</button>
+                            <button type="button" data-more="print">인쇄</button>
+                            <button type="button" data-more="eml">파일로 저장</button>
+                            <button type="button" data-more="event">일정 추가</button>
+                            <button type="button" data-more="reminder">리마인드 메일 쓰기</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div class="mail-read-scroll">
@@ -947,32 +1037,79 @@
                     <h2 id="filesTitle">전체 자료</h2>
                     <p id="filesHint">강의별 파일과 동기화 상태</p>
                   </div>
-                  <div class="filters">
-                    <div class="view-toggle" role="group" aria-label="자료 보기 방식">
-                      <button type="button" class="view-toggle-btn" data-filemode="folder" aria-label="과목별 폴더" title="과목별 폴더">
-                        <span class="icon" data-icon="folder"></span>
+                  <!-- 자료 도구줄: 늘 쓰는 것(보기·거르기)만 보이고,
+                       고른 뒤에 하는 일은 고른 게 있을 때만 아래 막대로 나온다.
+                       가끔 쓰는 정리 기능은 ⋯ 메뉴에 모았다. (예전엔 9개 버튼이 두 줄로 섞여 있었다) -->
+                  <div class="filters files-tools">
+                    <div class="file-mode-tabs" role="tablist" aria-label="자료 보기 방식">
+                      <button type="button" class="file-mode-tab" data-filemode="folder" role="tab" title="LMS 폴더 그대로 과목별로">
+                        <span class="icon" data-icon="folder"></span>과목 폴더
                       </button>
-                      <button type="button" class="view-toggle-btn" data-filemode="shelf" aria-label="내 폴더" title="내가 만든 폴더">
-                        <span class="icon" data-icon="edit"></span>
+                      <button type="button" class="file-mode-tab" data-filemode="shelf" role="tab" title="내가 만든 폴더에 끌어다 담기">
+                        <span class="icon" data-icon="star"></span>내 폴더
                       </button>
-                      <button type="button" class="view-toggle-btn active" data-filemode="list" aria-label="리스트 보기" title="전체 목록">
-                        <span class="icon" data-icon="list"></span>
+                      <button type="button" class="file-mode-tab active" data-filemode="list" role="tab" title="모든 파일을 한 목록으로">
+                        <span class="icon" data-icon="list"></span>전체 목록
                       </button>
                     </div>
                     <select id="courseFilter" aria-label="강의 필터">
-                      <option value="">전체 강의</option>
+                      <option value="">모든 과목</option>
                     </select>
                     <select id="statusFilter" aria-label="상태 필터">
-                      <option value="">전체 상태</option>
-                      <option value="local">로컬 저장</option>
-                      <option value="missing">누락</option>
-                      <option value="sample">샘플</option>
+                      <option value="">모든 파일</option>
+                      <option value="local">받은 파일</option>
+                      <option value="missing">파일 없음</option>
                     </select>
+                    <div class="files-more">
+                      <button class="icon-button files-more-button" id="filesMoreButton" type="button"
+                        aria-haspopup="menu" aria-expanded="false" aria-label="정리 도구" title="정리 도구">
+                        <span class="icon" data-icon="more"></span>
+                      </button>
+                      <div class="files-more-menu" id="filesMoreMenu" role="menu" hidden>
+                        <!-- 받은 자료를 '학기 / 과목' 폴더로 옮긴다 -->
+                        <button type="button" role="menuitem" id="organizeFilesButton">
+                          <span class="icon" data-icon="folder"></span>
+                          <span><b>학기·과목 폴더로 정리</b><small>받은 파일을 폴더별로 옮깁니다</small></span>
+                        </button>
+                        <!-- 삼성 노트로 보낸 PDF 를 과목 폴더로 몰아 정리 (그 앱이 깔린 PC 에서만) -->
+                        <button type="button" role="menuitem" id="organizeNotesButton" hidden>
+                          <span class="icon" data-icon="file"></span>
+                          <span><b>삼성 노트 폴더 정리</b><small>노트를 과목 이름 폴더로 옮깁니다 · 삼성 노트를 닫고 누르세요</small></span>
+                        </button>
+                        <!-- 목록에서 뺀 자료 되돌리기 (뺀 게 있을 때만 보인다) -->
+                        <button type="button" role="menuitem" id="restoreFilesButton" hidden>
+                          <span class="icon" data-icon="undo"></span>
+                          <span><b id="restoreFilesLabel">숨긴 자료 되돌리기</b><small>목록에서 뺀 파일을 다시 보이게 합니다</small></span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 고른 자료에 할 일 (폴더 단위 선택에도 그대로 쓰인다). 고른 게 있을 때만 보인다 -->
+                <div class="file-select-bar" id="fileSelectBar" hidden>
+                  <span class="file-select-count"><b id="fileSelectCount">0</b>개 골랐어요</span>
+                  <div class="file-select-actions">
                     <button class="button compact primary" id="bulkSaveButton" type="button" disabled>
                       <span class="icon" data-icon="download"></span>
-                      선택 저장
+                      내 컴퓨터에 저장
+                    </button>
+                    <button class="button compact bulk-action" id="bulkDriveButton" type="button" disabled>
+                      <span class="icon" data-icon="cloud"></span>
+                      Drive에 올리기
+                    </button>
+                    <button class="button compact bulk-action" id="bulkNotesButton" type="button" disabled hidden>
+                      <span class="icon" data-icon="file"></span>
+                      삼성 노트로
+                    </button>
+                    <button class="button compact ghost bulk-action danger-text" id="bulkHideButton" type="button" disabled>
+                      <span class="icon" data-icon="trash"></span>
+                      목록에서 빼기
                     </button>
                   </div>
+                  <button class="icon-button" id="clearFileSelection" type="button" aria-label="고른 것 모두 풀기" title="고른 것 모두 풀기">
+                    <span class="icon" data-icon="x"></span>
+                  </button>
                 </div>
 
                 <!-- 폴더 보기: 과목별로 묶어서 -->
@@ -985,8 +1122,8 @@
                       <span class="icon" data-icon="folder"></span>
                       폴더 만들기
                     </button>
-                    <button class="button compact ghost" id="autoShelfButton" type="button" title="학기별로 폴더를 자동으로 만듭니다">
-                      학기별로 자동 정리
+                    <button class="button compact ghost" id="autoShelfButton" type="button" title="학기마다 내 폴더를 하나씩 만들고 그 학기 자료를 담습니다">
+                      학기별 폴더 만들기
                     </button>
                     <span class="shelf-hint">아래 목록에서 파일을 끌어다 폴더에 놓으세요.</span>
                   </div>
@@ -1034,10 +1171,6 @@
                     <h2>실행 로그</h2>
                     <p id="taskSummary">대기 중</p>
                   </div>
-                  <button class="button compact ghost" id="verifyButton" type="button">
-                    <span class="icon" data-icon="check"></span>
-                    검증
-                  </button>
                 </div>
                 <div class="task-progress" id="taskProgress" hidden>
                   <div class="task-progress-head">
@@ -1057,74 +1190,67 @@
     </div>
 
     <section class="view settings-view" id="view-settings" hidden>
-      <form id="configForm">
-        <div class="settings-view-header">
-          <div>
-            <h1>설정</h1>
-            <p>빈 비밀번호/API 키 필드는 기존 값을 유지합니다.</p>
-          </div>
+      <form id="configForm" class="st-page">
+        <div class="settings-view-header st-header">
+          <h1>설정</h1>
+          <p>바꾼 뒤 맨 아래 <b>설정 저장</b>을 누르면 적용됩니다.</p>
         </div>
 
-        <div class="settings-body">
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="sync"></span>앱 업데이트</h3>
-            <div class="google-row">
-              <div>
-                <strong>현재 버전 <span id="appVersion">-</span></strong>
-                <span id="updateStatus">GitHub에서 최신 버전을 확인할 수 있습니다.</span>
-              </div>
-              <div class="google-row-actions">
-                <button class="button compact" id="checkUpdateButton" type="button">업데이트 확인</button>
-                <button class="button compact primary" id="applyUpdateButton" type="button" hidden>지금 업데이트</button>
-              </div>
-            </div>
-            <small class="section-note">새 버전이 나오면 여기서 올릴 수 있습니다. 계정 정보는 그대로 남습니다.</small>
-          </section>
+        <!-- 설정 화면 원칙: 한 카드 = 한 가지 질문.
+             '어디에 저장하나' 와 '얼마나 차지하나' 는 같은 질문이라 한 카드에 둔다.
+             긴 설명은 ? 에 숨기고, 화면에는 지금 상태만 짧게 보인다. -->
+        <div class="settings-body st-body">
 
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="folder"></span>저장 공간</h3>
-            <div class="storage-box" id="storageBox">
-              <p class="section-note">불러오는 중…</p>
-            </div>
-            <small class="section-note">앱이 받아 온 자료만 지웁니다. 직접 넣은 파일은 건드리지 않습니다.</small>
-          </section>
-
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="download"></span>설정 백업</h3>
-            <div class="google-row">
+          <!-- ① 연결된 계정 -->
+          <section class="st-card" id="stAccounts">
+            <header class="st-head">
+              <span class="st-tile coral"><span class="icon" data-icon="user"></span></span>
               <div>
-                <strong>설정 내보내기 / 불러오기</strong>
-                <span>계정 설정·과목 선택·내 일정을 파일 하나로 저장합니다.</span>
+                <h3>연결된 계정</h3>
+                <p>앱이 나 대신 들어가서 자료와 메일을 가져옵니다.</p>
               </div>
-              <div class="google-row-actions">
-                <label class="holiday-toggle" title="비밀번호까지 포함">
-                  <input type="checkbox" id="backupSecrets" />
-                  <span>비밀번호 포함</span>
-                </label>
-                <button class="button compact" id="exportSettingsButton" type="button">내보내기</button>
-                <button class="button compact ghost" id="importSettingsButton" type="button">불러오기</button>
-                <input type="file" id="importSettingsInput" accept="application/json,.json" hidden />
-              </div>
-            </div>
-            <small class="section-note">이 파일에는 비밀번호가 그대로 들어갑니다. 남에게 주지 마세요.</small>
-          </section>
+              <button type="button" class="hint" data-hint="아이디·비밀번호는 이 컴퓨터에만 암호화해 저장하고 어디로도 보내지 않습니다. 비밀번호 칸은 바꿀 때만 입력하세요.">?</button>
+            </header>
 
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="cloud"></span>계정 연결</h3>
-            <div class="google-row">
-              <div>
-                <strong>구글 계정</strong>
-                <span id="googleStatusText">상태 확인 중…</span>
+            <div class="st-acct">
+              <span class="st-logo st-logo-lms" aria-hidden="true">LMS</span>
+              <div class="st-acct-name">
+                <strong>DGIST LMS</strong>
+                <span class="st-pill" id="lmsAccountPill">확인 중</span>
               </div>
-              <div class="google-row-actions">
-                <button class="button compact primary" id="googleLoginButton" type="button">구글 계정으로 로그인</button>
-                <button class="icon-button" id="googleHelpButton" type="button" aria-label="구글 연결 도움말">
-                  <span class="icon" data-icon="help"></span>
-                </button>
+              <div class="st-acct-fields">
+                <input name="lmsId" autocomplete="username" placeholder="아이디" aria-label="LMS 아이디" />
+                <input name="lmsPassword" type="password" autocomplete="current-password" placeholder="비밀번호 (바꿀 때만)" aria-label="LMS 비밀번호" />
               </div>
             </div>
-            <!-- 다른 컴퓨터에서 처음 켰을 때: 구글 클라이언트 파일을 넣는 자리.
-                 앱에 같이 넣어 배포하면 남이 내 앱 이름을 쓸 수 있어 따로 받는다. -->
+
+            <div class="st-acct">
+              <span class="st-logo st-logo-mail" aria-hidden="true"><span class="icon" data-icon="mail"></span></span>
+              <div class="st-acct-name">
+                <strong>학교 메일</strong>
+                <span class="st-pill" id="mailAccountPill">확인 중</span>
+              </div>
+              <div class="st-acct-fields">
+                <input name="schoolEmail" type="email" placeholder="example@dgist.ac.kr" autocomplete="off" aria-label="학교 메일 주소" />
+                <input name="schoolEmailPassword" type="password" placeholder="비밀번호 (바꿀 때만)" autocomplete="off" aria-label="메일 비밀번호" />
+              </div>
+            </div>
+
+            <div class="st-acct">
+              <span class="st-logo st-logo-google" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+              </span>
+              <div class="st-acct-name">
+                <strong>Google</strong>
+                <span class="st-pill" id="googlePill">확인 중</span>
+                <small id="googleStatusText"></small>
+              </div>
+              <div class="st-acct-actions">
+                <button class="button compact primary" id="googleLoginButton" type="button">Google로 로그인</button>
+                <button class="text-button" id="disconnectGoogleButton" type="button" hidden>연결 해제</button>
+              </div>
+            </div>
+            <!-- 구글 로그인 준비물이 없는 PC 에서만 나타난다 -->
             <div class="cred-drop" id="credDrop" hidden>
               <p>이 컴퓨터에는 구글 로그인 준비물(<code>credentials.json</code>)이 없습니다.</p>
               <div class="cred-drop-actions">
@@ -1133,168 +1259,283 @@
               </div>
               <input type="file" id="credFileInput" accept=".json,application/json" hidden />
             </div>
-            <button class="text-button" id="disconnectGoogleButton" type="button" hidden>
-              이 컴퓨터의 구글 로그인 해제
-            </button>
-
           </section>
 
+          <!-- ② 강의자료 저장 + 저장 공간 -->
+          <section class="st-card" id="stStorage">
+            <header class="st-head">
+              <span class="st-tile blue"><span class="icon" data-icon="folder"></span></span>
+              <div>
+                <h3>강의자료 저장</h3>
+                <p>새 자료를 받으면 켜 둔 곳에 자동으로 넣습니다.</p>
+              </div>
+            </header>
 
-
-
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="book"></span>학교 계정 (LMS · DGIST 메일)</h3>
-            <p class="settings-note secure">아이디·비밀번호는 이 컴퓨터에만 저장되고, 어디로도 보내지 않습니다. 받아 온 자료와 메일도 마찬가지입니다.</p>
-            <div class="form-grid">
-              <label>
-                <span>LMS ID</span>
-                <input name="lmsId" autocomplete="username" />
+            <div class="st-dest-grid">
+              <!-- 구글 드라이브 -->
+              <label class="st-dest" id="driveDest">
+                <span class="st-dest-top">
+                  <span class="st-logo st-logo-drive" aria-hidden="true">
+                    <svg viewBox="0 0 87.3 78"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+                  </span>
+                  <span class="st-dest-title">
+                    <strong>구글 드라이브</strong>
+                    <span class="st-dest-state" id="driveState">켜짐</span>
+                  </span>
+                  <span class="toggle">
+                    <input type="checkbox" name="driveUpload" id="driveUploadToggle" />
+                    <span class="track"></span>
+                  </span>
+                </span>
+                <span class="st-dest-path">내 드라이브 › <b id="driveFolderText">AutoSaver</b> › 과목 폴더</span>
+                <span class="st-dest-warn" id="driveWarn" hidden>구글 로그인이 필요해요. 위 연결된 계정에서 로그인하세요.</span>
               </label>
-              <label>
-                <span>LMS 비밀번호</span>
-                <input name="lmsPassword" type="password" autocomplete="current-password" placeholder="기존 값 유지" />
-              </label>
+
+              <!-- 내 컴퓨터 -->
+              <div class="st-dest" id="localDest">
+                <label class="st-dest-top">
+                  <span class="st-logo st-logo-pc" aria-hidden="true"><span class="icon" data-icon="monitor"></span></span>
+                  <span class="st-dest-title">
+                    <strong>내 컴퓨터</strong>
+                    <span class="st-dest-state" id="localState">꺼짐</span>
+                  </span>
+                  <span class="toggle">
+                    <input type="checkbox" id="localSaveToggle" />
+                    <span class="track"></span>
+                  </span>
+                </label>
+                <span class="st-dest-path" title="저장 폴더"><b id="localSaveFolderText">문서\붕어빵 파일 정리</b> › 과목 폴더</span>
+                <input type="hidden" name="localSavePath" />
+                <div class="st-dest-more" id="localSaveMore">
+                  <div class="st-dest-buttons">
+                    <button class="button compact ghost" id="pickFolderButton" type="button">폴더 바꾸기</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 클라우드 폴더: 그 클라우드의 PC 프로그램이 지켜보는 폴더에 넣으면 알아서 올라간다.
+                 계정 로그인이 필요 없다. 카드는 app.js renderCloudDests 가 그린다. -->
+            <div class="st-cloud">
+              <div class="st-cloud-head">
+                <strong>다른 클라우드에도 넣기</strong>
+                <button type="button" class="hint" data-hint="OneDrive·Dropbox·iCloud·MYBOX 는 PC 프로그램이 폴더를 알아서 올립니다. 그 폴더 안 '붕어빵 강의자료' 에 넣기만 하므로 따로 로그인할 필요가 없습니다. 프로그램이 없으면 폴더를 직접 고를 수 있어요.">?</button>
+              </div>
+              <div class="st-cloud-grid" id="cloudDestGrid"></div>
+              <p class="st-inline-note" id="cloudOverlapNote" hidden></p>
+            </div>
+
+            <!-- 내 컴퓨터·클라우드 폴더에 함께 쓰이는 설정 -->
+            <div class="st-scope-row" id="saveScopeRow">
+              <span>넣을 과목</span>
+              <div class="st-seg" role="radiogroup" aria-label="저장할 과목">
+                <label><input type="radio" name="localSaveScope" value="current" checked /><span>이번 학기만</span></label>
+                <label><input type="radio" name="localSaveScope" value="all" /><span>모든 과목</span></label>
+              </div>
+              <button class="button compact ghost" id="localSaveNowButton" type="button">
+                <span class="icon" data-icon="sync"></span>지금 맞추기
+              </button>
+            </div>
+            <p class="st-foot-note">
+              <span class="icon" data-icon="check"></span>
+              <span>모두 꺼도 앱 안의 <b>자료</b> 화면에서는 항상 볼 수 있습니다. 내가 필기한 파일은 덮어쓰지 않습니다.</span>
+            </p>
+
+            <!-- 저장 공간: 앱 크기와 강의자료 크기를 나눠 보인다 -->
+            <div class="st-sub">
+              <div class="st-sub-head">
+                <strong>이 컴퓨터에서 차지하는 공간</strong>
+                <span id="diskFreeText"></span>
+              </div>
+              <div class="storage-box" id="storageBox">
+                <p class="section-note">불러오는 중…</p>
+              </div>
             </div>
           </section>
 
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="sync"></span>자동 실행 · 구글 캘린더</h3>
-            <div class="google-row gcal-row">
+          <!-- ③ 자동으로 가져오기 -->
+          <section class="st-card" id="stAuto">
+            <header class="st-head">
+              <span class="st-tile green"><span class="icon" data-icon="sync"></span></span>
               <div>
-                <strong>주기적 자동 실행</strong>
-                <span>앱이 켜져 있는 동안 정해진 간격마다 자동으로 가져옵니다.</span>
+                <h3>자동으로 가져오기</h3>
+                <p>앱이 켜져 있는 동안 알아서 확인합니다.</p>
               </div>
-              <div class="google-row-actions">
-                <select name="autoIntervalKind" aria-label="자동 실행 항목">
-                  <option value="emails">메일 새로고침</option>
-                  <option value="deadlines">마감·일정만</option>
-                  <option value="sync">전체 동기화</option>
+            </header>
+            <div class="st-auto">
+              <label class="st-auto-item">
+                <span class="icon" data-icon="mail"></span>
+                <span class="st-auto-label">새 메일</span>
+                <select name="autoEmailMinutes" aria-label="메일 확인 주기">
+                  <option value="0">끄기</option>
+                  <option value="3">3분마다</option>
+                  <option value="5">5분마다</option>
+                  <option value="10">10분마다</option>
+                  <option value="30">30분마다</option>
                 </select>
-                <select name="autoIntervalMinutes" aria-label="실행 주기">
-                  <option value="0">사용 안 함</option>
-                  <option value="15">15분마다</option>
+              </label>
+              <label class="st-auto-item">
+                <span class="icon" data-icon="calendar"></span>
+                <span class="st-auto-label">과제 마감</span>
+                <select name="autoDeadlineMinutes" aria-label="마감 확인 주기">
+                  <option value="0">끄기</option>
                   <option value="30">30분마다</option>
                   <option value="60">1시간마다</option>
                   <option value="180">3시간마다</option>
                   <option value="360">6시간마다</option>
                 </select>
-              </div>
+              </label>
+              <label class="st-auto-item">
+                <span class="icon" data-icon="file"></span>
+                <span class="st-auto-label">새 강의자료</span>
+                <select name="autoSyncMinutes" aria-label="자료 확인 주기">
+                  <option value="0">끄기</option>
+                  <option value="60">1시간마다</option>
+                  <option value="120">2시간마다</option>
+                  <option value="180">3시간마다</option>
+                  <option value="360">6시간마다</option>
+                </select>
+              </label>
+              <label class="st-auto-item">
+                <span class="icon" data-icon="clock"></span>
+                <span class="st-auto-label">하루 한 번 꼼꼼히
+                  <button type="button" class="hint" data-hint="이 시각이 지나면 LMS 전체를 한 번 더 훑어 빠진 자료가 없는지 봅니다.">?</button>
+                </span>
+                <input name="scheduleTime" type="time" aria-label="매일 전체 확인 시각" />
+              </label>
             </div>
+          </section>
 
-            <div class="google-row gcal-row">
+          <!-- ④ 구글 캘린더 -->
+          <section class="st-card">
+            <header class="st-head">
+              <span class="st-tile amber"><span class="icon" data-icon="calendar"></span></span>
               <div>
-                <strong>구글 캘린더 자동 동기화</strong>
-                <span id="gcalStatusText">메일에서 찾은 일정을 구글 캘린더에 자동으로 등록합니다.</span>
+                <h3>구글 캘린더</h3>
+                <p>메일에 있는 행사·마감을 내 캘린더에 넣습니다.</p>
               </div>
-              <div class="google-row-actions">
-                <label class="toggle" title="메일 일정 자동 동기화">
-                  <input type="checkbox" name="gcalSyncEnabled" id="gcalSyncEnabled" />
-                  <span class="track"></span>
-                </label>
-                <button class="button compact" id="gcalSyncNowButton" type="button">지금 동기화</button>
-              </div>
-            </div>
-            <label class="gcal-name-field">
-              <span>캘린더(카테고리) 이름</span>
-              <input name="gcalCalendarName" placeholder="DGIST 메일 일정" />
-            </label>
-            <small class="section-note">메일에서 찾은 일정을 이 이름의 구글 캘린더에 담습니다. 없으면 새로 만들고, 같은 일정이 두 번 들어가지 않습니다.</small>
-
-            <!-- 캘린더 화면에 흩어져 있던 것을 여기로 모았다 -->
-            <div class="gcal-extra">
-              <div class="gcal-extra-buttons">
-                <button class="button compact ghost" id="syncAcademicButton" type="button">학사일정 올리기</button>
-                <button class="button compact ghost" id="gcalConnectButton" type="button">캘린더 파일로 내보내기</button>
+              <label class="toggle st-head-toggle" title="메일 일정 자동 등록">
+                <input type="checkbox" name="gcalSyncEnabled" id="gcalSyncEnabled" />
+                <span class="track"></span>
+              </label>
+            </header>
+            <p class="st-inline-warn" id="gcalStatusText"></p>
+            <div class="st-row">
+              <label class="st-field">
+                <span>넣을 캘린더 이름</span>
+                <input name="gcalCalendarName" placeholder="DGIST 메일 일정" />
+              </label>
+              <div class="st-row-buttons">
+                <button class="button compact" id="gcalSyncNowButton" type="button">지금 넣기</button>
+                <button class="button compact ghost" id="syncAcademicButton" type="button">학사일정도 넣기</button>
               </div>
             </div>
           </section>
 
-          <section class="settings-section">
-            <h3><span class="icon" data-icon="mail"></span>학교 이메일 (DGIST)</h3>
-            <div class="form-grid">
-              <label>
-                <span>학교 이메일 주소</span>
-                <input name="schoolEmail" type="email" placeholder="example@dgist.ac.kr" autocomplete="off" />
-              </label>
-              <label>
-                <span>
-                  비밀번호
-                  <em class="badge-saved" id="schoolPwSavedBadge" hidden>저장됨</em>
-                </span>
-                <input name="schoolEmailPassword" type="password" placeholder="기존 값 유지" autocomplete="off" />
-              </label>
-            </div>
-
+          <!-- ⑤ 메일 추천 -->
+          <section class="st-card">
+            <header class="st-head">
+              <span class="st-tile coral"><span class="icon" data-icon="star"></span></span>
+              <div>
+                <h3>관심 있는 메일</h3>
+                <p>고른 주제의 메일을 메일함 위쪽에 먼저 보여 줍니다.</p>
+              </div>
+            </header>
             <div class="interest-picker">
-              <span class="interest-group-label">관심 전공 트랙 · 분야 <em>(AI가 메일을 추천할 때 기준이 됩니다)</em></span>
+              <span class="interest-group-label">분야</span>
               <div class="chip-grid" id="trackChips"></div>
-              <span class="interest-group-label">관심 활동</span>
+              <span class="interest-group-label">활동</span>
               <div class="chip-grid" id="activityChips"></div>
-              <label class="custom-interest">
-                <span>추가 관심사 (자유 입력, 쉼표로 구분)</span>
-                <input name="interestsCustom" placeholder="예: 반도체 소자, 재즈 피아노, 테니스" />
+              <label class="st-field">
+                <span>직접 적기</span>
+                <input name="interestsCustom" placeholder="쉼표로 구분 · 예: 반도체, 재즈 피아노" />
               </label>
               <label class="check-row">
                 <input type="checkbox" name="hidePastEmails" />
-                <span>일시가 지난 행사·마감 메일 숨기기 <em>(행사 일시가 이미 지난 메일을 메일함에서 감춥니다)</em></span>
+                <span>이미 끝난 행사·마감 메일은 숨기기</span>
               </label>
             </div>
-            <small class="section-note">구글 계정과는 별개입니다. 메일은 이 컴퓨터에만 저장됩니다.</small>
           </section>
 
-          <details class="settings-section advanced">
-            <summary><span class="icon" data-icon="settings"></span>고급 설정</summary>
-            <div class="google-row">
+          <!-- ⑥ 선택 기능: 없어도 앱은 돈다 -->
+          <details class="st-card st-more">
+            <summary class="st-head">
+              <span class="st-tile blue"><span class="icon" data-icon="key"></span></span>
               <div>
-                <strong>전체 다시 동기화</strong>
-                <span>평소에는 빠른 동기화(최근 변경분만)가 실행됩니다. 누락이 의심되면 전체 검사를 실행하세요.</span>
+                <h3>추가 기능 켜기 <span class="st-optional">선택</span></h3>
+                <p>메일 요약·번역, 학교 공식 강좌 정보. 없어도 앱은 그대로 됩니다.</p>
               </div>
-              <div class="google-row-actions">
-                <button class="button compact" id="fullSyncButton" type="button">전체 동기화 실행</button>
-              </div>
-            </div>
-            <div class="form-grid">
-              <label class="wide">
-                <span>로컬 저장 폴더 (자료 ‘저장’ 버튼의 대상, 비우면 내 다운로드 폴더)</span>
-                <div class="secret-field">
-                  <input name="localSavePath" placeholder="예: C:\Users\me\Documents\수업자료" />
-                  <button class="button compact ghost" id="pickFolderButton" type="button">폴더 선택</button>
-                </div>
+              <span class="icon st-chev" data-icon="chevronDown"></span>
+            </summary>
+            <div class="st-keys">
+              <label class="st-field">
+                <span>
+                  Gemini 키 — 메일 요약·번역·시간표 사진 읽기
+                  <button type="button" class="hint" data-hint="Google AI Studio 에서 무료로 받습니다. 없으면 번역은 이 컴퓨터의 로컬 모델로 합니다.">?</button>
+                  <em class="badge-saved" id="geminiSavedBadge" hidden>저장됨</em>
+                </span>
+                <input name="geminiKey" type="password" placeholder="바꿀 때만 입력" autocomplete="off" />
               </label>
-              <label>
-                <span>다운로드 경로</span>
-                <input name="downloadPath" />
-              </label>
-              <label>
-                <span>예약 시간</span>
-                <input name="scheduleTime" type="time" />
-              </label>
-              <label class="wide">
-                <span>LMS URL</span>
-                <input name="lmsUrl" />
-              </label>
-              <label class="wide">
-                <span>로그인 URL</span>
-                <input name="loginUrl" />
+              <label class="st-field">
+                <span>
+                  DGIST 공공데이터 키 — 개설강좌·학사일정·세미나
+                  <button type="button" class="hint" data-hint="공공데이터포털(data.go.kr)에서 무료로 받습니다.">?</button>
+                  <em class="badge-saved" id="dgistKeySavedBadge" hidden>저장됨</em>
+                </span>
+                <input name="dgistApiKey" type="password" placeholder="바꿀 때만 입력" autocomplete="off" />
               </label>
             </div>
           </details>
-        </div>
 
-        <section class="settings-section settings-about">
-          <h3><span class="icon" data-icon="help"></span>앱 정보</h3>
-          <div class="about-grid">
-            <div>
-              <strong>붕어빵</strong>
-              <span id="aboutVersion">버전 확인 중</span>
+          <!-- ⑦ 앱 -->
+          <section class="st-card">
+            <header class="st-head">
+              <span class="st-tile bp"><img src="/app-logo-120.png" alt="" /></span>
+              <div>
+                <h3>붕어빵 <span id="appVersion">-</span></h3>
+                <p>DGIST 기초학부 26학번 김유준 제작</p>
+              </div>
+              <button class="button compact ghost" id="settingsWhatsNewButton" type="button">업데이트 내용</button>
+              <button class="button compact ghost" id="replayTourButton" type="button">앱 소개 다시 보기</button>
+            </header>
+            <span id="aboutVersion" hidden></span>
+            <div class="st-list">
+              <!-- 새 버전: GitHub 릴리스에서 확인하고, 누르면 받아 조용히 설치한 뒤 다시 켠다 (updater.py) -->
+              <div class="st-list-row" id="updateRow">
+                <div>
+                  <strong>새 버전</strong>
+                  <span id="updateStatus">확인하는 중…</span>
+                </div>
+                <div class="st-row-buttons">
+                  <button class="button compact ghost" id="checkUpdateButton" type="button">다시 확인</button>
+                  <button class="button compact primary" id="applyUpdateButton" type="button" hidden>지금 업데이트</button>
+                </div>
+              </div>
+              <div class="st-list-row">
+                <div>
+                  <strong>자료가 빠진 것 같아요</strong>
+                  <span>LMS 전체를 처음부터 다시 훑습니다. 몇 분 걸려요.</span>
+                </div>
+                <button class="button compact" id="fullSyncButton" type="button">전체 다시 확인</button>
+              </div>
+              <div class="st-list-row">
+                <div>
+                  <strong>다른 컴퓨터로 옮기기</strong>
+                  <span>계정·과목 선택·내 일정을 파일 하나로 저장하거나 불러옵니다.</span>
+                </div>
+                <div class="st-row-buttons">
+                  <label class="check-row compact" title="비밀번호까지 파일에 넣습니다. 남에게 주지 마세요.">
+                    <input type="checkbox" id="backupSecrets" />
+                    <span>비밀번호 포함</span>
+                  </label>
+                  <button class="button compact" id="exportSettingsButton" type="button">내보내기</button>
+                  <button class="button compact ghost" id="importSettingsButton" type="button">불러오기</button>
+                  <input type="file" id="importSettingsInput" accept="application/json,.json" hidden />
+                </div>
+              </div>
             </div>
-            <p class="about-desc">
-              DGIST LMS의 강의자료를 자동으로 받아 정리하고, 과제 마감·학사일정·학교 메일을
-              한곳에서 봅니다.
-            </p>
-            <p class="about-made">DGIST 기초학부 26학번 김유준 제작</p>
-          </div>
-        </section>
+          </section>
+        </div>
 
         <div class="dialog-actions settings-view-actions">
           <button class="button primary" type="submit">설정 저장</button>

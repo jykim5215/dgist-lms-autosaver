@@ -31,6 +31,16 @@ datas = [
     (str(PROJECT / "config.example.py"), "."),
 ]
 
+# 학사일정·개설강좌를 미리 받아 둔 것. 없어도 앱은 돌지만, 넣어 두면
+# 처음 켰을 때 학교 홈페이지를 기다리지 않고 화면이 바로 찬다.
+# 릴리스 전에 `python scripts/build_seed.py` 로 새로 만든다.
+_seed = PROJECT / "data"
+if _seed.exists():
+    datas.append((str(_seed), "data"))
+else:
+    print("[붕어빵] data/ 가 없어 씨앗 데이터 없이 묶습니다. "
+          "처음 켤 때 학사일정·개설강좌를 직접 받아 옵니다.")
+
 _client = PROJECT / "google_client.json"
 if _client.exists():
     datas.append((str(_client), "."))
@@ -39,6 +49,20 @@ else:
           "받는 사람이 설정에서 직접 넣어야 합니다.")
 
 hiddenimports = [
+    # LMS 로그인(SSO)은 실제 브라우저를 몰아야 해서 playwright 가 꼭 필요하다.
+    # 이게 빠지면 마감 새로고침·자동 동기화가 통째로 죽는다. 이 앱의 본체다.
+    # 브라우저(크로미움 270MB)는 넣지 않고 첫 사용 때 받는다(browser_setup.py).
+    "playwright",
+    "playwright.async_api",
+    "playwright._impl._driver",
+    "browser_setup",
+    # 삼성 노트로 PDF 보내기 (WinRT Launcher)
+    "samsung_notes",
+    "course_meta",
+    "winrt.windows.storage",
+    "winrt.windows.system",
+    "winrt.windows.foundation",
+    "winrt.windows.foundation.collections",
     # 구글 라이브러리는 늦게 불러오는 곳이 있어 PyInstaller 가 놓친다
     "googleapiclient.discovery",
     "googleapiclient.http",
@@ -60,7 +84,7 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=[],
     # 안 쓰는 무거운 것들은 빼서 크기를 줄인다
-    excludes=["tkinter", "matplotlib", "numpy", "pandas", "PIL", "playwright", "pytest"],
+    excludes=["tkinter", "matplotlib", "numpy", "pandas", "PIL", "pytest"],
     noarchive=False,
 )
 

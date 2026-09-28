@@ -64,6 +64,30 @@ TITLES = {
     "National Yang Ming Chiao Tung University": "National Yang Ming Chiao Tung University",
     "Osaka University": "Osaka University",
     "Dalian University of Technology": "Dalian University of Technology",
+    # 2027 입학 안내서(2026.6)에서 새로 들어온 곳
+    "UC Irvine": "University of California, Irvine",
+    "University of British Columbia": "University of British Columbia",
+    "Utrecht University": "Utrecht University",
+    "RWTH Aachen University": "RWTH Aachen University",
+    "ESME": "ESME Sudria",
+    "National Taiwan University": "National Taiwan University",
+    "Waseda University": "Waseda University",
+    "University of Calgary": "University of Calgary",
+    "Dublin City University": "Dublin City University",
+    "RMIT University": "RMIT University",
+    "Grenoble INP - UGA": "Grenoble Institute of Technology",
+    "Polytechnic University of Valencia": "Polytechnic University of Valencia",
+    "TU Wien": "TU Wien",
+}
+
+
+# 자동으로 고른 사진이 엉뚱했던 곳 (2026-09-22 눈으로 확인). 다시 받지 않는다.
+SKIP = {
+    "esme": "ESME 가 아니라 같은 그룹(IONIS) 의 릴 캠퍼스 사진",
+    "national-taiwan-university": "캠퍼스가 아니라 자전거 더미 사진",
+    "waseda-university": "항공 지도",
+    "dublin-city-university": "도로 지도",
+    "grenoble-inp-uga": "사진이 아니라 로고",
 }
 
 
@@ -189,6 +213,9 @@ def main() -> int:
 
     for name, title in TITLES.items():
         key = slug(name)
+        if key in SKIP:
+            print("건너뜀 (알맞은 사진 없음):", name, "-", SKIP[key])
+            continue
         if key in meta and (OUT_DIR / meta[key]["file"]).exists():
             print("건너뜀 (이미 있음):", name)
             continue

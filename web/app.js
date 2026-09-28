@@ -11,6 +11,12 @@ const icons = {
   // 뒤로가기: 답장 아이콘과 헷갈리지 않도록 단순 화살표를 따로 둔다
   arrowLeft: '<svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>',
   chevronDown: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  chevronUp: '<svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg>',
+  // 전체 답장: 답장 화살표에 갈래를 하나 더 둔다
+  replyAll: '<svg viewBox="0 0 24 24"><path d="m7 17-5-5 5-5"/><path d="m12 17-5-5 5-5"/><path d="M22 18v-1a5 5 0 0 0-5-5h-5"/></svg>',
+  forward: '<svg viewBox="0 0 24 24"><path d="m15 17 5-5-5-5"/><path d="M20 12H9a5 5 0 0 0-5 5v1"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>',
+  printer: '<svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>',
   send: '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   paperclip: '<svg viewBox="0 0 24 24"><path d="m21.4 11.1-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>',
@@ -32,6 +38,9 @@ const icons = {
   x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>',
   undo: '<svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>',
+  user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  monitor: '<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>',
+  key: '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8"/><path d="m16 7 3 3"/><path d="m18.5 4.5 2 2"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9Z"/></svg>',
   moonStar: '<svg viewBox="0 0 24 24"><path d="M18 5h4"/><path d="M20 3v4"/><path d="M21.5 13.5A9 9 0 1 1 10.5 2.5a7 7 0 0 0 11 11Z"/></svg>',
   box: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M2 4h20v4H2z"/><path d="M10 12h4"/></svg>',
@@ -129,6 +138,14 @@ function installIcons(root = document) {
     node.dataset.iconDrawn = name;
     node.innerHTML = `<svg><use href="#ic-${name}"></use></svg>`;
   });
+}
+
+/* 목록처럼 한 번에 수백 개를 그릴 때는 아이콘을 처음부터 HTML 에 넣는다.
+   installIcons 가 나중에 하나씩 innerHTML 을 바꾸는 후처리(536개에 30ms)를 건너뛴다. */
+function iconHtml(name, extraClass = "") {
+  ensureIconSprite();
+  if (!icons[name]) return `<span class="icon ${extraClass}"></span>`;
+  return `<span class="icon ${extraClass}" data-icon="${name}" data-icon-drawn="${name}"><svg><use href="#ic-${name}"></use></svg></span>`;
 }
 
 async function api(path, options = {}) {
@@ -254,8 +271,143 @@ function switchView(view) {
   window.setTimeout(apply, 150);
 }
 
+/* ===== 화면마다 다른 새로고침 =====
+   예전에는 상단 버튼 하나가 '마감 + 메일'을 통째로 돌리고, 공지·셔틀·메일은
+   각 화면 안에 따로 새로고침 버튼이 있었다. 어디를 눌러야 지금 보고 있는 것이
+   갱신되는지 알기 어려웠다.
+   이제 상단 버튼 하나가 지금 화면에 맞춰 이름과 하는 일을 바꾼다.
+   (설정에서 매일 도는 자동 동기화는 그대로 전체를 훑는다) */
+const VIEW_REFRESH = {
+  dashboard: { label: "전체 새로고침", hint: "마감·일정과 메일을 함께 다시 가져옵니다." },
+  deadlines: { label: "마감 새로고침", hint: "LMS에서 과제 마감일을 다시 가져옵니다." },
+  calendar: { label: "일정 새로고침", hint: "학사일정과 과제 마감을 다시 가져옵니다." },
+  courses: { label: "강의 새로고침", hint: "개설강좌 목록을 다시 가져옵니다." },
+  files: { label: "자료 새로고침", hint: "LMS 강의자료를 다시 받아 Drive에 정리합니다." },
+  emails: { label: "메일 새로고침", hint: "학교 메일함을 다시 가져옵니다." },
+  compose: { label: "메일 새로고침", hint: "학교 메일함을 다시 가져옵니다." },
+  storage: { label: "창고 새로고침", hint: "저장된 자료 목록을 다시 셉니다." },
+  settings: { label: "상태 새로고침", hint: "연결 상태를 다시 확인합니다." },
+};
+
+function updateRefreshButton(view) {
+  const button = $("#refreshAllButton");
+  if (!button) return;
+  // 메일함에는 '3분 전 업데이트' 가 붙은 제 새로고침이 있다. 같은 일을 하는 버튼을 둘 두지 않는다.
+  button.hidden = view === "emails" || view === "compose";
+  const spec = VIEW_REFRESH[view] || VIEW_REFRESH.dashboard;
+  const icon = button.querySelector(".icon");
+  button.textContent = "";
+  if (icon) button.appendChild(icon);
+  button.appendChild(document.createTextNode(spec.label));
+  button.title = spec.hint;
+  renderLastSync();
+}
+
+/* ===== 마지막 동기화 시각 =====
+   자동으로 가져오는 게 기본이라, 화면마다 '언제 가져왔는지'만 보여 준다.
+   새로고침 버튼은 지금 당장 다시 가져오고 싶을 때 누른다. */
+const VIEW_SYNC_KINDS = {
+  dashboard: ["deadlines", "emails"],
+  deadlines: ["deadlines"],
+  calendar: ["deadlines"],
+  files: ["sync"],
+  storage: ["sync"],
+  emails: ["emails"],
+  compose: ["emails"],
+  settings: ["sync", "deadlines", "emails"],
+};
+const SYNC_KIND_LABEL = { sync: "자료", deadlines: "마감", emails: "메일" };
+
+/* 앞 작업이 실제로 끝날 때까지 기다린다.
+   startRun 은 '시작해 달라' 고 부탁만 하고 바로 돌아오므로, 결과를 보려면 기다려야 한다.
+   예전에는 이 함수가 버튼 묶는 함수 안에만 있어서, 밖에 있는 runViewRefresh 가 부르면
+   'waitForTask is not defined' 로 멈췄다(작업은 돌지만 화면이 안 바뀌었다). */
+async function waitForTask(maxMs = 180000) {
+  const until = Date.now() + maxMs;
+  while (Date.now() < until) {
+    await new Promise((r) => window.setTimeout(r, 900));
+    try {
+      const task = await api("/api/task");
+      if (!task.running) return true;
+    } catch (error) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function agoText(iso) {
+  if (!iso) return "아직 안 함";
+  const when = new Date(String(iso));
+  if (Number.isNaN(when.getTime())) return "아직 안 함";
+  const minutes = Math.max(0, Math.round((Date.now() - when.getTime()) / 60000));
+  if (minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  return `${days}일 전`;
+}
+
+function renderLastSync() {
+  const node = $("#lastSync");
+  if (!node) return;
+  const kinds = VIEW_SYNC_KINDS[state.view] || [];
+  const stamps = state.health?.lastSuccess || {};
+  if (!kinds.length) {
+    node.hidden = true;
+    return;
+  }
+  const parts = kinds.map((kind) => `${SYNC_KIND_LABEL[kind]} ${agoText(stamps[kind])}`);
+  // '자동 · 마감 30분 전' 은 무엇이 30분 전인지 알기 어려웠다
+  const text = `마지막 확인 · ${parts.join(" · ")}`;
+  if (node.textContent !== text) node.textContent = text;
+  node.title = kinds
+    .map((kind) => `${SYNC_KIND_LABEL[kind]}: ${stamps[kind] ? String(stamps[kind]).replace("T", " ") : "아직 안 함"}`)
+    .join("\n");
+  node.hidden = false;
+}
+
+async function runViewRefresh(view) {
+  switch (view) {
+    case "emails":
+    case "compose":
+      await startRun("/api/refresh-emails", "메일 가져오는 중");
+      await waitForTask();
+      break;
+    case "deadlines":
+      await startRun("/api/refresh-deadlines", "마감 가져오는 중");
+      await waitForTask();
+      break;
+    case "calendar":
+      await startRun("/api/refresh-deadlines", "일정 가져오는 중");
+      await waitForTask();
+      await loadAcademic(true);
+      break;
+    case "courses":
+      await loadCatalog(true);
+      break;
+    case "files":
+      // 자료는 LMS에서 새로 받아 Drive까지 정리하는 전체 동기화가 맞다
+      // 직접 누른 새로고침은 빠짐없이 (전체 검사). 3시간마다 도는 자동은 빠른 검사.
+      await startRun("/api/run", "자료 가져오는 중", { confirm: true, mode: "full" });
+      await waitForTask();
+      break;
+    case "storage":
+      await loadShelves(true);
+      break;
+    default:
+      await startRun("/api/refresh-deadlines", "마감·일정 가져오는 중");
+      await waitForTask();
+      await startRun("/api/refresh-emails", "메일 가져오는 중");
+      await waitForTask();
+  }
+  await refreshAll();
+}
+
 function applyView(view) {
   state.view = view;
+  updateRefreshButton(view);
   // 메일 쓰기는 메일함(view-emails) 셸을 공유하되 작성 pane을 연다
   const isCompose = view === "compose";
   const shellView = isCompose ? "emails" : view;
@@ -278,7 +430,8 @@ function applyView(view) {
     openCompose();
   }
   document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("active", item.dataset.view === view);
+    // 메일 쓰기는 메일함 셸을 쓰므로 메일함 메뉴를 켠 채로 둔다
+    item.classList.toggle("active", item.dataset.view === shellView);
   });
   // 메일함은 Gmail식 집중 모드: 사이드바 축소 + 우측 로그 레일 숨김
   document.querySelector(".app-shell").classList.toggle("mail-focus", shellView === "emails");
@@ -648,7 +801,7 @@ function newsCard(mail, featured = false) {
   const headline = mail.summary || mail.subject;
   const showSubject = Boolean(mail.summary) && mail.summary !== mail.subject;
   return `
-    <article class="news-card ${featured ? "featured" : ""} ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
+    <article class="news-card ${featured ? "featured" : ""} ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}" draggable="true">
       <div class="news-card-top">
         <input type="checkbox" class="mail-pick" aria-label="선택" />
         <span class="category-chip ${color}">${escapeHtml(mail.category || "기타")}</span>
@@ -684,14 +837,23 @@ function mailFrameDoc(html, showImages) {
     ? ""
     : `<style>img[src^="http"],img[src^="//"]{display:none !important}</style>`;
   const cs = getComputedStyle(document.documentElement);
-  const text = cs.getPropertyValue("--text").trim() || "#222";
-  const bg = cs.getPropertyValue("--surface").trim() || "#fff";
+  const font = cs.getPropertyValue("--font-sans").trim() || "'Segoe UI', 'Malgun Gothic', sans-serif";
+  // 밝은 테마: 본문을 투명하게 해 읽기 화면 배경 위에 그대로 앉힌다.
+  //   예전에는 --surface(흰색)를 칠해서 크림색 앱 안에 흰 메모장이 떠 있는 것처럼 보였다.
+  // 어두운 테마: 메일은 대부분 검은 글자를 박아 두어 어두운 바탕에서 안 읽힌다.
+  //   그래서 은은한 종이 카드 위에 올린다.
+  const onPaper = mailOnPaper();
+  const text = onPaper ? "#1f1e1d" : cs.getPropertyValue("--text").trim() || "#222";
+  const bg = onPaper ? MAIL_PAPER : "transparent";
+  // 본문 안의 그림은 /api/mail-image 로 온다. srcdoc 안에서도 그 주소를 찾게
+  // 기준 주소를 박아 준다 (없으면 about:srcdoc 기준이라 그림이 다 깨진다).
   return `<!doctype html><html><head><meta charset="utf-8">
     <meta name="referrer" content="no-referrer">
-    <base target="_blank">
+    <base href="${location.origin}/" target="_blank">
     <style>
-      body{margin:0;padding:2px 0;font:14px/1.6 -apple-system,'Segoe UI',sans-serif;
-           color:${text};background:${bg};word-break:break-word}
+      html{background:transparent}
+      body{margin:0;padding:${onPaper ? "22px 26px" : "2px 0"};font-family:${font};
+           font-size:15px;line-height:1.75;color:${text};background:${bg};word-break:break-word}
       img,table{max-width:100% !important;height:auto}
       table{border-collapse:collapse}
       a{color:${cs.getPropertyValue("--accent-strong").trim() || "#c60"}}
@@ -702,8 +864,10 @@ function sizeMailFrame(frame) {
   try {
     const doc = frame.contentDocument;
     const fit = () => {
+      // 주간소식처럼 긴 메일은 본문만 12,000px 이 넘는다.
+      // 6,000px 로 묶어 두었더니 절반이 잘려 나갔다.
       const h = doc.body.scrollHeight;
-      frame.style.height = `${Math.min(Math.max(h + 16, 120), 6000)}px`;
+      frame.style.height = `${Math.min(Math.max(h + 16, 120), 40000)}px`;
     };
     fit();
     // 그림은 늦게 온다. 하나 실릴 때마다 높이를 다시 잡아 준다.
@@ -718,13 +882,67 @@ function sizeMailFrame(frame) {
   }
 }
 
-function renderMailBody(mail) {
+/* 본문 받아오기.
+   목록 응답에는 본문이 빠져 있다(그것까지 실으면 980KB 를 12초마다 주고받는다).
+   메일을 연 순간 그 한 통만 받아 와 객체에 붙여 둔다. 두 번째부터는 바로 뜬다. */
+async function ensureMailBody(mail) {
+  if (!mail || mail.bodyLoaded) return mail;
+
+  // 목록은 12초마다 새로 받아 오면서 메일 객체를 통째로 갈아끼운다.
+  // 객체에만 본문을 붙여 두면 그때마다 캐시가 날아가 같은 메일을 계속 다시 받는다.
+  // id 로 따로 보관해 두면 목록이 바뀌어도 살아남는다.
+  if (!state.mailBodies) state.mailBodies = {};
+  const cached = state.mailBodies[mail.id];
+  if (cached) {
+    mail.body = cached.body;
+    mail.bodyHtml = cached.bodyHtml;
+    mail.bodyLoaded = true;
+    return mail;
+  }
+
+  try {
+    const full = await api(`/api/email-body?id=${encodeURIComponent(mail.id)}`);
+    mail.body = full.body || "";
+    mail.bodyHtml = full.bodyHtml || "";
+  } catch (error) {
+    // 못 받아도 목록의 미리보기(snippet)로 보여 준다
+    mail.body = mail.body || "";
+    mail.bodyHtml = mail.bodyHtml || "";
+  }
+  mail.bodyLoaded = true;
+  state.mailBodies[mail.id] = { body: mail.body, bodyHtml: mail.bodyHtml };
+  return mail;
+}
+
+async function renderMailBody(mail) {
   const plain = $("#readBody");
   const frame = $("#readHtml");
   const bar = $("#readImgBar");
-  const html = mail.bodyHtml || "";
+
+  // '지금 열려 있는 메일'을 먼저 정해 둬야, 본문을 받아오는 사이에
+  // 다른 메일로 옮겨 갔는지 판단할 수 있다.
   state.readMail = mail;
   state.readShowImages = false;
+
+  if (!mail.bodyLoaded) {
+    // 받아오는 동안 빈 화면 대신 미리보기라도 보여 준다
+    if (frame) frame.hidden = true;
+    if (bar) bar.hidden = true;
+    plain.hidden = false;
+    plain.textContent = mail.snippet || "본문을 불러오는 중...";
+    await ensureMailBody(mail);
+    // 그 사이 다른 메일을 눌렀으면 이 결과는 버린다
+    if (!state.readMail || state.readMail.id !== mail.id) return;
+  }
+
+  const html = mail.bodyHtml || "";
+
+  // 읽기 영역 폭을 본문 종류에 맞춘다.
+  // 평문은 글줄이 길면 읽기 힘들어 68ch 로 묶는 게 맞지만,
+  // HTML 메일은 표·이미지로 짜인 제 레이아웃이 있어서 같이 묶으면
+  // 가운데만 좁게 눌리고 좌우가 텅 빈다(창을 키우지 않으면 특히 심하다).
+  const doc = document.querySelector(".read-doc");
+  if (doc) doc.classList.toggle("wide", Boolean(html));
 
   if (!html) {
     // 평문 메일은 그대로
@@ -738,8 +956,13 @@ function renderMailBody(mail) {
   plain.hidden = true;
   frame.hidden = false;
   state.readShowImages = true;
+  frame.classList.toggle("on-paper", mailOnPaper());
   frame.srcdoc = mailFrameDoc(html, true);
-  frame.onload = () => sizeMailFrame(frame);
+  frame.onload = () => {
+    blendMailBackground(frame);
+    bindMailLinks(frame);
+    sizeMailFrame(frame);
+  };
   if (bar) bar.hidden = true;
 }
 
@@ -1123,14 +1346,65 @@ async function lookupDirectory(term) {
   }
 }
 
-/* ===== 주소 자동완성 (DGIST 연락처) ===== */
+/* ===== 주소 자동완성 (DGIST 연락처) =====
+   DGIST 메일은 보내는 이름을 '김호정/연구원/바이오메디컬연구부', '이지현/에너지공학과 (학생)'
+   처럼 '이름/소속' 으로 붙여 보낸다. 웹메일 자동완성처럼 소속까지 보여 주려고 이걸 쪼갠다. */
+function splitAffiliation(display) {
+  const text = String(display || "").trim();
+  const cut = text.indexOf("/");
+  if (cut <= 0) return { name: text, org: "" };
+  return { name: text.slice(0, cut).trim(), org: text.slice(cut + 1).trim() };
+}
+
+/** 조직도 한 사람의 소속 줄: 웹메일과 같은 '직위/부서' 또는 '부서(신분)' */
+function directoryOrg(p) {
+  if (p.org) return p.org;
+  const dept = String(p.dept || "").trim();
+  const title = String(p.title || "").trim();
+  const role = String(p.role || "").trim();
+  if (title && dept) return `${title}/${dept}`;
+  // 조직도 부서 이름에 이미 '(학생)' 이 붙어 있다 (전기전자컴퓨터공학과(학생)). 신분을 또 붙이지 않는다.
+  if (dept.includes("(") || !role || role === "특별계정") return dept || title;
+  return `${dept || title}(${role})`;
+}
+
+/** 주고받은 메일의 보낸이·받는이 전부에서 연락처를 모은다 (보낸편지함만 보던 것보다 넓게) */
+function mailContacts() {
+  const emails = state.emails.emails || [];
+  const key = `${state.emails.updatedAt}|${emails.length}|${(state.emails.contacts || []).length}`;
+  if (mailContacts.key === key) return mailContacts.list;
+  const byEmail = new Map();
+  const put = (display, addr, count = 1) => {
+    const email = String(addr || "").trim().toLowerCase();
+    if (!email.includes("@")) return;
+    const { name, org } = splitAffiliation(display);
+    const had = byEmail.get(email);
+    if (!had) {
+      byEmail.set(email, { email, name: name || "", org, count });
+      return;
+    }
+    had.count += count;
+    if (!had.name && name) had.name = name;
+    if (!had.org && org) had.org = org; // 소속이 적힌 이름을 한 번이라도 보면 그걸 쓴다
+  };
+  (state.emails.contacts || []).forEach((c) => put(c.name, c.email, c.count || 1));
+  emails.forEach((m) => {
+    put(m.fromName, m.fromEmail, 0);
+    put(m.toName, m.toEmail, 0);
+  });
+  mailContacts.key = key;
+  mailContacts.list = [...byEmail.values()];
+  return mailContacts.list;
+}
+
 function contactMatches(term) {
-  const q = term.trim().toLowerCase();
+  const q = term.trim();
   if (!q) return [];
-  const contacts = state.emails.contacts || [];
-  const hits = contacts.filter(
-    (c) => c.email.toLowerCase().includes(q) || (c.name || "").toLowerCase().includes(q),
-  );
+  const hits = mailContacts()
+    .map((c) => ({ c, s: matchScore(q, c.name, c.email.split("@")[0], c.org, c.email) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || (b.c.count || 0) - (a.c.count || 0))
+    .map((x) => x.c);
   // dgist 도메인 자동 완성 후보 추가 (아이디만 입력 시)
   if (/^[a-z0-9._-]+$/i.test(term.trim()) && !term.includes("@")) {
     const guess = `${term.trim()}@dgist.ac.kr`;
@@ -1169,16 +1443,18 @@ function setupAutocomplete() {
 
     const paint = (matches) => {
       if (!matches.length) return closeMenu();
+      const q = currentToken().text;
       menu.innerHTML = matches
-        .map(
-          (c, i) => `
-          <button type="button" class="ac-item ${i === active ? "active" : ""}" data-email="${escapeHtml(c.email)}">
-            <span class="ac-name">${escapeHtml(c.name || c.email)}</span>
-            <span class="ac-email">${escapeHtml(c.email)}${
-              c.guess ? " · 추정" : c.dept ? " · " + escapeHtml(shortText(c.dept, 18)) : ""
-            }</span>
-          </button>`,
-        )
+        .map((c, i) => {
+          const org = c.guess ? "" : directoryOrg(c);
+          return `
+          <button type="button" class="ac-item ${i === active ? "active" : ""}" data-email="${escapeHtml(c.email)}"
+            title="${escapeHtml(`${c.name || ""}${org ? `/${org}` : ""} <${c.email}>`)}">
+            <span class="ac-name">${acMark(c.name || c.email, q)}</span>${
+              org ? `<span class="ac-org">/${acMark(org, q)}</span>` : ""
+            }<span class="ac-email">&lt;${acMark(c.email, q)}&gt;${c.guess ? " · 추정" : ""}</span>
+          </button>`;
+        })
         .join("");
       menu.hidden = false;
     };
@@ -1197,6 +1473,12 @@ function setupAutocomplete() {
         const local = contactMatches(text).filter(
           (c) => !(c.guess && dirEmails.has(c.email)),
         );
+        const dirByEmail = new Map(people.map((p) => [p.email, p]));
+        // 메일에서 본 사람이 조직도에도 있으면 조직도의 이름·소속을 붙인다
+        local.forEach((c) => {
+          const p = dirByEmail.get(c.email);
+          if (p && !c.org) Object.assign(c, { name: p.name || c.name, org: directoryOrg(p) });
+        });
         const seen = new Set(local.map((c) => c.email));
         paint([...local, ...people.filter((p) => !seen.has(p.email))].slice(0, 8));
       });
@@ -1499,9 +1781,205 @@ function restoreDraftIfAny() {
 }
 
 
-function replyToCurrentEmail() {
+/* ===== 읽기창에서 쓰는 동작들 =====
+   삼성 이메일의 아래 줄(답장·전체답장·전달·삭제)과 ⋮ 메뉴를 같은 구성으로 맞췄다. */
+
+/* 지금 보이는 목록에서 이전/다음 메일로 옮긴다 */
+function stepMail(delta) {
   const mail = state.replyContext;
   if (!mail) return;
+  const list = state.visibleMails || [];
+  const at = list.findIndex((m) => m.id === mail.id);
+  if (at < 0) return;
+  const next = list[at + delta];
+  if (!next) {
+    showToast(delta > 0 ? "마지막 메일입니다." : "첫 메일입니다.");
+    return;
+  }
+  openEmailDetail(next);
+}
+
+/* 별표를 서버 플래그로 붙인다. 이 앱에만 기억하면 폰에서는 안 보인다. */
+async function toggleStarOnServer(mail) {
+  if (!mail) return;
+  const next = !mail.starred;
+  mail.starred = next; // 눌린 느낌이 바로 나게 먼저 바꾼다
+  renderEmails();
+  try {
+    await api("/api/mail/star", {
+      method: "POST",
+      body: JSON.stringify({ uid: mail.uid, folder: mail.folder, starred: next }),
+    });
+    showToast(next ? "별표를 붙였습니다." : "별표를 뗐습니다.");
+  } catch (error) {
+    mail.starred = !next; // 실패하면 되돌린다
+    renderEmails();
+    showToast(error.message);
+  }
+}
+
+/* 전달: 원문을 인용해 새 메일로 */
+async function forwardCurrentEmail() {
+  const mail = state.replyContext;
+  if (!mail) return;
+  await ensureMailBody(mail);
+  const subject = /^\s*fwd?\s*:/i.test(mail.subject) ? mail.subject : `Fwd: ${mail.subject}`;
+  const when = mail.date ? formatEmailDate(mail.date) : "";
+  const header =
+    `\n\n---------- 전달된 메일 ----------\n` +
+    `보낸사람: ${mail.fromName || ""} <${mail.fromEmail || ""}>\n` +
+    `날짜: ${when}\n제목: ${mail.subject || ""}\n\n`;
+  openCompose({ to: "", subject, body: header + (mail.body || mail.snippet || "") });
+}
+
+/* ⋮ 메뉴 항목 처리 */
+async function runMailMore(action, mail) {
+  if (!mail) return;
+  switch (action) {
+    // '읽지 않음으로 표시' 는 위쪽 '읽음/안읽음' 버튼과 같은 일이라 메뉴에서 뺐다
+
+    case "print": {
+      // 화면에 보이는 그대로 인쇄한다
+      await ensureMailBody(mail);
+      const win = window.open("", "_blank");
+      if (!win) return showToast("팝업이 막혀 인쇄창을 열지 못했습니다.");
+      const safe = mail.bodyHtml
+        ? mail.bodyHtml
+        : `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(mail.body || "")}</pre>`;
+      win.document.write(
+        `<!doctype html><meta charset="utf-8"><title>${escapeHtml(mail.subject || "메일")}</title>` +
+          `<body style="font-family:system-ui,'Malgun Gothic',sans-serif;padding:24px">` +
+          `<h2>${escapeHtml(mail.subject || "")}</h2>` +
+          `<p style="color:#666">${escapeHtml(mail.fromName || "")} &lt;${escapeHtml(mail.fromEmail || "")}&gt; · ${escapeHtml(mail.date || "")}</p><hr>${safe}</body>`,
+      );
+      win.document.close();
+      win.focus();
+      win.print();
+      break;
+    }
+
+    case "eml":
+      // 서버에서 원본을 받아 .eml 로 저장
+      window.open(
+        `/api/mail/eml?uid=${encodeURIComponent(mail.uid)}&folder=${encodeURIComponent(mail.folder)}`,
+        "_blank",
+      );
+      break;
+
+    case "move": {
+      const folders = await loadMailFolderChoices();
+      if (!folders.length) return showToast("옮길 폴더를 찾지 못했습니다.");
+      const names = folders.map((f, i) => `${i + 1}. ${f.name}`).join("\n");
+      const pick = window.prompt(`어느 폴더로 옮길까요?\n\n${names}`, "1");
+      const idx = Number(pick) - 1;
+      if (!(idx >= 0 && idx < folders.length)) return;
+      try {
+        await api("/api/mail/move", {
+          method: "POST",
+          body: JSON.stringify({ uid: mail.uid, folder: mail.folder, target: folders[idx].raw }),
+        });
+        showToast(`'${folders[idx].name}'(으)로 옮겼습니다.`);
+        showMailPane("list");
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message);
+      }
+      break;
+    }
+
+    case "event": {
+      // 메일 제목을 그대로 일정으로 (날짜는 메일 받은 날)
+      const day = (mail.date || "").slice(0, 10);
+      try {
+        await api("/api/my-events/save", {
+          method: "POST",
+          body: JSON.stringify({ title: mail.subject || "메일 일정", date: day, memo: mail.snippet || "" }),
+        });
+        showToast("일정에 추가했습니다.");
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message);
+      }
+      break;
+    }
+
+    case "snooze": {
+      const mins = Number(window.prompt("몇 분 뒤에 다시 알려드릴까요?", "60"));
+      if (!(mins > 0)) return;
+      // 앱이 켜져 있는 동안만 동작한다 (브라우저 타이머)
+      showToast(`${mins}분 뒤에 다시 알려드릴게요.`);
+      window.setTimeout(() => {
+        showToast(`[다시 알림] ${shortText(mail.subject || "메일", 30)}`);
+      }, mins * 60 * 1000);
+      break;
+    }
+
+    case "translate":
+      await translateCurrentMail(mail);
+      break;
+
+    case "reminder":
+      await composeReminder(mail.id);
+      break;
+  }
+}
+
+/* 메일을 한국어로 번역해 본문 위에 붙인다.
+   번역은 서버가 맡는다(로컬 Ollama 우선, 없으면 Gemini 키).
+   10초쯤 걸릴 수 있어 진행 표시를 띄운다. */
+async function translateCurrentMail(mail) {
+  await ensureMailBody(mail);
+  const box = $("#readSummary");
+  if (box) {
+    box.hidden = false;
+    box.textContent = "한국어로 옮기는 중… (처음엔 시간이 걸립니다)";
+  }
+  try {
+    const res = await api("/api/mail/translate", {
+      method: "POST",
+      body: JSON.stringify({ id: mail.id }),
+    });
+    if (box) box.textContent = res.text || "(번역 결과가 비었습니다)";
+    if (res.engine) showToast(`번역 완료 (${res.engine})`);
+  } catch (error) {
+    if (box) box.textContent = "";
+    if (box) box.hidden = true;
+    showToast(error.message);
+  }
+}
+
+/* 옮길 수 있는 폴더 목록 (한 번 받아 두고 재사용) */
+async function loadMailFolderChoices() {
+  if (state.mailFolderChoices) return state.mailFolderChoices;
+  try {
+    const res = await api("/api/mail/folders");
+    state.mailFolderChoices = (res.folders || []).filter((f) => f.raw);
+  } catch (error) {
+    state.mailFolderChoices = [];
+  }
+  return state.mailFolderChoices;
+}
+
+/* 리마인드 메일: 서버가 만든 초안을 작성창에 올린다 (보내기는 사용자가) */
+async function composeReminder(id) {
+  try {
+    const res = await api("/api/mail/reminder", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    const draft = res.draft || {};
+    openCompose({ to: draft.to, subject: draft.subject, body: draft.body });
+    showToast("리마인드 초안을 띄웠습니다. 내용을 확인하고 보내세요.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function replyToCurrentEmail(all = false) {
+  const mail = state.replyContext;
+  if (!mail) return;
+  // 목록에서 바로 답장하면 본문이 아직 안 와 있을 수 있다 (인용이 비면 곤란하다)
+  await ensureMailBody(mail);
   const subject = /^\s*re\s*:/i.test(mail.subject) ? mail.subject : `Re: ${mail.subject}`;
   const when = mail.date ? formatEmailDate(mail.date) : "";
   const quoted = (mail.body || mail.snippet || "")
@@ -1509,18 +1987,34 @@ function replyToCurrentEmail() {
     .map((line) => `> ${line}`)
     .join("\n");
   const body = `\n\n----- 원본 메일 (${escapeHtml(mail.fromName || mail.fromEmail)}${when ? ", " + when : ""}) -----\n${quoted}`;
+
+  // 전체 답장: 원래 받는 사람들도 참조에 넣는다. 단 내 주소는 뺀다.
+  let cc = "";
+  if (all) {
+    const me = (state.config?.schoolEmail || "").toLowerCase();
+    cc = String(mail.toEmail || "")
+      .split(/[,;]+/)
+      .map((a) => a.trim())
+      .filter((a) => a && a.toLowerCase() !== me && a.toLowerCase() !== (mail.fromEmail || "").toLowerCase())
+      .join(", ");
+  }
+
   openCompose({
     to: mail.fromEmail,
+    cc,
     subject,
     body,
     inReplyTo: mail.messageId || "",
     references: mail.messageId || "",
-    title: "답장",
+    title: all ? "전체 답장" : "답장",
   });
 }
 
 /* 왼쪽은 '메일함'만 둔다.
    관심메일·LMS공지는 폴더가 아니라 위쪽 분류 탭으로 옮겼다. (Gmail식) */
+// 메일을 받아 줄 수 있는 폴더 (전체 메일처럼 '진짜 폴더가 아닌 것' 은 뺀다)
+const MAIL_DROP_KEYS = new Set(["inbox", "starred", "promo", "trash"]);
+
 const MAIL_FOLDERS = [
   { key: "inbox", label: "받은 편지함", icon: "mail" },
   { key: "starred", label: "중요", icon: "star" },
@@ -1715,7 +2209,8 @@ function renderMailFolders(emails) {
                </button>`
             : `<span class="mail-folder-caret empty"></span>`
         }
-        <button type="button" class="mail-folder ${state.emailFolder === f.key ? "active" : ""}" data-folder="${f.key}">
+        <button type="button" class="mail-folder ${state.emailFolder === f.key ? "active" : ""}" data-folder="${f.key}"
+          ${MAIL_DROP_KEYS.has(f.key) ? 'data-drop="1"' : ""}>
           <span class="icon" data-icon="${f.icon}"></span>
           <span class="mf-label">${f.label}</span>
           ${unreadInFolder ? `<span class="mf-count">${unreadInFolder}</span>` : count ? `<span class="mf-count muted">${count}</span>` : ""}
@@ -1837,6 +2332,8 @@ function renderEmails() {
 
   // 정렬
   const sorted = sortEmails(visible, state.emailSort);
+  // 읽기창의 이전/다음이 '지금 보이는 순서' 를 따라가야 한다
+  state.visibleMails = sorted;
 
   // 메인 뉴스: 받은편지함 기본(최신순 & 필터 없음)일 때만 상위 관심 3건을 크게
   let featured = [];
@@ -1859,7 +2356,7 @@ function renderEmails() {
   grid.classList.toggle("list-mode", state.emailView === "list");
   grid.innerHTML =
     state.emailView === "list"
-      ? rest.map((mail) => emailListRow(mail)).join("")
+      ? emailListHtml(rest)
       : rest.map((mail) => newsCard(mail)).join("");
   installIcons(grid);
   installIcons($("#newsFeatured"));
@@ -1897,43 +2394,111 @@ function sortEmails(list, mode) {
       return arr.sort((a, b) => (b.score || 0) - (a.score || 0) || byDateDesc(a, b));
     case "newest":
     default:
-      // 안읽음 우선 후 최신순
-      return arr.sort((a, b) => Number(b.unread) - Number(a.unread) || byDateDesc(a, b));
+      // 순수 최신순. 안읽음을 위로 올리면 '오늘/어제' 묶음이 뒤죽박죽이 된다.
+      // 안 읽은 메일은 파란 점과 굵은 글씨로 구분된다.
+      return arr.sort(byDateDesc);
   }
 }
 
+/* ===== 목록의 날짜 =====
+   삼성 이메일처럼 '오늘 / 어제 / 9월 5일 금요일' 로 묶고,
+   오늘 온 것은 시각(오전 10:32), 지난 것은 날짜(9월 7일)를 적는다. */
+function mailDayStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function mailDayKey(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "none" : String(mailDayStart(date));
+}
+
+function mailDayLabel(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "날짜 없음";
+  const days = Math.round((mailDayStart(new Date()) - mailDayStart(date)) / 86400000);
+  if (days === 0) return "오늘";
+  if (days === 1) return "어제";
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+  const year = date.getFullYear() === new Date().getFullYear() ? "" : `${date.getFullYear()}년 `;
+  return `${year}${date.getMonth() + 1}월 ${date.getDate()}일 ${weekday}요일`;
+}
+
+function mailListTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (mailDayStart(date) === mailDayStart(now)) {
+    const hour = date.getHours();
+    return `${hour < 12 ? "오전" : "오후"} ${hour % 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}`;
+  }
+  const year = date.getFullYear() === now.getFullYear() ? "" : `${String(date.getFullYear()).slice(2)}. `;
+  return `${year}${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
+const MAIL_FOLDER_TAG = {
+  inbox: "받은 메일함",
+  sent: "보낸 메일함",
+  draft: "임시보관함",
+  trash: "휴지통",
+  promo: "광고",
+  spam: "스팸",
+};
+
+/** 날짜 머리글을 끼워 넣은 목록 (최신순일 때만 묶는다) */
+function emailListHtml(rows) {
+  if (state.emailSort !== "newest") return rows.map((mail) => emailListRow(mail)).join("");
+  let out = "";
+  let day = "";
+  for (const mail of rows) {
+    const key = mailDayKey(mail.date);
+    if (key !== day) {
+      day = key;
+      out += `<div class="mail-day">${escapeHtml(mailDayLabel(mail.date))}</div>`;
+    }
+    out += emailListRow(mail);
+  }
+  return out;
+}
+
 function emailListRow(mail) {
-  const color = CATEGORY_COLORS[mail.category] || "neutral";
   const title = mail.summary || mail.subject;
+  const starred = isStarredMail(mail);
+  const hasFiles = Boolean(mail.hasAttachment || (mail.attachments || []).length);
   return `
-    <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}">
+    <div class="email-list-row ${mail.unread ? "unread" : ""}" data-mail-id="${mail.id}" draggable="true">
       <input type="checkbox" class="mail-pick" aria-label="선택" />
       <span class="list-unread">${mail.unread ? '<span class="unread-dot"></span>' : ""}</span>
-      <button type="button" class="list-star ${isStarredMail(mail) ? "on" : ""}" data-star
-        aria-label="${isStarredMail(mail) ? "중요 해제" : "중요 표시"}"
-        title="${isStarredMail(mail) ? "중요 해제" : "중요 표시"}">
-        <span class="icon" data-icon="star"></span>
-      </button>
-      <time class="list-date" title="${escapeHtml(formatEmailDate(mail.date))}">
-        <span class="d-full">${formatEmailDate(mail.date)}</span>
-        <span class="d-short">${compactMailDate(mail.date)}</span>
-      </time>
-      
-      <span class="list-from">${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
-      <strong class="list-title" title="${escapeHtml(title || "")}">${escapeHtml(shortText(title, 90))}</strong>
+      <div class="list-main">
+        <div class="list-head">
+          <span class="list-folder-tag">${escapeHtml(MAIL_FOLDER_TAG[mail.folder] || "메일")}</span>
+          <span class="list-from">${escapeHtml(shortText(mail.fromName || mail.fromEmail, 24))}</span>
+          <span class="list-when">
+            ${hasFiles ? iconHtml("paperclip", "list-clip") : ""}
+            <time class="list-date" datetime="${escapeHtml(mail.date || "")}"
+              title="${escapeHtml(formatEmailDate(mail.date))}">${escapeHtml(mailListTime(mail.date))}</time>
+          </span>
+        </div>
+        <div class="list-title" title="${escapeHtml(title || "")}">${escapeHtml(shortText(title, 90))}</div>
+        <div class="list-foot">
+          <span class="list-snippet">${escapeHtml(shortText(mail.snippet, 110))}</span>
+          <button type="button" class="list-star ${starred ? "on" : ""}" data-star
+            aria-label="${starred ? "중요 해제" : "중요 표시"}"
+            title="${starred ? "중요 해제" : "중요 표시"}">${iconHtml("star")}</button>
+        </div>
+      </div>
       <span class="list-actions">
         ${
           mail.folder === "trash"
             ? `<button type="button" class="mail-act" data-act="restore" title="받은 편지함으로 되돌리기">
-                 <span class="icon" data-icon="undo"></span>
+                 ${iconHtml("undo")}
                </button>`
             : `<button type="button" class="mail-act" data-act="read" title="${mail.unread ? "읽음 표시" : "안읽음 표시"}">
-                 <span class="icon" data-icon="${mail.unread ? "check" : "mail"}"></span>
+                 ${iconHtml(mail.unread ? "check" : "mail")}
                </button>`
         }
         <button type="button" class="mail-act danger" data-act="delete"
           title="${mail.folder === "trash" ? "완전히 지우기" : "휴지통으로"}">
-          <span class="icon" data-icon="trash"></span>
+          ${iconHtml("trash")}
         </button>
       </span>
     </div>
@@ -1941,11 +2506,40 @@ function emailListRow(mail) {
 }
 
 /* ===== 강의 뷰 ===== */
+/* '일반화학Ⅰ (General chemistryⅠ )_03[ 2026_1학기 ]' → 'General chemistryⅠ'.
+   서버의 extract_course_label 과 같은 규칙 — 자료의 courseLabel 과 맞아야
+   같은 과목으로 합쳐진다. */
+function extractCourseLabelJs(value) {
+  const text = String(value || "").trim();
+  if (text.includes("(") && text.includes(")")) {
+    const inside = text.split("(", 2)[1].split(")", 1)[0].trim();
+    if (inside) return inside;
+  }
+  return (text.includes("[") ? text.split("[", 1)[0].trim() : text) || "기타";
+}
+
 function courseSummaries() {
   const map = new Map();
+  // 수강 중인 과목을 먼저 전부 깔아 둔다.
+  // 자료·마감에서만 과목을 만들면, LMS 에 자료를 안 올리는 과목
+  // (학술 글쓰기처럼)이 화면에서 통째로 사라진다 — 실제로 3과목이 그랬다.
+  (state.courseState?.current || []).forEach((c) => {
+    const label = extractCourseLabelJs(c.name);
+    if (label && !map.has(label)) {
+      map.set(label, {
+        label, korean: c.name.includes("(") ? c.name.split("(", 1)[0].trim() : "",
+        files: 0, deadlines: 0, next: null,
+        levelLabel: "", termLabel: "", syllabus: null,
+      });
+    }
+  });
   const ensure = (label) => {
     if (!map.has(label)) {
-      map.set(label, { label, korean: "", files: 0, deadlines: 0, next: null });
+      map.set(label, {
+        label, korean: "", files: 0, deadlines: 0, next: null,
+        // 몇 학년 무슨 학기 과정인지, 그리고 강의계획서
+        levelLabel: "", termLabel: "", syllabus: null,
+      });
     }
     return map.get(label);
   };
@@ -1955,6 +2549,14 @@ function courseSummaries() {
     entry.files += 1;
     if (!entry.korean && file.course && file.course.includes("(")) {
       entry.korean = file.course.split("(", 1)[0].trim();
+    }
+    if (!entry.levelLabel && file.levelLabel) entry.levelLabel = file.levelLabel;
+    if (!entry.termLabel && file.termLabel) entry.termLabel = file.termLabel;
+    // 강의계획서가 여러 개면 가장 최근에 받은 것
+    if (file.isSyllabus) {
+      if (!entry.syllabus || (file.savedAt || "") > (entry.syllabus.savedAt || "")) {
+        entry.syllabus = file;
+      }
     }
   });
 
@@ -1975,6 +2577,26 @@ function courseSummaries() {
 
   (state.status?.courses || []).forEach((label) => ensure(label));
   return [...map.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/* 카드에 '2학년 · 2026학년도 2학기' 처럼 과정 표시 */
+function courseMetaLine(course) {
+  const parts = [course.levelLabel, course.termLabel].filter(Boolean);
+  if (!parts.length) return "";
+  return `<div class="course-meta">${parts.map(escapeHtml).join(" · ")}</div>`;
+}
+
+/* 강의계획서가 자료에 들어와 있으면 카드 아래에서 바로 열 수 있게 한다.
+   자료를 받아 둔 경우에만 보인다(없는 링크를 눌러 빈 화면이 뜨면 더 답답하다). */
+function syllabusLink(course) {
+  const file = course.syllabus;
+  if (!file || file.status !== "local") return "";
+  return `
+    <button type="button" class="course-syllabus" data-syllabus="${escapeHtml(file.localName)}"
+            title="${escapeHtml(file.name)}">
+      <span class="icon" data-icon="file"></span>
+      강의계획서 보기
+    </button>`;
 }
 
 function renderCourses() {
@@ -2030,10 +2652,20 @@ function renderCourses() {
             <span>${enabled ? "업로드 포함" : "업로드 제외"}</span>
           </div>
           <div class="course-next">${nextLine}</div>
+          ${courseMetaLine(course)}
+          ${syllabusLink(course)}
         </article>
       `;
     })
     .join("");
+
+  // 강의계획서 바로 열기
+  grid.querySelectorAll("[data-syllabus]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      window.open(`/api/file?name=${encodeURIComponent(btn.dataset.syllabus)}`, "_blank");
+    });
+  });
 
   grid.querySelectorAll("input[data-course]").forEach((input) => {
     input.addEventListener("change", async (event) => {
@@ -2125,9 +2757,7 @@ function renderStatus() {
   badge.textContent = badgeCount;
   badge.hidden = !badgeCount;
 
-  $("#sidebarStatus").textContent = ready ? "설정 완료" : "설정 필요";
-  $("#sidebarSchedule").textContent = `매일 ${status.scheduleTime || "08:00"} 실행`;
-  $("#sidebarStatusDot").classList.toggle("ready", ready);
+  renderStatusCard();
 
   renderGoogleSection();
 
@@ -2153,19 +2783,34 @@ function renderGoogleSection() {
   if (!statusText || !loginButton) return;
 
   if (oauth.tokenUsable) {
-    statusText.textContent = "연결됨 · Drive 업로드 사용 가능";
-    statusText.classList.add("connected");
+    setAccountPill("#googlePill", "ok", "연결됨");
+    statusText.textContent = oauth.calendarGranted ? "드라이브 · 캘린더" : "드라이브";
     loginButton.textContent = "다시 로그인";
     loginButton.classList.remove("primary");
   } else {
-    statusText.textContent = oauth.credentialsExists
-      ? "연결 안 됨 · 로그인이 필요합니다"
-      : "credentials.json 준비 필요 (도움말 참고)";
-    statusText.classList.remove("connected");
-    loginButton.textContent = "구글 계정으로 로그인";
+    setAccountPill("#googlePill", "need", "연결 안 됨");
+    statusText.textContent = oauth.credentialsExists ? "" : "로그인 준비 파일이 필요해요";
+    loginButton.textContent = "Google로 로그인";
     loginButton.classList.add("primary");
   }
   disconnectButton.hidden = !oauth.tokenExists;
+  renderAccountPills();
+  renderSaveDestinations();
+}
+
+function setAccountPill(selector, kind, text) {
+  const el = $(selector);
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.kind = kind;
+}
+
+/* LMS·메일은 '저장됨' 여부만 안다(비밀번호를 화면으로 돌려주지 않는다). */
+function renderAccountPills() {
+  const c = state.config || {};
+  setAccountPill("#lmsAccountPill", c.lmsId && c.hasLmsPassword ? "ok" : "need", c.lmsId && c.hasLmsPassword ? "저장됨" : "입력 필요");
+  const mailOk = c.schoolEmail && c.hasSchoolEmailPassword;
+  setAccountPill("#mailAccountPill", mailOk ? "ok" : "need", mailOk ? "저장됨" : "입력 필요");
 }
 
 /* ===== 파일 저장 ===== */
@@ -2192,12 +2837,140 @@ async function saveFilesToComputer(localNames) {
   }
 }
 
+/* 고른 자료를 한꺼번에 처리한다.
+   폴더 헤더 체크박스로 과목 전체를 고른 뒤 그대로 이어서 쓸 수 있다.
+   Drive 업로드나 삼성 노트는 파일 수만큼 시간이 걸리므로 진행 표시를 띄운다. */
+async function runBulkFileAction(action, label) {
+  const names = [...state.selectedFiles];
+  if (!names.length) return;
+
+  const buttons = [...document.querySelectorAll(".bulk-action, #bulkSaveButton")];
+  buttons.forEach((b) => (b.disabled = true));
+  showToast(`${label}… (${names.length}개)`);
+  try {
+    const res = await api("/api/files/bulk", {
+      method: "POST",
+      body: JSON.stringify({ action, names }),
+    });
+    showToast(res.message || "끝났습니다.");
+    state.selectedFiles.clear();
+    // 삼성 노트는 뒤에서 돈다. 버튼은 바로 풀고 진행만 위에 조용히 보여 준다.
+    if (res.started) watchNotesJob();
+    await refreshAll();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+    updateBulkSaveButton();
+  }
+}
+
+/* ===== 삼성 노트 넣기 진행 =====
+   서버가 뒤에서 넣는 동안 위쪽 진행 막대에만 'n/전체' 를 보여 준다.
+   삼성 노트 창은 서버 쪽에서 투명하게 붙잡아 두어 화면에 뜨지 않는다. */
+async function watchNotesJob() {
+  if (state.notesJobWatching) return;
+  state.notesJobWatching = true;
+  try {
+    for (;;) {
+      let job;
+      try {
+        job = await api("/api/samsung-notes/job");
+      } catch (error) {
+        break;
+      }
+      state.notesJob = job;
+      if (!job.running) {
+        if (job.result) {
+          finishTopProgress(job.result.ok === false ? "삼성 노트 넣기 실패" : "삼성 노트 넣기 완료");
+          showToast(job.message || "삼성 노트에 넣었습니다.");
+        } else {
+          hideTopProgress();
+        }
+        break;
+      }
+      const total = Math.max(job.total || 0, 1);
+      // 파일 하나가 끝나야 숫자가 오르므로, 진행 중인 파일은 반쯤 찬 것으로 친다
+      const pct = Math.min(96, ((job.done + (job.current ? 0.5 : 0)) / total) * 100);
+      showTopProgress(`삼성 노트 ${Math.min(job.done + 1, total)}/${total}`, Math.max(pct, 4));
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
+  } finally {
+    state.notesJobWatching = false;
+  }
+}
+
+/* 자료를 목록에서만 뺀다. 받아 둔 파일과 Drive 사본은 그대로 둔다.
+   되돌리기는 '숨긴 자료 복원'으로. */
+async function dropFileFromList(localName) {
+  if (!localName) return;
+  if (!Array.isArray(state.selection.hiddenFiles)) state.selection.hiddenFiles = [];
+  if (state.selection.hiddenFiles.includes(localName)) return;
+  state.selection.hiddenFiles.push(localName);
+  state.selectedFiles.delete(localName);
+  try {
+    await api("/api/selection", { method: "POST", body: JSON.stringify(state.selection) });
+    showToast("목록에서 뺐습니다. 파일은 그대로 있습니다.");
+    await refreshAll();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function restoreHiddenFiles() {
+  state.selection.hiddenFiles = [];
+  try {
+    await api("/api/selection", { method: "POST", body: JSON.stringify(state.selection) });
+    showToast("숨긴 자료를 모두 되돌렸습니다.");
+    await refreshAll();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function updateBulkSaveButton() {
-  const button = $("#bulkSaveButton");
   const count = state.selectedFiles.size;
-  button.disabled = count === 0;
-  button.innerHTML = `<span class="icon" data-icon="download"></span>선택 저장${count ? ` (${count})` : ""}`;
-  installIcons(button);
+  // 고른 게 있을 때만 '할 일' 막대를 보인다 (평소엔 꺼진 버튼 네 개가 자리만 차지했다)
+  const bar = $("#fileSelectBar");
+  if (bar) bar.hidden = count === 0;
+  const counter = $("#fileSelectCount");
+  if (counter) counter.textContent = String(count);
+  $("#bulkSaveButton").disabled = count === 0;
+  document.querySelectorAll(".bulk-action").forEach((el) => {
+    el.disabled = count === 0;
+  });
+  // 삼성 노트는 그 앱이 깔린 PC 에서만 의미가 있다
+  const notes = $("#bulkNotesButton");
+  if (notes) notes.hidden = !state.samsungNotes;
+  const organize = $("#organizeNotesButton");
+  if (organize) organize.hidden = !state.samsungNotes;
+
+  const restore = $("#restoreFilesButton");
+  if (restore) {
+    const hiddenCount = (state.selection?.hiddenFiles || []).length;
+    restore.hidden = hiddenCount === 0;
+    const label = $("#restoreFilesLabel");
+    if (label) label.textContent = `숨긴 자료 ${hiddenCount}개 되돌리기`;
+  }
+}
+
+/** 고른 자료를 모두 푼다 (체크 표시까지) */
+function clearFileSelection() {
+  state.selectedFiles.clear();
+  document.querySelectorAll("#view-files input[type=checkbox]:checked").forEach((box) => {
+    box.checked = false;
+    box.indeterminate = false;
+  });
+  updateBulkSaveButton();
+}
+
+/* 자료 ⋯ 메뉴: 누르면 열고, 바깥을 누르거나 Esc 면 닫는다 */
+function setFilesMenu(open) {
+  const menu = $("#filesMoreMenu");
+  const button = $("#filesMoreButton");
+  if (!menu || !button) return;
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
 }
 
 /* ===== 자료 뷰 ===== */
@@ -2205,7 +2978,7 @@ function renderCourseFilter() {
   const select = $("#courseFilter");
   const courses = [...new Set(state.files.map((file) => file.courseLabel).filter(Boolean))].sort();
   const current = select.value;
-  select.innerHTML = '<option value="">전체 강의</option>';
+  select.innerHTML = '<option value="">모든 과목</option>';
   courses.forEach((course) => {
     const option = document.createElement("option");
     option.value = course;
@@ -2239,44 +3012,208 @@ function renderFolderView(rows) {
   });
 
   const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  // 접힌 폴더의 파일 줄은 펼칠 때 그린다.
+  // 예전에는 268개 파일 × 아이콘 4개를 전부 미리 그려서(대부분 접힌 채로),
+  // 폴더 보기를 열거나 체크 하나 바꿀 때마다 80ms 가 들었다.
+  state.folderRows = new Map(sorted);
+  // 과목마다 LMS 와 같은 폴더 나무 (1주차 > Lecture 1 > 파일)
+  state.folderTrees = new Map(sorted.map(([course, files]) => [course, buildFolderTree(files)]));
   wrap.innerHTML = sorted.length
     ? sorted
         .map(([course, files]) => {
           const open = !!state.openFolders[course];
           const localCount = files.filter((f) => f.status === "local").length;
+          const savable = files.filter((f) => f.status === "local");
+          const allPicked =
+            savable.length > 0 && savable.every((f) => state.selectedFiles.has(f.localName));
+          const somePicked = savable.some((f) => state.selectedFiles.has(f.localName));
+          // 폴더가 어느 학년·학기 과정인지 (자료에서 뽑아 둔 값)
+          const meta = [files[0]?.levelLabel, files[0]?.termLabel].filter(Boolean).join(" · ");
           return `
             <section class="folder-card ${open ? "open" : ""}" data-folder="${escapeHtml(course)}">
-              <button type="button" class="folder-head" aria-expanded="${open}">
-                <span class="folder-icon"><span class="icon" data-icon="folder"></span></span>
-                <span class="folder-title">
-                  <strong title="${escapeHtml(course)}">${escapeHtml(shortText(course, 40))}</strong>
-                  <span>${files.length}개 · 저장됨 ${localCount}개</span>
-                </span>
-                <span class="folder-chevron" aria-hidden="true">›</span>
-              </button>
+              <div class="folder-head-row">
+                <label class="folder-pickall" title="이 과목 자료 전체 선택">
+                  <input type="checkbox" data-pickfolder="${escapeHtml(course)}"
+                    ${allPicked ? "checked" : ""} ${savable.length ? "" : "disabled"} />
+                </label>
+                <button type="button" class="folder-head" aria-expanded="${open}">
+                  <span class="folder-icon">${iconHtml("folder")}</span>
+                  <span class="folder-title">
+                    <strong title="${escapeHtml(course)}">${escapeHtml(shortText(course, 40))}</strong>
+                    <span>${files.length}개 · 저장됨 ${localCount}개${
+                      somePicked && !allPicked ? " · 일부 선택" : ""
+                    }${meta ? ` · ${escapeHtml(meta)}` : ""}</span>
+                  </span>
+                  <span class="folder-chevron" aria-hidden="true">›</span>
+                </button>
+              </div>
               <div class="folder-files">
-                <div class="folder-files-inner">
-                ${files
-                  .map(
-                    (file) => `
-                  <div class="folder-file">
-                    <span class="file-type-icon"><span class="icon" data-icon="file"></span></span>
-                    <span class="folder-file-name" title="${escapeHtml(file.name)}">${escapeHtml(shortText(file.name, 46))}</span>
-                    <span class="status-badge ${file.status}">${statusLabel(file.status)}</span>
-                    <button class="save-file-button" data-save="${escapeHtml(file.localName)}"
-                      ${file.status === "local" ? "" : "disabled"} title="내 컴퓨터에 저장">
-                      <span class="icon" data-icon="download"></span>저장
-                    </button>
-                  </div>`,
-                  )
-                  .join("")}
+                <div class="folder-files-inner" ${open ? "" : 'data-lazy="1"'}>
+                ${open ? folderTreeHtml(course, state.folderTrees.get(course), 0) : ""}
                 </div>
               </div>
             </section>`;
         })
         .join("")
     : "";
-  installIcons(wrap);
+  markPartialPicks(wrap);
+}
+
+/* ===== LMS 폴더 나무 =====
+   LMS 에는 강의자료가 '1주차 > Lecture 1 > 파일' 처럼 폴더 안에 정리되어 있다.
+   예전에는 과목 아래에 파일을 한 줄로 늘어놓기만 해서 어느 주차 자료인지 알 수 없었다.
+   이제 동기화 때 기록한 폴더 경로로 나무를 세우고, LMS 에 올라온 순서를 따른다.
+   순서를 모르는 파일(예전에 받은 것)은 이름을 사람이 읽는 순서로 놓는다
+   ('10주차' 가 '2주차' 앞에 오지 않게). */
+const FOLDER_KEY_SEP = "\u241F";
+const koNatural = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
+
+function compareLmsOrder(a, b) {
+  const hasA = Array.isArray(a) && a.length;
+  const hasB = Array.isArray(b) && b.length;
+  if (hasA && hasB) {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i += 1) {
+      if (a[i] !== b[i]) return a[i] - b[i];
+    }
+    return a.length - b.length;
+  }
+  if (hasA) return -1;
+  if (hasB) return 1;
+  return 0;
+}
+
+function buildFolderTree(files) {
+  const makeNode = (name, path) => ({ name, path, folders: new Map(), files: [], order: null, all: [] });
+  const root = makeNode("", []);
+  for (const file of files) {
+    let node = root;
+    node.all.push(file);
+    const parts = Array.isArray(file.folderPath) ? file.folderPath.filter(Boolean) : [];
+    for (const part of parts) {
+      if (!node.folders.has(part)) node.folders.set(part, makeNode(part, [...node.path, part]));
+      node = node.folders.get(part);
+      node.all.push(file);
+      if (file.lmsOrder && (!node.order || compareLmsOrder(file.lmsOrder, node.order) < 0)) {
+        node.order = file.lmsOrder;
+      }
+    }
+    node.files.push(file);
+  }
+  return root;
+}
+
+function findFolderNode(course, path) {
+  let node = state.folderTrees?.get(course);
+  for (const part of path) {
+    node = node?.folders.get(part);
+  }
+  return node || null;
+}
+
+function folderKey(course, path) {
+  return [course, ...path].join(FOLDER_KEY_SEP);
+}
+
+function folderTreeHtml(course, node, depth) {
+  if (!node) return "";
+  // 폴더와 파일을 LMS 에 놓인 순서대로 섞어 놓는다.
+  // (LMS 에서 맨 위에 있는 강의계획서가 폴더들 뒤로 밀리지 않게)
+  // 순서를 모르는 것끼리는 폴더를 먼저, 그다음 이름순.
+  const items = [
+    ...[...node.folders.values()].map((child) => ({ kind: 0, order: child.order, name: child.name, child })),
+    ...node.files.map((file) => ({ kind: 1, order: file.lmsOrder, name: file.name, file })),
+  ];
+  items.sort(
+    (a, b) => compareLmsOrder(a.order, b.order) || a.kind - b.kind || koNatural.compare(a.name, b.name),
+  );
+  return items
+    .map((item) => (item.child ? subfolderHtml(course, item.child, depth) : folderFileHtml(item.file)))
+    .join("");
+}
+
+function subfolderHtml(course, node, depth) {
+  const key = folderKey(course, node.path);
+  const open = !!state.openFolders[key];
+  const savable = node.all.filter((f) => f.status === "local");
+  const picked = savable.filter((f) => state.selectedFiles.has(f.localName)).length;
+  const allPicked = savable.length > 0 && picked === savable.length;
+  return `
+    <div class="subfolder ${open ? "open" : ""}" data-subfolder="${escapeHtml(key)}" style="--depth:${depth}">
+      <div class="subfolder-row">
+        <input type="checkbox" class="subfolder-pick" data-pickpath="${escapeHtml(key)}"
+          ${allPicked ? "checked" : ""} ${picked && !allPicked ? 'data-partial="1"' : ""}
+          ${savable.length ? "" : "disabled"} aria-label="이 폴더 자료 전체 선택" />
+        <button type="button" class="subfolder-head" aria-expanded="${open}">
+          <span class="folder-chevron" aria-hidden="true">›</span>
+          ${iconHtml("folder", "subfolder-icon")}
+          <span class="subfolder-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
+          <span class="subfolder-count">${node.all.length}</span>
+        </button>
+      </div>
+      <div class="subfolder-body" ${open ? "" : 'data-lazy="1"'}>
+        ${open ? folderTreeHtml(course, node, depth + 1) : ""}
+      </div>
+    </div>`;
+}
+
+/** 일부만 고른 폴더는 체크 상자를 반쯤 찬 모양으로 */
+function markPartialPicks(root) {
+  root.querySelectorAll('[data-partial="1"]').forEach((box) => {
+    box.indeterminate = true;
+  });
+}
+
+/** 접혀 있던 하위 폴더를 펼칠 때 그 안을 그린다 */
+function fillLazySubfolder(element) {
+  const body = element.querySelector(":scope > .subfolder-body[data-lazy]");
+  if (!body) return;
+  const [course, ...path] = element.dataset.subfolder.split(FOLDER_KEY_SEP);
+  const depth = Number(element.style.getPropertyValue("--depth") || 0) + 1;
+  body.innerHTML = folderTreeHtml(course, findFolderNode(course, path), depth);
+  delete body.dataset.lazy;
+  markPartialPicks(body);
+}
+
+function folderFileHtml(file) {
+  return `
+    <div class="folder-file">
+      <input type="checkbox" class="folder-file-pick" data-pick="${escapeHtml(file.localName)}"
+        ${state.selectedFiles.has(file.localName) ? "checked" : ""}
+        ${file.status === "local" ? "" : "disabled"} aria-label="선택" />
+      <span class="file-type-icon">${iconHtml("file")}</span>
+      <span class="folder-file-name" title="${escapeHtml(file.name)}">${escapeHtml(shortText(file.name, 42))}</span>
+      ${file.isSyllabus ? '<span class="syllabus-tag">강의계획서</span>' : ""}
+      <span class="status-badge ${file.status}">${statusLabel(file.status)}</span>
+      <button class="save-file-button" data-open-file="${escapeHtml(file.localName)}"
+        ${file.status === "local" ? "" : "disabled"} title="열기">
+        ${iconHtml("file")}열기
+      </button>
+      <button class="save-file-button" data-save="${escapeHtml(file.localName)}"
+        ${file.status === "local" ? "" : "disabled"} title="내 컴퓨터에 저장">
+        ${iconHtml("download")}저장
+      </button>
+      ${
+        state.samsungNotes && file.status === "local" && /\.pdf$/i.test(file.name)
+          ? `<button class="save-file-button notes" data-to-notes="${escapeHtml(file.localName)}"
+               title="삼성 노트로 보내기 (PDF만 가능)">노트로</button>`
+          : ""
+      }
+      <button class="save-file-button danger" data-drop-file="${escapeHtml(file.localName)}"
+        ${file.status === "local" ? "" : "disabled"} title="목록에서 빼기">
+        ${iconHtml("trash")}
+      </button>
+    </div>`;
+}
+
+/** 접혀 있던 폴더를 펼칠 때 그 폴더의 파일 줄을 그린다 */
+function fillLazyFolder(card) {
+  const inner = card.querySelector(".folder-files-inner[data-lazy]");
+  if (!inner) return;
+  const course = card.dataset.folder;
+  inner.innerHTML = folderTreeHtml(course, state.folderTrees?.get(course), 0);
+  delete inner.dataset.lazy;
+  markPartialPicks(inner);
 }
 
 function applyFileMode() {
@@ -2294,6 +3231,49 @@ function applyFileMode() {
 }
 
 /* ===== 내 폴더 (자유 편집) ===== */
+/* 삼성 노트가 깔린 PC 에서만 '노트로' 버튼을 보여 준다.
+   없는 사람에게 눌러도 안 되는 버튼을 보이는 것보다 낫다.
+   설치 여부는 잘 안 바뀌므로 켤 때 한 번만 확인한다. */
+async function loadSamsungNotes() {
+  try {
+    const res = await api("/api/samsung-notes/status");
+    state.samsungNotes = Boolean(res.available);
+  } catch (error) {
+    state.samsungNotes = false;
+  }
+}
+
+/* 삼성 노트에 들어간 강의자료를 과목 이름 폴더로 옮긴다.
+   삼성 노트가 켜져 있으면 앱이 제 메모리 값으로 덮어써서 정리가 되돌아간다.
+   그래서 켜져 있으면 먼저 닫아 달라고 알린다. */
+async function organizeSamsungNotes() {
+  const button = $("#organizeNotesButton");
+  if (button) button.disabled = true;
+  try {
+    const res = await api("/api/samsung-notes/organize", { method: "POST", body: "{}" });
+    showToast(res.message || "정리했습니다.");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/* 받아 둔 자료를 '학기 / 과목' 폴더로 옮긴다 */
+async function organizeFiles() {
+  const button = $("#organizeFilesButton");
+  if (button) button.disabled = true;
+  try {
+    const res = await api("/api/organize-files", { method: "POST", body: "{}" });
+    showToast(res.message || "정리했습니다.");
+    await refreshAll();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadShelves() {
   try {
     const data = await api("/api/shelves");
@@ -2494,17 +3474,29 @@ function bindShelves() {
 }
 
 function renderFiles() {
-  const rows = filteredFiles().slice(0, 150);
+  // 앞 150개만 그리던 제한이 과목을 통째로 숨겼다.
+  // 자료가 277개인데 정렬이 과목 이름순이라, M 으로 시작하는
+  // Multivariable Calculus(258번째~)는 화면에 아예 안 나왔다.
+  // 폴더 보기는 과목별로 묶기만 하므로 전부 그려도 가볍다.
+  // 표(리스트) 보기만 성능 때문에 넉넉한 상한을 둔다.
+  const all = filteredFiles();
   const table = $("#filesTable");
   const empty = $("#emptyState");
-  // 표와 폴더 보기를 늘 둘 다 그려서 안 보이는 쪽까지 150줄이 쌓였다.
-  // 지금 보고 있는 쪽만 그린다.
   const mode = state.fileMode || "list";
+  const rows = mode === "list" ? all.slice(0, 400) : all;
   if (mode === "folder" || mode === "shelf") {
+    // 폴더 보기에도 선택이 있으므로, 리스트 보기와 똑같이
+    // 화면에 없는 파일은 선택에서 빼고 일괄 작업 버튼 상태를 맞춘다.
+    // (예전에는 여기서 바로 빠져나가 버튼이 계속 꺼져 있었다)
+    const shown = new Set(rows.filter((f) => f.status === "local").map((f) => f.localName));
+    [...state.selectedFiles].forEach((name) => {
+      if (!shown.has(name)) state.selectedFiles.delete(name);
+    });
     renderFolderView(rows);
     table.innerHTML = "";
     applyFileMode();
     if (empty) empty.hidden = rows.length > 0;
+    updateBulkSaveButton();
     return;
   }
   applyFileMode();
@@ -2527,7 +3519,7 @@ function renderFiles() {
           </td>
           <td>
             <div class="file-name">
-              <span class="file-type-icon"><span class="icon" data-icon="file"></span></span>
+              <span class="file-type-icon">${iconHtml("file")}</span>
               <span title="${escapeHtml(file.name)}">${escapeHtml(shortText(file.name, 54))}</span>
             </div>
           </td>
@@ -2539,7 +3531,7 @@ function renderFiles() {
             <button class="save-file-button" data-save="${escapeHtml(file.localName)}"
               ${file.status === "local" ? "" : "disabled"}
               title="${file.status === "local" ? "내 컴퓨터 다운로드 폴더에 저장" : "로컬에 없는 파일입니다. 먼저 동기화해 주세요."}">
-              <span class="icon" data-icon="download"></span>저장
+              ${iconHtml("download")}저장
             </button>
           </td>
         </tr>
@@ -2548,55 +3540,59 @@ function renderFiles() {
     .join("");
 
   empty.hidden = rows.length > 0;
-  installIcons(table);
+  bindFileTableOnce(table);
+  updateBulkSaveButton();
+  syncSelectAllState();
+}
 
-  table.querySelectorAll("[data-save]").forEach((button) => {
-    button.addEventListener("click", () => saveFilesToComputer(button.dataset.save));
-  });
+/* 표의 클릭은 표 하나에 한 번만 건다.
+   예전에는 줄마다 리스너 3개(저장·체크·행)를 새로 달아서 268줄이면 800개였다. */
+function bindFileTableOnce(table) {
+  if (table.dataset.bound) return;
+  table.dataset.bound = "1";
 
-  const pickables = [...table.querySelectorAll("[data-pick]:not([disabled])")];
+  const pickables = () => [...table.querySelectorAll("[data-pick]:not([disabled])")];
   const setPicked = (checkbox, picked) => {
     checkbox.checked = picked;
-    if (picked) {
-      state.selectedFiles.add(checkbox.dataset.pick);
-    } else {
-      state.selectedFiles.delete(checkbox.dataset.pick);
-    }
+    if (picked) state.selectedFiles.add(checkbox.dataset.pick);
+    else state.selectedFiles.delete(checkbox.dataset.pick);
   };
 
-  pickables.forEach((checkbox, index) => {
-    // Shift+클릭: 직전 클릭 위치부터 범위 선택 / 해제
-    checkbox.addEventListener("click", (event) => {
+  table.addEventListener("click", (event) => {
+    const saveBtn = event.target.closest("[data-save]");
+    if (saveBtn) {
+      if (!saveBtn.disabled) saveFilesToComputer(saveBtn.dataset.save);
+      return;
+    }
+    const checkbox = event.target.closest("[data-pick]");
+    if (checkbox) {
+      if (checkbox.disabled) return;
+      const list = pickables();
+      const index = list.indexOf(checkbox);
       const picked = checkbox.checked; // 클릭 후 상태
+      // Shift+클릭: 직전 클릭 위치부터 범위 선택 / 해제
       if (event.shiftKey && state.lastPickIndex !== null && state.lastPickIndex !== index) {
         const [from, to] = [Math.min(state.lastPickIndex, index), Math.max(state.lastPickIndex, index)];
-        for (let i = from; i <= to; i += 1) setPicked(pickables[i], picked);
+        for (let i = from; i <= to; i += 1) setPicked(list[i], picked);
       } else {
         setPicked(checkbox, picked);
       }
       state.lastPickIndex = index;
       updateBulkSaveButton();
       syncSelectAllState();
-    });
+      return;
+    }
+    // Ctrl/Cmd+클릭(행 아무 곳): 해당 행 선택 토글
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const row = event.target.closest("tr");
+    const box = row?.querySelector("[data-pick]:not([disabled])");
+    if (!box) return;
+    event.preventDefault();
+    setPicked(box, !box.checked);
+    state.lastPickIndex = pickables().indexOf(box);
+    updateBulkSaveButton();
+    syncSelectAllState();
   });
-
-  // Ctrl/Cmd+클릭(행 아무 곳): 해당 행 선택 토글
-  table.querySelectorAll("tr").forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (!(event.ctrlKey || event.metaKey)) return;
-      if (event.target.closest("[data-pick], [data-save]")) return;
-      const checkbox = row.querySelector("[data-pick]:not([disabled])");
-      if (!checkbox) return;
-      event.preventDefault();
-      setPicked(checkbox, !checkbox.checked);
-      state.lastPickIndex = pickables.indexOf(checkbox);
-      updateBulkSaveButton();
-      syncSelectAllState();
-    });
-  });
-
-  updateBulkSaveButton();
-  syncSelectAllState();
 }
 
 function syncSelectAllState() {
@@ -2649,21 +3645,26 @@ function renderTask(task) {
     emails: "메일 새로고침",
     "google-oauth": "Google OAuth",
   };
-  const taskLabel = labels[task.kind] || "작업";
+  // 5분 주기 자동 확인이면 그렇게 보이게 한다.
+  // 안 그러면 자료 동기화 직후에 도는 자동 메일 확인이
+  // '내가 안 시킨 이메일 동기화' 처럼 보인다.
+  const taskLabel = (task.auto ? "자동 " : "") + (labels[task.kind] || "작업");
   /* 이 버튼들은 화면마다 있을 수도, 없을 수도 있다.
      ('마감 새로고침'은 없앴고 '지금 동기화'는 자료 화면으로 옮겼다) */
   const runButton = $("#runButton");
   const busy = Boolean(task.running);
-  [$("#verifyButton"), $("#refreshAllButton")].forEach((b) => {
-    if (b) b.disabled = busy;
-  });
+  const refreshButton = $("#refreshAllButton");
+  if (refreshButton) refreshButton.disabled = busy;
+  /* 동기화 시작은 위쪽 '자료 새로고침' 하나로 모았다. 이 버튼은 돌고 있는 작업을
+     멈추는 용도로만 남기고, 놀고 있을 때는 감춘다 (같은 일 하는 버튼을 둘 두지 않으려고). */
   if (runButton) {
-    runButton.innerHTML = busy
-      ? '<span class="icon" data-icon="x"></span>작업 중지'
-      : '<span class="icon" data-icon="sync"></span>지금 동기화';
-    runButton.classList.toggle("danger", busy);
-    runButton.classList.toggle("primary", !busy);
-    installIcons(runButton);
+    runButton.hidden = !busy;
+    if (busy) {
+      runButton.innerHTML = '<span class="icon" data-icon="x"></span>작업 중지';
+      runButton.classList.add("danger");
+      runButton.classList.remove("primary");
+      installIcons(runButton);
+    }
   }
 
   // 진행 표시: 실행 중에는 단계 문구 + 막대, 끝나면 결과 한 줄
@@ -2675,7 +3676,7 @@ function renderTask(task) {
     $("#taskStageDetail").textContent = p.detail;
     $("#taskProgressFill").style.width = `${p.pct}%`;
     progressWrap.hidden = false;
-    showTopProgress(`${taskLabel} · ${p.label}`, p.pct);
+    if (!state.notesJob?.running) showTopProgress(`${taskLabel} · ${p.label}`, p.pct);
   } else {
     progressWrap.hidden = true;
     $("#taskSummary").textContent =
@@ -2684,7 +3685,10 @@ function renderTask(task) {
         : task.returnCode === 0
           ? `${taskLabel} 완료`
           : `${taskLabel} 실패 (코드 ${task.returnCode})`;
-    if (task.returnCode !== null) {
+    // 삼성 노트를 넣는 중이면 위쪽 막대는 그쪽이 쓴다
+    if (state.notesJob?.running) {
+      // 그대로 둔다
+    } else if (task.returnCode !== null) {
       finishTopProgress(task.returnCode === 0 ? `${taskLabel} 완료` : `${taskLabel} 실패`);
     } else {
       hideTopProgress();
@@ -2730,7 +3734,8 @@ const RENDER_PARTS = [
     of: (s) => sig(s.emails?.updatedAt, (s.emails?.emails || []).length, s.emailView, s.emailFolder, s.emailSort, s.search) },
   { key: "calendar", views: ["calendar"], render: renderCalendar,
     of: (s) => sig(s.deadlines?.updatedAt, (s.myEvents || []).length, (s.academic || []).length,
-      s.academicUnderOnly, s.calMonth, s.showHolidays) },
+      s.academicUnderOnly, s.calMonth, s.showHolidays, s.emails?.updatedAt,
+      (s.emails?.emails || []).filter((m) => m.calendar).length) },
   { key: "courses", views: ["courses"], render: renderCourses,
     of: (s) => sig(listSig(s.status?.courses), JSON.stringify(s.selection?.courses || {}).length,
       (s.files || []).length, s.courseEditMode) },
@@ -2738,7 +3743,8 @@ const RENDER_PARTS = [
     of: (s) => sig((s.files || []).length) },
   { key: "files", views: ["files"], render: renderFiles,
     of: (s) => sig((s.files || []).length, s.search, s.fileView, s.fileCourse, s.fileStatus) },
-  { key: "health", render: renderHealth, of: (s) => sig(s.health?.checkedAt, s.health?.level) },
+  { key: "health", render: renderHealth,
+    of: (s) => sig(s.health?.warning, s.health?.consecutiveFailures, JSON.stringify(s.health?.lastSuccess || {})) },
   { key: "quicklinks", views: ["dashboard"], render: renderQuicklinks, of: (s) => sig(s.quicklinksAll) },
   { key: "shuttle", views: ["storage"], render: renderShuttle,
     of: (s) => sig((s.shuttle || []).length, s.shuttleGroup) },
@@ -2851,6 +3857,51 @@ const REPEAT_LABEL = {
   yearly: "매년",
 };
 
+/* 메일 제목을 캘린더 칸에 맞게: 앞 꼬리표([총학생회] <장소 수정>)와 ' / 영어 제목' 을 뗀다 */
+function mailEventTitle(subject) {
+  let text = String(subject || "").split(" / ")[0];
+  text = text.replace(/^\s*(re|fw|fwd)\s*:\s*/i, "");
+  for (let i = 0; i < 3; i += 1) text = text.replace(/^\s*(\[[^\]]*\]|<[^>]*>|\([^)]*\))\s*/, "");
+  return text.trim() || String(subject || "");
+}
+
+/* 달력 칸에 들어갈 짧은 이름.
+   실제 제목이 "4:30PM Sep 15, PHCH Fall Seminar…" / "Fall 2026 New Biology Seminar (Sep.15…" 처럼
+   날짜·시간으로 시작해 칸에 "4:30P…" 만 보였다. 날짜·연도·"개최 안내"를 떼고,
+   영어 제목이거나 남는 게 "세미나"뿐이면 [학과] 꼬리표를 이름으로 쓴다. */
+const EVENT_WORD_RE = /세미나|특강|축제|행사|제$|설명회|워크숍|콜로키움|포럼|seminar|colloquium|lecture|festival|forum|workshop/i;
+function eventShortTitle(subject) {
+  const raw = String(subject || "").replace(/^\s*(re|fw|fwd)\s*:\s*/i, "");
+  let s = raw.split(/\s\/\s/)[0];
+  let tag = "";
+  for (let i = 0; i < 4; i += 1) {
+    const m = s.match(/^\s*(\[[^\]]*\]|<[^>]*>|＜[^＞>]*[＞>]|\([^)]*\))\s*/);
+    if (!m) break;
+    const inner = m[1].slice(1, -1).trim();
+    // [수강생 모집 중; #무료세미나…] 같은 광고 꼬리표는 이름으로 안 쓴다
+    if (!tag && m[1][0] === "[" && inner.length <= 24 && !/[#;]/.test(inner)) tag = inner.split("_").pop().trim();
+    s = s.slice(m[0].length);
+  }
+  const english = !/[가-힣]/.test(s);
+  let t = s
+    .replace(/^\d{1,2}(:\d{2})?\s*[AP]M\s+[A-Za-z]{3,9}\.?\s*\d{1,2},?\s*/i, "")
+    .replace(/\b(Fall|Spring|Summer|Winter)\s+20\d\d\s*/i, "")
+    .replace(/20\d\d(학년도|년)?\s*/g, "")
+    .replace(/(가을|봄|여름|겨울)학기\s*/g, "")
+    .replace(/DGIST\s*/g, "")
+    .replace(/제\s?\d+\s?(회|차)\s*/g, "")
+    .replace(/Dept\.\s*of\s*/i, "")
+    .replace(/_/g, " ");
+  t = t.split(/\s[-–—]\s|[(（＜<「]|,\s|\s및\s/)[0];
+  t = t.replace(/\s*(종합\s*)?(개최\s*|참가\s*신청\s*|진행\s*)?안내\s*$/, "").replace(/\s*(행사\s*)?진행$/, "").trim();
+  if (tag) {
+    const tagLabel = /세미나|특강|행사/.test(tag) ? tag : `${tag}${/seminar|세미나/i.test(raw) ? " 세미나" : ""}`;
+    if (english || !t || !EVENT_WORD_RE.test(t)) return tagLabel;
+    if (/^(특별)?(세미나|특강|행사)$/.test(t)) return `${tag} ${t}`;
+  }
+  return t || mailEventTitle(subject);
+}
+
 function calendarItems() {
   // 과제 마감 + 메일 이벤트(eventDate) 합치기
   const items = [];
@@ -2864,11 +3915,24 @@ function calendarItems() {
       kind: isSubmitted(d) ? "done" : "deadline",
     });
   });
+  // 메일로 온 행사: 관심 분야 세미나와 학교 전체 행사(달빛제 등)만. 서버가 calendar 로 골라 준다.
   (state.emails.emails || []).forEach((m) => {
-    if (!m.eventDate) return;
+    if (!m.eventDate || m.calendar === false) return;
     const dt = new Date(m.eventDate);
     if (Number.isNaN(dt.getTime())) return;
-    items.push({ date: dt, title: m.summary || m.subject, sub: m.fromName || m.fromEmail, kind: "event", mailId: m.id });
+    // 학교 전체 행사(달빛제)와 관심 세미나는 색을 나눈다. 둘 다 '메일 일정' 한 색이라 마감과도 헷갈렸다.
+    // '세미나 · 관심: 세미나' 처럼 겹치면 관심 단어는 뺀다
+    const hits = (m.interestHits || []).filter((w) => !/^(세미나|seminar)$/i.test(w));
+    const why = hits.length && !m.schoolEvent ? `관심: ${hits.join(", ")}` : "";
+    items.push({
+      date: dt,
+      title: m.summary || eventShortTitle(m.subject),
+      full: String(m.subject || "").replace(/^\s*(re|fw|fwd)\s*:\s*/i, "").split(" / ")[0].trim(),
+      sub: [why, m.fromName || m.fromEmail].filter(Boolean).join(" · "),
+      kind: m.schoolEvent ? "school" : "event",
+      mailId: m.id,
+      allDay: !String(m.eventDate).includes("T"),
+    });
   });
   // 내가 직접 추가한 일정. 반복·여러 날이면 걸치는 날마다 하나씩 놓는다.
   (state.myEvents || []).forEach((e) => {
@@ -2956,8 +4020,9 @@ function renderCalendar() {
       .slice(0, MAX_CHIPS)
       .map(
         (it) =>
-          `<span class="cal-chip cal-${it.kind}" title="${escapeHtml(it.title || "")}">${escapeHtml(
-            shortText(it.title || "", 14),
+          `<span class="cal-chip cal-${it.kind}" title="${escapeHtml(it.full || it.title || "")}">${escapeHtml(
+            // 보라색이 곧 '세미나'라 칸에서는 꼬리를 떼고 학과 이름이 더 보이게 한다
+            shortText((it.kind === "event" && (it.title || "").replace(/\s+(세미나|seminar)$/i, "")) || it.title || "", 14),
           )}</span>`,
       )
       .join("");
@@ -3092,15 +4157,25 @@ const LUNAR_HOLIDAYS = {
     "5-5": "부처님오신날",
     "10-5": "추석 연휴", "10-6": "추석", "10-7": "추석 연휴",
   },
+  // 대체공휴일도 여기 적는다: 고정 공휴일이 일요일(어린이날·성탄절 등은 토요일도)과 겹치면
+  // 다음 평일이 쉬는 날이다. 규칙으로 계산하지 않고 해마다 적어 두는 편이 틀릴 일이 적다.
   2026: {
     "2-16": "설날 연휴", "2-17": "설날", "2-18": "설날 연휴",
-    "5-24": "부처님오신날",
+    "3-2": "대체공휴일(삼일절)",
+    "5-24": "부처님오신날", "5-25": "대체공휴일(부처님오신날)",
+    "6-3": "지방선거일",
+    "8-17": "대체공휴일(광복절)",
     "9-24": "추석 연휴", "9-25": "추석", "9-26": "추석 연휴",
+    "10-5": "대체공휴일(개천절)",
   },
   2027: {
-    "2-5": "설날 연휴", "2-6": "설날", "2-7": "설날 연휴",
+    "2-5": "설날 연휴", "2-6": "설날", "2-7": "설날 연휴", "2-8": "대체공휴일(설날)",
     "5-13": "부처님오신날",
+    "8-16": "대체공휴일(광복절)",
     "9-14": "추석 연휴", "9-15": "추석", "9-16": "추석 연휴",
+    "10-4": "대체공휴일(개천절)",
+    "10-11": "대체공휴일(한글날)",
+    "12-27": "대체공휴일(성탄절)",
   },
 };
 
@@ -3109,7 +4184,111 @@ function holidayName(year, month, day) {
   return LUNAR_HOLIDAYS[year]?.[key] || FIXED_HOLIDAYS[key] || null;
 }
 
+/* 명절·기념일 인사. 대시보드 인사말과 사이드바 나우바가 함께 쓴다.
+   공휴일이 아니어도 챙길 만한 날(12월 31일 등)은 여기서만 인사한다. */
+const SPECIAL_DAY_LINES = [
+  [/^설날$/, "새해 복 많이 받으세요", "가족과 따뜻한 설 보내요"],
+  [/설날/, "즐거운 설 연휴 보내세요", "푹 쉬고 든든히 먹어요"],
+  [/^추석$/, "풍성한 한가위 보내세요", "보름달처럼 넉넉한 하루 되세요"],
+  [/추석/, "즐거운 추석 연휴 보내세요", "푹 쉬고 맛있는 거 많이 먹어요"],
+  [/신정/, "새해 복 많이 받으세요", "올해도 잘 부탁해요"],
+  [/성탄절/, "메리 크리스마스", "따뜻한 성탄절 보내요"],
+  [/어린이날/, "즐거운 어린이날이에요", "오늘은 마음껏 쉬어요"],
+  [/부처님오신날/, "평온한 부처님오신날 보내세요", "쉬어 가는 하루예요"],
+  [/한글날/, "한글날이에요", "오늘은 수업 없이 쉬어요"],
+  [/삼일절|광복절/, "뜻깊은 하루 보내세요", "오늘은 쉬는 날이에요"],
+];
+
+/** 오늘이 공휴일이거나 특별한 날이면 { holiday, title, sub } (아니면 null) */
+function specialDay(at = new Date()) {
+  const y = at.getFullYear();
+  const m = at.getMonth() + 1;
+  const d = at.getDate();
+  const holiday = holidayName(y, m, d);
+  if (!holiday) {
+    if (m === 12 && d === 31) return { holiday: null, title: "올 한 해 수고 많았어요", sub: "좋은 마무리 해요" };
+    return null;
+  }
+  const hit = SPECIAL_DAY_LINES.find(([re]) => re.test(holiday));
+  return {
+    holiday,
+    title: hit ? hit[1] : "쉬는 날이에요",
+    sub: hit ? hit[2] : "오늘은 수업이 없어요",
+  };
+}
+
 /* ===== 날짜 상세 (셀을 누르면 아래로 펼쳐짐) ===== */
+/* 캘린더 상세에서 메일 일정을 누르면 메일함으로 넘어가지 않고 그 칸을 펼쳐 본문 글을 보여 준다.
+   세미나 시간·장소만 확인하려는데 화면이 메일함으로 바뀌면 달력으로 돌아오기가 번거로웠다. */
+function mailPlainText(mail) {
+  let text = String(mail.body || "").trim();
+  if (text.length < 20 && mail.bodyHtml) {
+    // HTML만 있는 메일: 블록 끝마다 줄바꿈을 넣고 글자만 뽑는다
+    const doc = new DOMParser().parseFromString(mail.bodyHtml, "text/html");
+    doc.querySelectorAll("script,style,head").forEach((el) => el.remove());
+    doc.querySelectorAll("br").forEach((el) => el.replaceWith("\n"));
+    doc.querySelectorAll("p,div,tr,li,h1,h2,h3,h4,h5,h6,table,blockquote").forEach((el) => el.append("\n"));
+    doc.querySelectorAll("td,th").forEach((el) => el.append("  "));
+    text = doc.body?.textContent || "";
+  }
+  return (
+    text
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((line) => line.replace(/[ \t\u00a0]+/g, " ").trim())
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim() || mail.snippet || "본문이 비어 있어요."
+  );
+}
+
+function linkifyText(text) {
+  // 먼저 이스케이프하고 주소만 링크로 감싼다 (본문 HTML은 쓰지 않는다)
+  return escapeHtml(text).replace(
+    /https?:\/\/[^\s<>"')\]]+/g,
+    (url) => `<a href="${url}" data-open-link="${url}">${url}</a>`,
+  );
+}
+
+async function toggleDayMail(item) {
+  const box = $("#dayDetailBody");
+  const wasOpen = item.classList.contains("open");
+  // 한 번에 하나만 펼친다
+  box.querySelectorAll(".day-item.open").forEach((el) => el.classList.remove("open"));
+  // 본문을 읽는 동안은 오른쪽 패널을 넓힌다 (좁은 패널에서는 한 줄에 열 글자 남짓이라 읽기 힘들었다)
+  $("#calendarStage")?.classList.toggle("reading", !wasOpen);
+  if (wasOpen) return;
+
+  const mail = state.emails.emails.find((m) => String(m.id) === item.dataset.mailid);
+  if (!mail) return;
+  let body = item.querySelector(".day-item-body");
+  if (!body) {
+    item.insertAdjacentHTML(
+      "beforeend",
+      `<div class="day-item-body"><div class="day-item-body-inner">
+         <div class="day-mail-meta"></div>
+         <div class="day-mail-text"><span class="day-mail-loading">본문을 불러오는 중…</span></div>
+         <button type="button" class="day-mail-open">메일함에서 열기</button>
+       </div></div>`,
+    );
+    body = item.querySelector(".day-item-body");
+  }
+  void body.offsetHeight; // 닫힌 상태를 확정해야 펼치는 애니메이션이 재생된다
+  item.classList.add("open");
+  window.setTimeout(() => item.scrollIntoView({ block: "nearest", behavior: "smooth" }), 180);
+
+  if (body.dataset.loaded) return;
+  await ensureMailBody(mail);
+  body.dataset.loaded = "1";
+  body.querySelector(".day-mail-meta").textContent = [
+    mail.fromName || mail.fromEmail,
+    mail.date ? String(mail.date).slice(0, 16).replace("T", " ") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  body.querySelector(".day-mail-text").innerHTML = linkifyText(mailPlainText(mail));
+}
+
 function openDayDetail(day) {
   const panel = $("#dayDetail");
   if (!panel) return;
@@ -3121,7 +4300,7 @@ function openDayDetail(day) {
     )
     .sort((a, b) => a.date - b.date);
 
-  const KIND_LABEL = { deadline: "과제 마감", done: "제출 완료", event: "메일 일정", mine: "내 일정" };
+  const KIND_LABEL = { deadline: "과제 마감", done: "제출 완료", event: "세미나", school: "학교 행사", mine: "내 일정" };
   $("#dayDetailTitle").textContent = `${m + 1}월 ${day}일 (${["일", "월", "화", "수", "목", "금", "토"][new Date(y, m, day).getDay()]})`;
   $("#dayDetailCount").textContent = items.length ? `${items.length}건` : "일정 없음";
 
@@ -3142,7 +4321,8 @@ function openDayDetail(day) {
               <span class="dot cal-${it.kind}"></span>
               <div class="day-item-main">
                 <strong>${escapeHtml(it.title || "")}</strong>
-                <span>${escapeHtml(KIND_LABEL[it.kind] || "")}${it.sub ? " · " + escapeHtml(shortText(it.sub, 40)) : ""}</span>
+                ${it.full && it.full !== it.title ? `<em>${escapeHtml(it.full)}</em>` : ""}
+                <span>${escapeHtml(KIND_LABEL[it.kind] || "")}${it.sub ? " · " + escapeHtml(it.sub) : ""}</span>
               </div>
               ${actions}
             </div>`;
@@ -3159,6 +4339,7 @@ function openDayDetail(day) {
   if (stage) {
     window.clearTimeout(state._dayDetailTimer);
     void panel.offsetWidth;
+    stage.classList.remove("reading");
     stage.classList.add("detail-open");
   }
 }
@@ -3168,7 +4349,7 @@ function closeDayDetail() {
   const panel = $("#dayDetail");
   closeEventEditor();
   if (!stage || !panel) return;
-  stage.classList.remove("detail-open");
+  stage.classList.remove("detail-open", "reading");
   // 접히는 애니메이션이 끝난 뒤에 숨긴다
   window.clearTimeout(state._dayDetailTimer);
   state._dayDetailTimer = window.setTimeout(() => {
@@ -3275,8 +4456,9 @@ function renderCalendarDayList(byDay) {
 }
 
 async function refreshAll() {
+  refreshAll.full = Date.now();
   try {
-    const [status, files, task, deadlines, selection, emails, config, myEvents, timetable] = await Promise.all([
+    const [status, files, task, deadlines, selection, emails, config, myEvents, timetable, courseState, health] = await Promise.all([
       api("/api/status"),
       api("/api/files"),
       api("/api/task"),
@@ -3286,24 +4468,82 @@ async function refreshAll() {
       api("/api/config"),
       api("/api/my-events").catch(() => ({ events: [] })),
       api("/api/timetable").catch(() => ({ entries: [] })),
+      // 수강 과목 목록 (자료가 없는 과목도 강의 화면에 떠야 한다)
+      api("/api/course-state").catch(() => ({ current: [] })),
+      // 마지막 동기화 시각 (자동 가져오기가 기본이라, 언제 했는지 보여 준다)
+      api("/api/health").catch(() => null),
     ]);
+    if (health) {
+      state.health = health;
+      state._healthSig = JSON.stringify(health.lastSuccess || {});
+    }
+    state.offline = false;
+    renderLastSync();
+    renderMailRefreshAgo();
     state.myEvents = myEvents.events || [];
+    state.courseState = courseState || { current: [] };
     // 학사일정은 하루 한 번만 받아오면 되므로 첫 로드 때만 요청한다
     loadAcademic();
     state.timetable = timetable.entries || [];
     loadShelves();
+    if (state.samsungNotes === undefined) loadSamsungNotes();
     state.status = status;
     state.files = files.files || [];
     state.deadlines = deadlines;
     state.selection = selection.courses ? selection : { courses: {} };
     if (!Array.isArray(state.selection.hidden)) state.selection.hidden = [];
     if (!Array.isArray(state.selection.hiddenDeadlines)) state.selection.hiddenDeadlines = [];
+    if (!Array.isArray(state.selection.hiddenFiles)) state.selection.hiddenFiles = [];
     state.emails = emails.emails ? emails : { emails: [], briefing: "", interests: "", updatedAt: null };
     state.config = config;
     renderAll();
+    // 인사말의 이름과 '오늘 남은 수업·마감·메일' 한 줄은 자료가 들어온 뒤에 맞춘다
+    setHeroGreeting();
+    // 대시보드 '새 메일' 카드. 예전에는 메일함을 그릴 때만 셌어서 대시보드에서는 0 으로 멈춰 있었다.
+    const unreadInbox = (state.emails.emails || []).filter((m) => m.folder === "inbox" && m.unread).length;
+    const newMail = $("#metricNewMail");
+    if (newMail) newMail.textContent = unreadInbox;
+    const newMailNote = $("#metricNewMailNote");
+    if (newMailNote) newMailNote.textContent = unreadInbox ? "안 읽은 메일" : "모두 읽었습니다";
     renderTask(task);
+    state._taskRunning = Boolean(task.running);
   } catch (error) {
-    showToast(error.message);
+    // 앱 서버가 잠깐 없을 때(재설치·재시작) 12초마다 같은 오류를 띄우지 않는다.
+    // 화면의 자료는 그대로 두고 연결이 돌아오면 다시 받는다.
+    if (!state.offline) showToast(humanError(error));
+    if (/fetch|network|connection/i.test(String(error?.message))) state.offline = true;
+  }
+}
+
+/* 가벼운 확인: 작업 상태와 '마지막 동기화 시각' 두 개만 묻는다.
+   예전에는 12초마다(작업 중엔 2초마다) 자료 184KB·메일 94KB 를 포함한 11개를 다시 받고
+   화면을 다시 그렸다. 동기화가 도는 5분 동안 150번 × 11개라 앱이 버벅였다.
+   이제 무언가 끝났을 때(시각이 바뀌거나 작업이 멈췄을 때)만 전부 다시 받는다. */
+async function pollLight() {
+  try {
+    const [task, health] = await Promise.all([api("/api/task"), api("/api/health").catch(() => null)]);
+    if (state.offline) {
+      state.offline = false;
+      showToast("앱과 다시 연결됐어요.");
+      return refreshAll();
+    }
+    const wasRunning = state._taskRunning;
+    state._taskRunning = Boolean(task.running);
+    if (health) state.health = health;
+    renderTask(task);
+    renderLastSync();
+    renderStatusCard(task);
+    const sig = JSON.stringify(health?.lastSuccess || {});
+    const since = Date.now() - (refreshAll.full || 0);
+    const changed = health && sig !== state._healthSig;
+    const finished = wasRunning && !task.running;
+    // 작업 중에는 새로 받은 파일이 조금씩 보이도록 20초마다, 평소에는 90초마다 한 번은 전부 받는다
+    if (changed || finished || since > (task.running ? 20000 : 90000)) return refreshAll();
+  } catch (error) {
+    if (!state.offline) {
+      state.offline = true;
+      showToast(humanError(error));
+    }
   }
 }
 
@@ -3373,10 +4613,15 @@ function renderSecretBadges() {
     if (el) el.hidden = !config.hasGeminiKey;
   }
   {
+    const el = $("#dgistKeySavedBadge");
+    if (el) el.hidden = !config.hasDgistApiKey;
+  }
+  {
     const el = $("#emailPwSavedBadge");
     if (el) el.hidden = !config.hasEmailPassword;
   }
-  $("#schoolPwSavedBadge").hidden = !config.hasSchoolEmailPassword;
+  // 학교 메일은 계정 줄의 '저장됨' 알약이 대신한다
+  renderAccountPills();
 }
 
 function openSettings() {
@@ -3403,8 +4648,41 @@ async function populateSettings() {
   // 구글 캘린더 동기화 (체크박스라 value 대입으로는 반영되지 않음)
   form.elements.gcalSyncEnabled.checked = Boolean(state.config?.gcalSyncEnabled);
   form.elements.gcalCalendarName.value = state.config?.gcalCalendarName || "DGIST 메일 일정";
-  form.elements.autoIntervalMinutes.value = String(state.config?.autoIntervalMinutes ?? 0);
-  form.elements.autoIntervalKind.value = state.config?.autoIntervalKind || "emails";
+  // 자동 가져오기 주기 (선택지에 없는 값이면 가장 가까운 것으로)
+  [
+    ["autoEmailMinutes", 5],
+    ["autoDeadlineMinutes", 60],
+    ["autoSyncMinutes", 180],
+  ].forEach(([name, fallback]) => {
+    const select = form.elements[name];
+    if (!select) return;
+    const want = Number(state.config?.[name] ?? fallback);
+    const options = Array.from(select.options).map((o) => Number(o.value));
+    const nearest = options.includes(want)
+      ? want
+      : options.reduce((best, v) => (Math.abs(v - want) < Math.abs(best - want) ? v : best), options[0]);
+    select.value = String(nearest);
+  });
+  // 강의자료 저장: 드라이브 / 내 컴퓨터 스위치
+  const localMode = state.config?.autoLocalSave || "off";
+  $("#localSaveToggle").checked = localMode !== "off";
+  const scopeValue = state.config?.saveScope === "all" ? "all" : "current";
+  const scope = form.querySelector(`input[name=localSaveScope][value="${scopeValue}"]`);
+  if (scope) scope.checked = true;
+  form.elements.localSavePath.value = state.config?.localSavePath || "";
+  const folderText = $("#localSaveFolderText");
+  if (folderText && state.config?.localSaveFolder) {
+    folderText.textContent = friendlyPath(state.config.localSaveFolder);
+    folderText.parentElement.title = state.config.localSaveFolder;
+  }
+  form.elements.driveUpload.checked = state.config?.driveUpload !== false;
+  $("#driveFolderText").textContent = state.config?.driveFolderName || "AutoSaver";
+  // 클라우드 카드는 저장을 누르기 전까지 초안으로만 바꾼다
+  state.cloudDraft = Object.fromEntries(
+    (state.config?.clouds || []).map((c) => [c.key, { on: Boolean(c.on), path: c.picked ? c.root : "" }]),
+  );
+  renderSaveDestinations();
+  syncLocalSaveButton();
   renderGcalStatus();
   renderInterestChips();
   renderSecretBadges();
@@ -3446,19 +4724,21 @@ function bindEvents() {
   // 별표는 이 컴퓨터에 적어 둔다. 화면을 그리기 전에 읽어야 한다.
   state.mailStars = loadStars();
 
-  $("#searchInput").addEventListener("input", (event) => {
-    state.query = event.target.value;
-    renderUpcoming();
-    renderDeadlines();
-    renderEmails();
-    renderCourses();
-    renderFiles();
+  /* 검색: 글자 하나마다 화면 다섯 개를 통째로 다시 그렸다 (한 글자에 170ms).
+     잠깐 기다렸다가, 지금 보고 있는 화면만 그린다. 다른 화면은 열 때 그린다. */
+  const SEARCH_PARTS = ["upcoming", "deadlines", "emails", "courses", "files", "courseFilter"];
+  let searchTimer = 0;
+  // Ctrl+K 로 어디서든 검색창으로 (검색창 오른쪽에 적어 둔 단축키)
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      $("#searchInput")?.focus();
+      $("#searchInput")?.select();
+    }
   });
+  bindSearchPop();
 
-  $("#refreshEmailsButton").addEventListener("click", () => {
-    splashFromButton($("#refreshEmailsButton"));
-    startRun("/api/refresh-emails", "메일 새로고침");
-  });
+  // 메일 새로고침은 상단 버튼 하나로 통일했다 (화면에 맞춰 이름이 바뀐다)
 
   $("#emailSearchInput").addEventListener("input", (event) => {
     state.emailQuery = event.target.value;
@@ -3546,13 +4826,26 @@ function bindEvents() {
       return;
     }
     const mailItem = event.target.closest("[data-mailid]");
-    if (mailItem) {
+    if (!mailItem) return;
+    const link = event.target.closest("[data-open-link]");
+    if (link) {
+      event.preventDefault();
+      api("/api/mail/open-link", { method: "POST", body: JSON.stringify({ url: link.dataset.openLink }) })
+        .then((res) => showToast(res.opened ? `브라우저에서 열었어요 · ${res.host}` : "링크를 열지 못했어요."))
+        .catch((error) => showToast(humanError(error)));
+      return;
+    }
+    if (event.target.closest(".day-mail-open")) {
       const mail = state.emails.emails.find((m) => String(m.id) === mailItem.dataset.mailid);
       if (mail) {
         switchView("emails");
-        openEmailDetail(mail);
+        window.setTimeout(() => openEmailDetail(mail), 200); // 전환이 끝난 뒤에 열어야 창이 목록으로 안 돌아간다
       }
+      return;
     }
+    // 펼친 본문 안을 누르거나 글을 고르는 중이면 접지 않는다
+    if (event.target.closest(".day-item-body") || String(window.getSelection?.() || "")) return;
+    toggleDayMail(mailItem);
   });
   /* 장소 찾기.
      구글 지도를 화면에 띄우려면 OAuth 가 아니라 결제가 연결된 지도 API 키가
@@ -3634,10 +4927,10 @@ function bindEvents() {
     const mail = state.emails.emails.find((m) => String(m.id) === item.dataset.mailid);
     if (mail) {
       switchView("emails");
-      openEmailDetail(mail);
+      window.setTimeout(() => openEmailDetail(mail), 200);
     }
   });
-  $("#gcalConnectButton").addEventListener("click", async () => {
+  $("#gcalConnectButton")?.addEventListener("click", async () => {
     if (state.status?.mode === "multi-user") {
       window.open("/api/deadlines.ics", "_blank");
       return;
@@ -3970,6 +5263,39 @@ function bindEvents() {
     }
   });
 
+  // 이전 / 다음 메일
+  $("#readPrevButton")?.addEventListener("click", () => stepMail(-1));
+  $("#readNextButton")?.addEventListener("click", () => stepMail(1));
+
+  // 별표 (서버 \Flagged 로 붙어 폰·웹메일에도 보인다)
+  $("#readStarButton")?.addEventListener("click", () => toggleStarOnServer(state.replyContext));
+
+  $("#readReplyAllButton")?.addEventListener("click", () => replyToCurrentEmail(true));
+  $("#readForwardButton")?.addEventListener("click", forwardCurrentEmail);
+
+  // 더보기 메뉴
+  const moreBtn = $("#readMoreButton");
+  const moreMenu = $("#readMoreMenu");
+  moreBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = moreMenu.hidden;
+    moreMenu.hidden = !open;
+    moreBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", () => {
+    if (moreMenu && !moreMenu.hidden) {
+      moreMenu.hidden = true;
+      moreBtn?.setAttribute("aria-expanded", "false");
+    }
+  });
+  moreMenu?.addEventListener("click", async (event) => {
+    const item = event.target.closest("[data-more]");
+    if (!item) return;
+    moreMenu.hidden = true;
+    moreBtn?.setAttribute("aria-expanded", "false");
+    await runMailMore(item.dataset.more, state.replyContext);
+  });
+
   // 정렬 / 보기 방식
   $("#emailSortSelect").addEventListener("change", (event) => {
     state.emailSort = event.target.value;
@@ -4103,7 +5429,9 @@ function bindEvents() {
       const data = await api("/api/pick-folder", { method: "POST", body: "{}" });
       if (data.path) {
         $("#configForm").elements.localSavePath.value = data.path;
-        showToast("폴더를 선택했습니다. 설정 저장을 눌러 적용하세요.");
+        $("#localSaveFolderText").textContent = friendlyPath(data.path);
+        $("#localSaveFolderText").parentElement.title = data.path;
+        showToast("폴더를 골랐습니다. 설정 저장을 누르면 적용됩니다.");
       } else {
         showToast(data.message || "폴더 선택이 취소되었습니다.");
       }
@@ -4132,18 +5460,9 @@ function bindEvents() {
     renderDeadlines();
   });
 
-  $("#runButton").addEventListener("click", () => {
-    if (state.task?.running) {
-      startRun("/api/stop", "중지");
-      return;
-    }
-    const confirmed = window.confirm(
-      "빠른 동기화를 시작할까요? 마지막 동기화 이후 변경된 자료만 빠르게 확인합니다.\n(전체 검사는 설정 → 고급 설정에서 실행할 수 있습니다.)",
-    );
-    if (confirmed) {
-      splashFromButton($("#runButton"));
-      startRun("/api/run", "빠른 동기화", { confirm: true, mode: "fast" });
-    }
+  // 이제는 '작업 중지' 전용이다 (시작은 위쪽 '자료 새로고침')
+  $("#runButton")?.addEventListener("click", () => {
+    if (state.task?.running) startRun("/api/stop", "중지");
   });
 
   $("#selectAllFiles").addEventListener("change", (event) => {
@@ -4159,13 +5478,46 @@ function bindEvents() {
     updateBulkSaveButton();
   });
 
+  $("#restoreFilesButton")?.addEventListener("click", () => {
+    setFilesMenu(false);
+    restoreHiddenFiles();
+  });
+  $("#organizeNotesButton")?.addEventListener("click", () => {
+    setFilesMenu(false);
+    organizeSamsungNotes();
+  });
+  $("#organizeFilesButton")?.addEventListener("click", () => {
+    setFilesMenu(false);
+    organizeFiles();
+  });
+  $("#filesMoreButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setFilesMenu($("#filesMoreMenu").hidden);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".files-more")) setFilesMenu(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setFilesMenu(false);
+  });
+  $("#clearFileSelection")?.addEventListener("click", clearFileSelection);
+
   $("#bulkSaveButton").addEventListener("click", () => {
     const names = [...state.selectedFiles];
     if (!names.length) return;
     saveFilesToComputer(names);
   });
 
-  $("#fullSyncButton").addEventListener("click", () => {
+  $("#bulkDriveButton")?.addEventListener("click", () => runBulkFileAction("drive", "Drive에 올리는 중"));
+  $("#bulkNotesButton")?.addEventListener("click", () => runBulkFileAction("notes", "삼성 노트로 보내는 중"));
+  $("#bulkHideButton")?.addEventListener("click", () => {
+    const count = state.selectedFiles.size;
+    if (!count) return;
+    if (!window.confirm(`고른 자료 ${count}개를 목록에서 뺄까요?\n\n파일과 Drive 사본은 그대로 남습니다.`)) return;
+    runBulkFileAction("hide", "목록에서 빼는 중");
+  });
+
+  $("#fullSyncButton")?.addEventListener("click", () => {
     const confirmed = window.confirm(
       "전체 동기화를 시작할까요? 모든 과목의 자료를 처음부터 다시 검사하므로 수 분 정도 걸립니다.",
     );
@@ -4174,24 +5526,12 @@ function bindEvents() {
     }
   });
 
-  $("#verifyButton").addEventListener("click", () => startRun("/api/verify", "검증"));
+  // '검증' 버튼은 없앴다. 설정 > 앱 > '전체 다시 확인'이 같은 걱정을 해결한다.
   /* LMS 마감·일정과 메일을 잇달아 가져온다.
      startRun 은 '시작해 달라'고 부탁만 하고 바로 돌아온다. 그래서 곧장
      두 번째를 부르면 서버가 '이미 실행 중'이라며 409를 돌려준다.
      앞 작업이 실제로 끝날 때까지 기다렸다가 다음을 보낸다. */
-  const waitForTask = async (maxMs = 180000) => {
-    const until = Date.now() + maxMs;
-    while (Date.now() < until) {
-      await new Promise((r) => window.setTimeout(r, 900));
-      try {
-        const task = await api("/api/task");
-        if (!task.running) return true;
-      } catch (error) {
-        return false;
-      }
-    }
-    return false;
-  };
+  // waitForTask 는 전역 함수다 (runViewRefresh·메일함 새로고침도 쓴다)
 
   $("#refreshAllButton")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
@@ -4199,11 +5539,7 @@ function bindEvents() {
     button.dataset.busy = "1";
     splashFromButton(button);
     try {
-      await startRun("/api/refresh-deadlines", "마감·일정 가져오는 중");
-      await waitForTask();
-      await startRun("/api/refresh-emails", "메일 가져오는 중");
-      await waitForTask();
-      await refreshAll();
+      await runViewRefresh(state.view);
     } finally {
       button.dataset.busy = "";
     }
@@ -4294,19 +5630,97 @@ function bindEvents() {
   });
 
   // 폴더 펼치기/접기 + 폴더 안에서 저장
+  // 폴더 보기: 한 건 선택 / 과목 전체 선택
+  $("#folderView")?.addEventListener("change", (event) => {
+    const one = event.target.closest("[data-pick]");
+    if (one) {
+      if (one.checked) state.selectedFiles.add(one.dataset.pick);
+      else state.selectedFiles.delete(one.dataset.pick);
+      renderFiles();
+      return;
+    }
+    const pathBox = event.target.closest("[data-pickpath]");
+    if (pathBox) {
+      const [course, ...path] = pathBox.dataset.pickpath.split(FOLDER_KEY_SEP);
+      const node = findFolderNode(course, path);
+      (node?.all || [])
+        .filter((f) => f.status === "local")
+        .forEach((f) => {
+          if (pathBox.checked) state.selectedFiles.add(f.localName);
+          else state.selectedFiles.delete(f.localName);
+        });
+      renderFiles();
+      return;
+    }
+    const all = event.target.closest("[data-pickfolder]");
+    if (all) {
+      const course = all.dataset.pickfolder;
+      filteredFiles()
+        .filter((f) => (f.courseLabel || f.course || "기타") === course && f.status === "local")
+        .forEach((f) => {
+          if (all.checked) state.selectedFiles.add(f.localName);
+          else state.selectedFiles.delete(f.localName);
+        });
+      renderFiles();
+    }
+  });
+
   $("#folderView")?.addEventListener("click", async (event) => {
-    const head = event.target.closest(".folder-head");
-    if (head) {
-      const card = head.closest(".folder-card");
-      const key = card.dataset.folder;
-      state.openFolders[key] = !state.openFolders[key];
-      card.classList.toggle("open", state.openFolders[key]);
-      head.setAttribute("aria-expanded", String(!!state.openFolders[key]));
+    // 체크박스는 change 에서 처리하므로 접기/펴기로 넘기지 않는다
+    if (event.target.closest("input[type=checkbox]")) return;
+
+    const openBtn = event.target.closest("[data-open-file]");
+    if (openBtn && !openBtn.disabled) {
+      window.open(`/api/file?name=${encodeURIComponent(openBtn.dataset.openFile)}`, "_blank");
+      return;
+    }
+    const notesBtn = event.target.closest("[data-to-notes]");
+    if (notesBtn) {
+      notesBtn.disabled = true;
+      try {
+        const res = await api("/api/samsung-notes/send", {
+          method: "POST",
+          body: JSON.stringify({ name: notesBtn.dataset.toNotes }),
+        });
+        showToast(res.message || "삼성 노트로 보냈습니다.");
+        if (res.started) watchNotesJob();
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        notesBtn.disabled = false;
+      }
+      return;
+    }
+    const dropBtn = event.target.closest("[data-drop-file]");
+    if (dropBtn && !dropBtn.disabled) {
+      // 실제 파일은 두고 목록에서만 뺀다 (되돌리기 쉽도록)
+      await dropFileFromList(dropBtn.dataset.dropFile);
       return;
     }
     const saveBtn = event.target.closest("[data-save]");
     if (saveBtn && !saveBtn.disabled) {
       saveFilesToComputer(saveBtn.dataset.save);
+      return;
+    }
+    const subHead = event.target.closest(".subfolder-head");
+    if (subHead) {
+      const element = subHead.closest(".subfolder");
+      const key = element.dataset.subfolder;
+      state.openFolders[key] = !state.openFolders[key];
+      if (state.openFolders[key]) fillLazySubfolder(element);
+      element.classList.toggle("open", state.openFolders[key]);
+      subHead.setAttribute("aria-expanded", String(!!state.openFolders[key]));
+      return;
+    }
+    const head = event.target.closest(".folder-head");
+    if (head) {
+      const card = head.closest(".folder-card");
+      const key = card.dataset.folder;
+      state.openFolders[key] = !state.openFolders[key];
+      // 펼칠 때 비로소 파일 줄을 그린다 (접힌 폴더는 빈 채로 둔다)
+      if (state.openFolders[key]) fillLazyFolder(card);
+      card.classList.toggle("open", state.openFolders[key]);
+      head.setAttribute("aria-expanded", String(!!state.openFolders[key]));
     }
   });
 
@@ -4392,7 +5806,7 @@ function bindEvents() {
     }
   });
 
-  $("#googleHelpButton").addEventListener("click", () => $("#googleHelpDialog").showModal());
+  $("#googleHelpButton")?.addEventListener("click", () => $("#googleHelpDialog")?.showModal());
   $("#closeGoogleHelpButton").addEventListener("click", () => $("#googleHelpDialog").close());
 
   $("#openDownloadsButton")?.addEventListener("click", async () => {
@@ -4404,47 +5818,7 @@ function bindEvents() {
     }
   });
 
-  // 앱 업데이트
-  $("#checkUpdateButton").addEventListener("click", async () => {
-    $("#updateStatus").textContent = "GitHub에서 확인 중…";
-    try {
-      const d = await api("/api/update/check");
-      $("#appVersion").textContent = `v${d.current}`;
-      if (d.updateAvailable) {
-        $("#updateStatus").textContent = `새 버전 v${d.latest}이(가) 있습니다.`;
-        $("#applyUpdateButton").hidden = false;
-      } else if (d.ok) {
-        $("#updateStatus").textContent = `최신 버전입니다 (v${d.current}).`;
-        $("#applyUpdateButton").hidden = true;
-      } else {
-        $("#updateStatus").textContent = d.message || "확인 실패";
-      }
-    } catch (error) {
-      $("#updateStatus").textContent = error.message;
-    }
-  });
-  $("#applyUpdateButton").addEventListener("click", async () => {
-    if (!window.confirm("최신 버전으로 업데이트할까요? 완료 후 앱을 재시작해야 합니다.")) return;
-    $("#updateStatus").textContent = "업데이트 내려받는 중…";
-    try {
-      const d = await api("/api/update/apply", { method: "POST", body: "{}" });
-      $("#updateStatus").textContent = d.message || "업데이트 완료";
-      $("#appVersion").textContent = `v${d.version}`;
-      $("#applyUpdateButton").hidden = true;
-      // 파일만 새로 받아도 이미 돌고 있는 파이썬 코드는 예전 것이라,
-      // 재시작하지 않으면 '업데이트했는데 안 바뀐다'가 된다.
-      if (window.confirm("업데이트를 받았습니다. 지금 앱을 다시 시작할까요?\n(다시 시작해야 새 기능이 켜집니다)")) {
-        $("#updateStatus").textContent = "다시 시작하는 중…";
-        api("/api/restart", { method: "POST", body: "{}" }).catch(() => {});
-        // 새 프로세스가 뜰 시간을 준 뒤 새로고침
-        setTimeout(() => window.location.reload(), 3500);
-      } else {
-        showToast("앱을 껐다 켜면 새 버전이 적용됩니다.");
-      }
-    } catch (error) {
-      $("#updateStatus").textContent = error.message;
-    }
-  });
+  // 앱 업데이트는 아래 '새 버전' 부분 (checkForUpdate / startAppUpdate)
 
   $("#configForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -4453,9 +5827,20 @@ function bindEvents() {
     payload.interestTags = [...state.interestTags];
     payload.hidePastEmails = event.currentTarget.elements.hidePastEmails.checked;
     payload.gcalSyncEnabled = event.currentTarget.elements.gcalSyncEnabled.checked;
+    payload.driveUpload = event.currentTarget.elements.driveUpload.checked;
+    Object.assign(payload, savePlacePayload());
+    delete payload.localSaveScope;
+    const wasLocalSave = state.config?.autoLocalSave || "off";
     try {
       await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
       showToast("설정을 저장했습니다.");
+      // 저장 위치를 새로 켰으면 다음 동기화까지 기다리지 않고 지금 한 번 맞춘다
+      const cloudsBefore = (state.config?.clouds || []).filter((c) => c.on).map((c) => c.key).join();
+      const cloudsNow = Object.entries(payload.clouds || {}).filter(([, v]) => v.on).map(([k]) => k).join();
+      const newlyOn =
+        (payload.autoLocalSave !== "off" && payload.autoLocalSave !== wasLocalSave) ||
+        (cloudsNow && cloudsNow !== cloudsBefore);
+      if (newlyOn) runLocalSaveNow({ alreadySaved: true });
       await refreshAll();
       switchView("dashboard");
     } catch (error) {
@@ -4474,14 +5859,27 @@ function bindEvents() {
 
 /* ===== 테마 =====
    누를 때마다 이 차례대로 넘어간다. */
+// '자동' 은 Windows 의 밝게/어둡게 설정을 따른다 (밝으면 기본, 어두우면 다크). 처음 쓰는 사람의 기본값.
 const THEMES = [
+  { key: "auto", label: "자동", icon: "monitor" },
   { key: "claude", label: "기본", icon: "sparkle" },
   { key: "light", label: "화이트", icon: "sun" },
   { key: "navy", label: "남색", icon: "moonStar" },
   { key: "dark", label: "다크", icon: "moon" },
 ];
 
-function applyTheme(theme) {
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+/** 고른 테마(auto 포함) → 실제로 칠할 테마 */
+function resolveTheme(choice) {
+  if (choice === "auto") return systemDark.matches ? "dark" : "claude";
+  return choice;
+}
+
+function applyTheme(choice, { save = true } = {}) {
+  if (!THEMES.some((t) => t.key === choice)) choice = "auto";
+  state.themeChoice = choice;
+  const theme = resolveTheme(choice);
   // claude 기본은 :root라 data-theme를 비움
   if (theme === "claude") {
     document.documentElement.removeAttribute("data-theme");
@@ -4489,15 +5887,17 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = theme;
   }
   try {
-    localStorage.setItem("autosaver-theme", theme);
+    localStorage.setItem("autosaver-theme-v2", choice);
   } catch (error) {
     /* localStorage 사용 불가 환경 무시 */
   }
-  paintThemeCard(theme);
+  paintThemeCard(choice);
+  // 앱 창의 저장소는 끌 때마다 지워진다. 데이터 폴더에 적어야 다음에 켤 때도 그대로다.
+  if (save) api("/api/ui-prefs", { method: "POST", body: JSON.stringify({ theme: choice }) }).catch(() => {});
 }
 
-function paintThemeCard(theme) {
-  const meta = THEMES.find((x) => x.key === theme) || THEMES[0];
+function paintThemeCard(choice) {
+  const meta = THEMES.find((x) => x.key === choice) || THEMES[0];
   const card = $("#themeCard");
   const name = $("#themeName");
   if (card) {
@@ -4505,7 +5905,26 @@ function paintThemeCard(theme) {
     installIcons(card);
   }
   if (name) name.textContent = meta.label;
+  const flip = $("#themeFlip");
+  if (flip) {
+    flip.title =
+      choice === "auto"
+        ? `기기 설정을 따라요 · 지금 ${systemDark.matches ? "어두운" : "밝은"} 화면 (누르면 다음 테마)`
+        : `${meta.label} 테마 (누르면 다음 테마)`;
+  }
 }
+
+// Windows 에서 밝게/어둡게를 바꾸면 켜 둔 채로도 바로 따라간다.
+// change 이벤트가 오지 않는 경우가 있어서(실측: 값은 바뀌었는데 이벤트 0번) 창으로 돌아올 때와 3초마다도 본다.
+let lastSystemDark = systemDark.matches;
+function followSystemTheme() {
+  if (systemDark.matches === lastSystemDark) return;
+  lastSystemDark = systemDark.matches;
+  if (state.themeChoice === "auto") applyTheme("auto", { save: false });
+}
+systemDark.addEventListener?.("change", followSystemTheme);
+window.addEventListener("focus", followSystemTheme);
+window.setInterval(followSystemTheme, 3000);
 
 /** 카드를 반 바퀴 돌리고, 뒤집힌 순간에 내용을 갈아 끼운다 */
 function flipTheme(next) {
@@ -4522,18 +5941,24 @@ function flipTheme(next) {
 }
 
 function currentTheme() {
-  return document.documentElement.getAttribute("data-theme") || "claude";
+  return state.themeChoice || "auto";
 }
 
 function initTheme() {
-  let saved = "claude";
+  // 먼저 가진 값으로 바로 칠해 깜박임을 줄이고, 데이터 폴더에 적힌 값이 오면 그걸로 맞춘다
+  let saved = "auto";
   try {
-    saved = localStorage.getItem("autosaver-theme") || "claude";
+    // 예전 키(autosaver-theme)는 고르지 않아도 켤 때마다 '기본' 이 적혀 있어서 사용자의 선택이라 볼 수 없다
+    saved = localStorage.getItem("autosaver-theme-v2") || "auto";
   } catch (error) {
     /* 무시 */
   }
-  if (!THEMES.some((t) => t.key === saved)) saved = "claude";
-  applyTheme(saved);
+  applyTheme(saved, { save: false });
+  api("/api/ui-prefs")
+    .then((prefs) => {
+      if (prefs?.theme && prefs.theme !== state.themeChoice) applyTheme(prefs.theme, { save: false });
+    })
+    .catch(() => {});
 }
 
 /* ===== 학교 사이트 바로가기 =====
@@ -4690,25 +6115,61 @@ async function renderStorage() {
     const s = await api("/api/storage");
     state.storage = s;
     const disk = s.disk || {};
-    const warn = disk.low ? "low" : "";
     const shared = s.sharedFolder
-      ? `<p class="storage-warn">저장 위치가 <code>${escapeHtml(s.downloadPath)}</code> 입니다.
-           개인 파일이 섞이는 폴더라, 앱이 받은 자료만 정리 대상으로 잡습니다.</p>`
+      ? `<p class="storage-warn">개인 폴더(<code>${escapeHtml(s.downloadPath)}</code>)에 받고 있어요. 앱이 받은 자료만 정리합니다.</p>`
       : "";
 
+    // 앱 크기 / 강의자료 / 내 컴퓨터 사본을 한 막대에 나눠 보인다.
+    // 막대 길이는 셋의 합 기준 (디스크 전체 기준이면 1TB 에 1GB 라 안 보인다).
+    const app = s.app || { bytes: 0, human: "0 B", parts: [] };
+    const local = s.localSave || {};
+    const segs = [
+      { key: "app", label: "앱", bytes: app.bytes, human: app.human,
+        detail: app.parts.map((p) => `${p.label} ${p.human}`).join(" · ") },
+      { key: "files", label: "강의자료", bytes: s.appBytes, human: s.appHuman,
+        detail: `${s.appFileCount}개 · 앱 보관함` },
+    ];
+    if (local.enabled) {
+      segs.push({ key: "local", label: "내 컴퓨터 사본", bytes: local.bytes, human: local.human,
+        detail: `${local.count}개 · ${local.path}` });
+    }
+    const cloud = s.cloudSave || {};
+    if (cloud.parts?.length) {
+      // 클라우드 폴더도 파일을 받아 두는 동안은 이 PC 공간을 쓴다 (요청 시 다운로드를 켜면 줄어든다)
+      segs.push({ key: "cloud", label: "클라우드 폴더", bytes: cloud.bytes, human: cloud.human,
+        detail: cloud.parts.map((p) => `${p.label} ${p.human}`).join(" · ") });
+    }
+    const sum = segs.reduce((n, x) => n + (x.bytes || 0), 0) || 1;
+    const free = $("#diskFreeText");
+    if (free) {
+      free.textContent = disk.freeHuman ? `디스크 여유 ${disk.freeHuman}` : "";
+      free.classList.toggle("low", Boolean(disk.low));
+    }
+
     box.innerHTML = `
-      <div class="storage-top">
-        <div>
-          <strong>강의자료 ${s.appHuman}</strong>
-          <span>${s.appFileCount}개 · ${escapeHtml(s.downloadPath)}</span>
-        </div>
-        <div class="storage-disk ${warn}">
-          <strong>디스크 여유 ${disk.freeHuman || "?"}</strong>
-          <span>전체 ${disk.totalHuman || "?"} 중 ${disk.usedPercent ?? "?"}% 사용</span>
-        </div>
+      <div class="st-bar" aria-hidden="true">
+        ${segs
+          .map((x) => `<span class="st-bar-seg ${x.key}" style="flex-grow:${Math.max(x.bytes / sum, 0.015)}"></span>`)
+          .join("")}
+      </div>
+      <div class="st-legend">
+        ${segs
+          .map(
+            (x) => `
+          <div class="st-legend-item">
+            <span class="st-dot ${x.key}"></span>
+            <div>
+              <strong>${x.label} <b>${x.human}</b></strong>
+              <span title="${escapeHtml(x.detail)}">${escapeHtml(x.detail)}</span>
+            </div>
+          </div>`,
+          )
+          .join("")}
       </div>
       ${disk.low ? `<p class="storage-warn">디스크 여유 공간이 부족합니다. 지난 학기 자료를 정리해 보세요.</p>` : ""}
       ${shared}
+      <details class="st-clean">
+        <summary>강의자료 정리하기 <span>지난 학기 자료를 지워 공간을 비웁니다</span></summary>
       ${
         s.semesters.length
           ? `<div class="storage-group">
@@ -4750,14 +6211,16 @@ async function renderStorage() {
       ${
         s.unknown.count
           ? `<p class="section-note storage-personal">
-               이 폴더의 다른 파일 ${s.unknown.count}개(${s.unknown.human})는 앱이 받은 게 아니라
-               <strong>정리 대상이 아닙니다.</strong>
+               그 밖의 파일 ${s.unknown.count}개(${s.unknown.human})
+               <button type="button" class="hint" data-hint="앱이 받은 게 아닌 파일이라 정리 대상에서 뺐습니다. 지우지 않습니다.">?</button>
              </p>`
           : ""
       }
+      <p class="st-clean-note">앱 보관함에서만 지웁니다. 드라이브와 내 컴퓨터 사본은 그대로 남습니다. 지난 학기 자료는 LMS가 막아 두어 다시 받지 못할 수 있어요.</p>
       <div class="storage-actions">
         <button class="button compact danger" id="cleanupStorageButton" type="button" disabled>선택 항목 정리</button>
-      </div>`;
+      </div>
+      </details>`;
 
     const sync = () => {
       const picked = box.querySelectorAll("input[type=checkbox]:checked").length;
@@ -4779,7 +6242,7 @@ async function renderStorage() {
       if (
         !window.confirm(
           `다음 항목의 강의자료를 지웁니다.\n\n${names.join(", ")}\n\n` +
-            "직접 넣어 둔 파일은 지워지지 않으며, 지운 자료는 다음 동기화 때 다시 받을 수 있습니다.\n계속할까요?",
+            "직접 넣어 둔 파일과 드라이브·내 컴퓨터 사본은 지워지지 않습니다.\n지난 학기 자료는 LMS에서 다시 받지 못할 수 있습니다. 계속할까요?",
         )
       )
         return;
@@ -4804,7 +6267,8 @@ async function renderHealth() {
   const banner = $("#healthBanner");
   if (!banner) return;
   try {
-    const h = await api("/api/health");
+    // refreshAll 이 이미 받아 두었으면 그걸 쓴다 (12초마다 또 부르지 않게)
+    const h = state.health || (await api("/api/health"));
     state.health = h;
     if (!h.warning) {
       banner.hidden = true;
@@ -4870,7 +6334,8 @@ function bindBackup() {
 
 /* ===== 주간 시간표 (에브리타임 방식) ===== */
 const TT_DAYS = ["월", "화", "수", "목", "금", "토"];
-const TT_COLORS = ["coral", "blue", "green", "amber", "violet", "teal"];
+// 12가지. 6가지일 때는 7과목째부터 반드시 겹쳤다. 순서는 styles.css 의 .tone-* 와 같다.
+const TT_COLORS = ["coral", "blue", "green", "amber", "violet", "teal", "rose", "olive", "indigo", "plum", "sky", "brown"];
 const TT_START_HOUR = 9;   // 표의 시작 시각
 const TT_END_HOUR = 21;    // 표의 끝 시각
 
@@ -4879,14 +6344,43 @@ function ttMinutes(hhmm) {
   return h * 60 + (m || 0);
 }
 
+/* 시간표 요약: 과목 수와 총 학점.
+   한 과목이 주 2~3회면 칸도 그만큼 생기므로, 학점은 과목 단위로 한 번만 센다.
+   (과목번호가 있으면 그걸로, 없으면 이름으로 묶는다) */
+function ttCourseKey(entry) {
+  return (entry.courseNo || "").trim() || (entry.title || "").trim();
+}
+
+function ttTotalCredit(entries) {
+  const seen = new Map();
+  (entries || []).forEach((e) => {
+    const key = ttCourseKey(e);
+    if (key && !seen.has(key)) seen.set(key, parseFloat(e.credit) || 0);
+  });
+  let total = 0;
+  seen.forEach((v) => {
+    total += v;
+  });
+  return { courses: seen.size, credit: total };
+}
+
+function ttSummaryText(entries) {
+  const { courses, credit } = ttTotalCredit(entries);
+  const parts = [`${courses}과목`];
+  if (credit > 0) {
+    // 1.0 학점짜리 실험이 섞이므로 소수 첫째 자리까지, 정수면 깔끔하게
+    parts.push(`${Number.isInteger(credit) ? credit : credit.toFixed(1)}학점`);
+  }
+  return parts.join(" · ");
+}
+
 function renderTimetable() {
   const grid = $("#timetable");
   if (!grid) return;
-  // 같은 색이 겹쳐 있으면 먼저 정리한다 (한 번 고치면 그대로 유지)
-  if (!renderTimetable.recolored) {
-    renderTimetable.recolored = true;
-    if (normalizeTtColors()) saveTtColors();
-  }
+  // 과목끼리 같은 색이 있으면 그릴 때마다 정리한다.
+  // 예전에는 앱을 켤 때 한 번만 해서, 가져오기로 과목이 들어오면 겹친 채로 남았다.
+  const recolored = normalizeTtColors();
+  if (recolored.length) saveTtColors(recolored);
   const entries = state.timetable || [];
   const showSat = state.ttShowSat || entries.some((e) => Number(e.day) === 5);
   const dayCount = showSat ? 6 : 5;
@@ -4928,8 +6422,8 @@ function renderTimetable() {
         return `
           <button type="button" class="tt-block tone-${escapeHtml(e.color || "coral")}"
                   style="top:${top}px;height:${height}px" data-tt="${escapeHtml(e.id)}"
-                  title="${escapeHtml(e.title)}${e.room ? " · " + escapeHtml(e.room) : ""}">
-            <strong>${escapeHtml(shortText(e.title, 18))}</strong>
+                  title="${escapeHtml(e.title)}${e.credit ? " · " + escapeHtml(e.credit) + "학점" : ""}${e.professor ? " · " + escapeHtml(e.professor) : ""}${e.room ? " · " + escapeHtml(e.room) : ""}">
+            <strong>${escapeHtml(e.title)}</strong>
             ${e.room ? `<span>${escapeHtml(shortText(e.room, 14))}</span>` : ""}
             <em>${escapeHtml(e.start)}~${escapeHtml(e.end)}</em>
           </button>`;
@@ -4954,7 +6448,7 @@ function renderTimetable() {
   const hint = $("#timetableHint");
   if (hint) {
     hint.textContent = entries.length
-      ? `${entries.length}개 수업 · 칸을 눌러 수정하거나 빈 곳을 눌러 추가하세요.`
+      ? `${ttSummaryText(entries)} · 칸을 눌러 수정하거나 빈 곳을 눌러 추가하세요.`
       : "빈 칸을 누르면 과목을 넣을 수 있어요.";
   }
 }
@@ -4970,66 +6464,86 @@ function renderTimetable() {
    (색 고르는 규칙을 고치기 전에 넣은 과목들이 겹쳐 있다) */
 function normalizeTtColors() {
   const entries = state.timetable || [];
-  if (!entries.length) return false;
+  if (!entries.length) return [];
 
-  const titles = [...new Set(entries.map((e) => e.title))];
-  // 색이 과목 수보다 적으면 어차피 겹칠 수밖에 없다
-  const assigned = new Map();
-  const used = new Set();
-  let changed = false;
-
-  titles.forEach((title) => {
-    const current = entries.find((e) => e.title === title)?.color;
-    if (current && !used.has(current)) {
-      assigned.set(title, current);
-      used.add(current);
-      return;
+  // 같은 과목(과목번호, 없으면 이름)은 요일이 달라도 한 색. 서로 다른 과목은 반드시 다른 색.
+  const courses = [];
+  const seen = new Set();
+  entries.forEach((e) => {
+    const key = ttCourseKey(e);
+    if (!seen.has(key)) {
+      seen.add(key);
+      courses.push(key);
     }
-    const free = TT_COLORS.find((c) => !used.has(c));
-    const next = free || current || TT_COLORS[0];
-    assigned.set(title, next);
-    used.add(next);
   });
 
+  const assigned = new Map();
+  const used = new Map(); // 색 → 쓰는 과목 수
+  const take = (color) => used.set(color, (used.get(color) || 0) + 1);
+  // 1) 이미 가진 색이 다른 과목과 안 겹치면 그대로 둔다 (사용자가 고른 색을 존중)
+  courses.forEach((key) => {
+    const current = entries.find((e) => ttCourseKey(e) === key && TT_COLORS.includes(e.color))?.color;
+    if (current && !used.has(current)) {
+      assigned.set(key, current);
+      take(current);
+    }
+  });
+  // 2) 겹쳤거나 색이 없는 과목은 아직 안 쓴 색부터, 다 쓰였으면 가장 적게 쓰인 색
+  courses.forEach((key) => {
+    if (assigned.has(key)) return;
+    const free = TT_COLORS.find((c) => !used.has(c));
+    const next = free || [...TT_COLORS].sort((a, b) => (used.get(a) || 0) - (used.get(b) || 0))[0];
+    assigned.set(key, next);
+    take(next);
+  });
+
+  const changed = [];
   entries.forEach((e) => {
-    const want = assigned.get(e.title);
+    const want = assigned.get(ttCourseKey(e));
     if (want && e.color !== want) {
       e.color = want;
-      changed = true;
+      changed.push(e);
     }
   });
   return changed;
 }
 
 
-/** 다시 칠한 색을 서버에도 남긴다 */
-async function saveTtColors() {
+/** 다시 칠한 칸만 서버에 남긴다 (여러 번 겹쳐 부르지 않게 한 번에 하나씩) */
+async function saveTtColors(changed) {
+  saveTtColors.queue = [...(saveTtColors.queue || []), ...changed];
+  if (saveTtColors.busy) return;
+  saveTtColors.busy = true;
   try {
-    for (const e of state.timetable || []) {
+    while (saveTtColors.queue.length) {
+      const e = saveTtColors.queue.shift();
       await api("/api/timetable/save", { method: "POST", body: JSON.stringify(e) });
     }
   } catch (error) {
-    /* 색 저장에 실패해도 화면에는 반영돼 있다 */
+    /* 색 저장에 실패해도 화면에는 반영돼 있고, 다음에 그릴 때 다시 맞춘다 */
+    saveTtColors.queue = [];
+  } finally {
+    saveTtColors.busy = false;
   }
 }
 
 
-function pickTtColor(title) {
+function pickTtColor(title, courseNo = "") {
   const entries = state.timetable || [];
-  // 같은 이름이 이미 있으면 그 색을 그대로
-  const same = entries.find((e) => e.title === title);
-  if (same && same.color) return same.color;
+  const key = ttCourseKey({ title, courseNo });
+  // 같은 과목이 이미 있으면 그 색을 그대로
+  const same = entries.find((e) => ttCourseKey(e) === key);
+  if (same && TT_COLORS.includes(same.color)) return same.color;
 
-  const used = new Set(entries.map((e) => e.color).filter(Boolean));
-  const free = TT_COLORS.filter((c) => !used.has(c));
-  if (free.length) return free[0];
-
-  // 색이 다 쓰였으면 가장 적게 쓰인 색을 준다
-  const count = new Map(TT_COLORS.map((c) => [c, 0]));
+  // 다른 과목이 쓰는 색은 피한다
+  const used = new Map();
   entries.forEach((e) => {
-    if (count.has(e.color)) count.set(e.color, count.get(e.color) + 1);
+    if (ttCourseKey(e) === key) return;
+    used.set(e.color, (used.get(e.color) || 0) + 1);
   });
-  return [...count.entries()].sort((a, b) => a[1] - b[1])[0][0];
+  const free = TT_COLORS.find((c) => !used.has(c));
+  if (free) return free;
+  return [...TT_COLORS].sort((a, b) => (used.get(a) || 0) - (used.get(b) || 0))[0];
 }
 
 
@@ -5177,7 +6691,7 @@ function openTtEditor(entry = null, preset = {}) {
   setTimePick(form, "start", entry?.start || preset.start || "09:00");
   setTimePick(form, "end", entry?.end || preset.end || "10:30");
   form.elements.room.value = entry?.room || "";
-  form.elements.color.value = entry?.color || pickTtColor(entry?.title || "");
+  form.elements.color.value = entry?.color || pickTtColor(entry?.title || "", entry?.courseNo || "");
   $("#ttEditorTitle").textContent = entry?.id ? "과목 수정" : "과목 추가";
   $("#ttDeleteButton").hidden = !entry?.id;
 
@@ -5384,7 +6898,7 @@ function bindTimetable() {
     if (!course || !course.slots.length) return;
     window.clearTimeout(hoverTimer);
     hoverTimer = window.setTimeout(() => {
-      setTtPreview({ ...course, color: pickTtColor(course.title) });
+      setTtPreview({ ...course, color: pickTtColor(course.title, course.courseNo || "") });
     }, 220);
   });
   list?.addEventListener("pointerleave", () => {
@@ -5403,7 +6917,11 @@ function bindTimetable() {
       start: s.start,
       end: s.end,
       room: s.room,
-      color: pickTtColor(course.title),
+      color: pickTtColor(course.title, course.courseNo || ""),
+      // 학점·과목번호·교수도 같이 넘긴다. 안 넘기면 시간표에서 몇 학점인지 알 수 없다.
+      credit: course.credit || "",
+      courseNo: course.courseNo || "",
+      professor: course.professor || "",
     }));
     // 시간이 겹치는 기존 수업은 새 것으로 대체한다
     const clash = ttConflicts(course.slots);
@@ -5432,18 +6950,21 @@ function bindTimetable() {
   });
 }
 
-async function loadCatalog() {
+async function loadCatalog(force = false) {
   const term = $("#catalogTerm")?.value || "";
   const level = $("#catalogLevel")?.value || "under";
   const key = `${term}|${level}`;
-  if (state.catalog && state.catalogKey === key) {
+  // force 면 서버 캐시까지 무시하고 새로 받는다 (상단 '강의 새로고침')
+  if (!force && state.catalog && state.catalogKey === key) {
     renderCatalog();
     return;
   }
-  $("#catalogStatus").textContent = "개설과목을 가져오는 중… (30초쯤)";
+  $("#catalogStatus").textContent = "개설과목을 가져오는 중…";
   $("#catalogList").innerHTML = "";
   try {
-    const data = await api(`/api/course-catalog?term=${encodeURIComponent(term)}&level=${level}`);
+    const data = await api(
+      `/api/course-catalog?term=${encodeURIComponent(term)}&level=${level}${force ? "&refresh=1" : ""}`,
+    );
     state.catalog = data.courses || [];
     state.catalogKey = key;
     $("#catalogStatus").textContent = `${data.withTime}개 과목`;
@@ -5705,7 +7226,8 @@ function renderGcalStatus(message) {
   } else if (!oauth.calendarGranted) {
     el.textContent = "캘린더 권한이 없습니다. 구글 계정을 다시 연결하면 권한이 추가됩니다.";
   } else {
-    el.textContent = "메일에서 찾은 일정을 구글 캘린더에 자동으로 등록합니다.";
+    // 문제가 없으면 아무것도 쓰지 않는다 (설명은 제목 옆 ? 에 있다)
+    el.textContent = "";
   }
 }
 
@@ -5742,11 +7264,47 @@ function initRail() {
   });
 }
 
+/* ===== 인사말 =====
+   이모지를 붙인 '좋은 저녁이에요 🌆' 는 가벼워 보였다. 차분한 명조체 한 줄에
+   이름을 부르고, 그 아래 오늘 챙길 것을 한 줄로 적는다. 문장은 하루 동안 바뀌지 않게
+   날짜로 고른다(화면이 다시 그려질 때마다 인사가 바뀌면 어수선하다). */
+function heroSummary() {
+  const now = new Date();
+  const dayIndex = now.getDay() === 0 ? 6 : now.getDay() - 1;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const holiday = specialDay(now)?.holiday;
+  const leftClasses = holiday
+    ? 0
+    : (state.timetable || []).filter((e) => Number(e.day) === dayIndex && ttMinutes(e.end) > minutes).length;
+  const weekMs = 7 * 86400000;
+  const dueSoon = (state.deadlines?.items || []).filter((d) => {
+    if (isSubmitted(d)) return false;
+    const due = parseDue(d);
+    return due && due.getTime() >= now.getTime() && due.getTime() - now.getTime() <= weekMs;
+  }).length;
+  const unread = (state.emails?.emails || []).filter((m) => m.folder === "inbox" && m.unread).length;
+  const parts = [];
+  parts.push(
+    holiday ? `오늘은 ${holiday}, 수업 없어요` : leftClasses ? `오늘 남은 수업 ${leftClasses}개` : "오늘은 남은 수업이 없어요",
+  );
+  if (dueSoon) parts.push(`7일 안 마감 ${dueSoon}개`);
+  if (unread) parts.push(`안 읽은 메일 ${unread}통`);
+  return parts.join(" · ");
+}
+
 function setHeroGreeting() {
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 6 ? "늦은 밤까지 수고가 많아요 🌙" : hour < 12 ? "좋은 아침이에요 ☀️" : hour < 18 ? "좋은 오후예요 👋" : "좋은 저녁이에요 🌆";
-  $("#heroTitle").textContent = greeting;
+  // '오후도 차분하게, 유준 님' 같은 인사는 오글거린다는 말을 들었다. 날짜만 담백하게 쓴다.
+  // 쉬는 날에는 그 이름을 붙인다 (예: 10월 5일 월요일 · 추석).
+  const now = new Date();
+  const holiday = specialDay(now)?.holiday;
+  const text = `${now.getMonth() + 1}월 ${now.getDate()}일 ${NOW_WEEKDAY[now.getDay()]}요일${holiday ? ` · ${holiday}` : ""}`;
+  const node = $("#heroText");
+  if (node && node.textContent !== text) node.textContent = text;
+  const sub = $("#heroSub");
+  if (sub) {
+    const line = heroSummary();
+    if (sub.textContent !== line) sub.textContent = line;
+  }
 }
 
 /* ===== 나우바 =====
@@ -5805,6 +7363,12 @@ function nowStatus(at, entries, semester) {
       };
     }
     return { detail, state: "vacation", title: "방학", sub: `${semester.label} 종료` };
+  }
+
+  // 공휴일에는 시간표가 있어도 수업이 없다. 예전엔 추석 연휴에도 '수업 중'이라고 떴다.
+  const special = specialDay(at);
+  if (special?.holiday) {
+    return { detail: { today: [], left: 0 }, state: "holiday", title: special.holiday, sub: special.title };
   }
 
   if (!entries || !entries.length) {
@@ -5940,7 +7504,24 @@ function moveNavPill() {
 
 /* ===== 학사일정 D-day =====
    놓치면 큰 것만 골라 대시보드 맨 위에 크게 띄운다. */
-const DDAY_KEYWORDS = ["수강신청", "성적확인", "수강신청 변경", "복학신청", "학위수여", "등록"];
+/* D-day 로 크게 띄울 학사일정. 학부생에게 중요한 순서로 무리를 나눈다.
+   예전 목록에는 '시험' 이 없어서, 중간시험이 코앞인데 두 달 뒤 계절학기 수강신청이 떴다. */
+const DDAY_TIERS = [
+  ["중간시험", "기말시험", "학기말 시험", "중간고사", "기말고사"],
+  ["수강신청", "수강신청 변경", "수강포기", "수강취소", "수강 철회"],
+  ["등록", "성적확인", "복학신청", "휴학", "학위수여", "졸업신청", "계절학기"],
+];
+const DDAY_KEYWORDS = DDAY_TIERS.flat();
+
+/** 0 = 시험, 1 = 정규 수강신청·변경·포기, 2 = 그 밖에 챙길 것, -1 = 해당 없음 */
+function ddayTier(title) {
+  const text = String(title || "");
+  if (DDAY_TIERS[0].some((k) => text.includes(k))) return 0;
+  // 계절학기 수강신청은 정규 학기보다 덜 급하다
+  if (!text.includes("계절") && DDAY_TIERS[1].some((k) => text.includes(k))) return 1;
+  if (DDAY_TIERS[2].some((k) => text.includes(k)) || DDAY_TIERS[1].some((k) => text.includes(k))) return 2;
+  return -1;
+}
 
 /* 학사일정·공지 불러오기.
    학교 홈페이지가 자주 연결을 끊어서, 한 번 실패했다고 그 세션 내내
@@ -6096,22 +7677,66 @@ function moveDashBlock(key, delta) {
    웹메일 조직도는 포탈 SSO로만 열려서 앱이 직접 못 가져온다.
    한 번 받아 둔 목록을 넣어 두면 그 안에서 찾는다. */
 function parseDirectoryFile(text, name) {
+  text = String(text || "").replace(/^\ufeff/, "");
   if (name.toLowerCase().endsWith(".json")) {
     const data = JSON.parse(text);
     return Array.isArray(data) ? data : data.people || data.entries || [];
   }
-  // CSV: 이름,이메일,부서,직위,신분
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.split(","))
-    .filter((c) => c.length >= 2 && c[1] && c[1].includes("@"))
+  // CSV. 따옴표 안의 쉼표는 나누지 않는다.
+  const splitCsv = (line) => {
+    const out = [];
+    let cur = "";
+    let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (quoted && line[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else quoted = !quoted;
+      } else if ((ch === "," || ch === "\t") && !quoted) {
+        out.push(cur.trim());
+        cur = "";
+      } else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+  const rows = text.split(/\r?\n/).filter((l) => l.trim()).map(splitCsv);
+  // 머리줄이 있으면 이름으로 칸을 찾는다. 없으면 '이름,이메일,부서,직위,신분' 순서로 본다.
+  const head = rows[0] || [];
+  const find = (re, fallback) => {
+    const i = head.findIndex((h) => re.test(h));
+    return i >= 0 ? i : fallback;
+  };
+  const hasHead = !head.some((h) => h.includes("@"));
+  const col = {
+    name: find(/이름|성명|name/i, 0),
+    email: find(/메일|e-?mail/i, 1),
+    dept: find(/부서|소속|학과|dept|department/i, 2),
+    title: find(/직위|직급|직책|title|position/i, 3),
+    role: find(/신분|구분|role|type/i, 4),
+  };
+  return rows
+    .slice(hasHead ? 1 : 0)
     .map((c) => ({
-      name: (c[0] || "").trim(),
-      email: (c[1] || "").trim(),
-      dept: (c[2] || "").trim(),
-      title: (c[3] || "").trim(),
-      role: (c[4] || "").trim(),
-    }));
+      name: c[col.name] || "",
+      email: (c[col.email] || "").replace(/^.*<([^>]+)>.*$/, "$1"),
+      dept: c[col.dept] || "",
+      title: c[col.title] || "",
+      role: c[col.role] || "",
+    }))
+    .filter((p) => p.email.includes("@"));
+}
+
+/** 엑셀에서 저장한 CSV 는 대개 EUC-KR 이다. UTF-8 로 안 읽히면 EUC-KR 로 다시 읽는다. */
+async function readTextSmart(file) {
+  const buf = await file.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch (error) {
+    return new TextDecoder("euc-kr").decode(buf);
+  }
 }
 
 /* 작성창 오른쪽 '내 자료'도 접을 수 있게.
@@ -6167,7 +7792,7 @@ function bindDirectory() {
     const file = input.files?.[0];
     if (!file) return;
     try {
-      const people = parseDirectoryFile(await file.text(), file.name);
+      const people = parseDirectoryFile(await readTextSmart(file), file.name);
       const res = await api("/api/directory/import", {
         method: "POST",
         body: JSON.stringify({ people }),
@@ -6561,15 +8186,20 @@ function bindDashDrag(view) {
 }
 
 
-function loadAcademic() {
+function loadAcademic(force = false) {
+  if (force) {
+    // 상단 '일정 새로고침'이 부르는 경우: 캐시 판단을 건너뛴다
+    state.academicLoaded = false;
+    state.academicTriedAt = 0;
+  }
   if (state.academicLoaded) return;
   const now = Date.now();
   if (state.academicTriedAt && now - state.academicTriedAt < 60000) return;
   state.academicTriedAt = now;
 
-  loadNotices(false);
-  loadShuttle(false);
-  api("/api/academic-calendar")
+  loadNotices(force);
+  loadShuttle(force);
+  api(`/api/academic-calendar${force ? "?refresh=1" : ""}`)
     .then((res) => {
       // 서버가 200으로 {ok:false}를 줄 수 있다. 이때 성공으로 치면 안 된다.
       if (!res.ok || !(res.events || []).length) return;
@@ -6652,6 +8282,18 @@ function renderShuttle() {
     return h * 60 + (m || 0);
   };
 
+  // 언제 학교 홈페이지에서 확인한 시간표인지 (못 받았으면 예전 것이라고 알린다)
+  const hint = $("#shuttleHint");
+  if (hint) {
+    const meta = state.shuttleMeta || {};
+    const when = meta.fetchedAt ? new Date(meta.fetchedAt) : null;
+    const day = when && !Number.isNaN(when.getTime()) ? `${when.getMonth() + 1}월 ${when.getDate()}일` : "";
+    hint.textContent = meta.stale
+      ? `학교 홈페이지에서 새 시간표를 못 받아 ${day || "예전"} 시간표를 보여 줍니다`
+      : `학교 홈페이지 기준${day ? ` · ${day} 확인` : ""}`;
+    hint.classList.toggle("stale", Boolean(meta.stale));
+  }
+
   const shown = routes.filter((r) => r.group === state.shuttleGroup);
   list.innerHTML = shown
     .map((route) => {
@@ -6675,6 +8317,7 @@ function renderShuttle() {
           <strong>${escapeHtml(route.name)}</strong>
           ${route.depart ? `<span class="bus-when">${escapeHtml(route.depart)} 출발</span>` : ""}
           ${upcoming ? '<em class="bus-flag">곧 출발</em>' : ""}
+          ${route.note ? `<span class="bus-note">${escapeHtml(route.note)}</span>` : ""}
         </div>
         <div class="bus-line">${dots}</div>
         ${route.extra ? `<p class="bus-extra">${escapeHtml(shortText(route.extra, 70))}</p>` : ""}
@@ -6688,6 +8331,7 @@ function loadShuttle(refresh) {
     .then((res) => {
       if (!res.routes || !res.routes.length) return;
       state.shuttle = res.routes;
+      state.shuttleMeta = { fetchedAt: res.fetchedAt || "", stale: Boolean(res.stale) };
       renderShuttle();
       if (refresh) showToast(`버스 노선 ${res.routes.length}개를 새로 받았어요.`);
     })
@@ -6701,7 +8345,6 @@ function bindShuttle() {
     state.shuttleGroup = event.target.value;
     renderShuttle();
   });
-  $("#refreshShuttle")?.addEventListener("click", () => loadShuttle(true));
 }
 
 
@@ -6711,12 +8354,15 @@ function renderDday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const next = (state.academic || [])
-    .filter((e) => !state.academicUnderOnly || e.kind !== "대학원")
-    .filter((e) => DDAY_KEYWORDS.some((k) => e.title.includes(k)))
-    .map((e) => ({ e, start: new Date(`${e.start}T00:00`), end: new Date(`${e.end || e.start}T00:00`) }))
-    .filter((x) => !Number.isNaN(x.start.getTime()) && x.end >= today)
-    .sort((a, b) => a.start - b.start)[0];
+  // 대학원만의 일정은 뺀다 (학부생 앱이다). 끝나지 않은 것만.
+  const upcoming = (state.academic || [])
+    .filter((e) => e.kind !== "대학원")
+    .map((e) => ({ e, tier: ddayTier(e.title), start: new Date(`${e.start}T00:00`), end: new Date(`${e.end || e.start}T00:00`) }))
+    .filter((x) => x.tier >= 0 && !Number.isNaN(x.start.getTime()) && x.end >= today)
+    .sort((a, b) => a.start - b.start);
+  // 석 달 안에 시험이나 정규 수강신청이 있으면 그것이 먼저. 없으면 가장 가까운 것.
+  const soon = new Date(today.getTime() + 90 * 86400000);
+  const next = upcoming.find((x) => x.tier <= 1 && x.start <= soon) || upcoming[0];
 
   if (!next) {
     box.hidden = true;
@@ -6733,6 +8379,19 @@ function renderDday() {
     next.e.start === next.e.end
       ? fmt(next.start)
       : `${fmt(next.start)} ~ ${fmt(next.end)}`;
+  // 그다음에 챙길 것 두 개를 작게
+  const later = upcoming
+    .filter((x) => x !== next && x.tier <= 2)
+    .sort((a, b) => a.tier - b.tier || a.start - b.start)
+    .slice(0, 2)
+    .sort((a, b) => a.start - b.start)
+    .map((x) => {
+      const d = Math.round((x.start - today) / 86400000);
+      const name = x.e.title.replace(/^대학 및 대학원\s*|^대학\s+/, "");
+      return `${name} ${d <= 0 ? "진행 중" : `D-${d}`}`;
+    });
+  const nextBox = $("#ddayNext");
+  if (nextBox) nextBox.textContent = later.length ? `다음 · ${later.join(" · ")}` : "";
 }
 
 /* ===== 학교 공지 ===== */
@@ -6773,7 +8432,6 @@ function loadNotices(refresh) {
 }
 
 function bindAcademic() {
-  $("#refreshNotices")?.addEventListener("click", () => loadNotices(true));
 
   const underOnly = $("#academicUnderOnly");
   if (underOnly) {
@@ -6899,23 +8557,30 @@ if (navList && window.ResizeObserver) new ResizeObserver(moveNavPill).observe(na
 // 시계라 1초마다. 상태 계산은 가볍고, 값이 그대로면 DOM을 건드리지 않는다.
 window.setInterval(renderNowBar, 1000);
 refreshAll();
+loadWhatsNew();
+maybeStartTour();
+api("/api/samsung-notes/job")
+  .then((job) => {
+    if (job.running) watchNotesJob();
+  })
+  .catch(() => {});
 /* 예전에는 3.5초마다 9개를 요청하고 화면을 통째로 다시 그렸다.
    창을 보고 있지 않으면 쉬고, 주기도 늘렸다.
    작업이 돌고 있을 때만 자주 확인한다. */
 window.setInterval(() => {
   if (document.hidden) return;
   const busy = !$("#topProgress")?.hidden;
-  const gap = busy ? 2000 : 12000;
-  if (Date.now() - (refreshAll.last || 0) < gap) return;
-  refreshAll.last = Date.now();
-  refreshAll();
+  const gap = state.offline ? 5000 : busy ? 2000 : 12000;
+  if (Date.now() - (pollLight.last || 0) < gap) return;
+  pollLight.last = Date.now();
+  pollLight();
 }, 1000);
 
-// 창으로 돌아오면 바로 한 번 새로 받는다
+// 창으로 돌아오면 바로 한 번 확인한다 (바뀐 게 있으면 전부 받는다)
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
-    refreshAll.last = Date.now();
-    refreshAll();
+    pollLight.last = Date.now();
+    pollLight();
   }
 });
 
@@ -6987,7 +8652,8 @@ function renderFglp() {
   const map = $("#fglpMap");
   if (!map) return;
   if (!map.dataset.drawn) {
-    map.innerHTML = `<img class="wm-img" src="${WORLD_IMG}" alt="세계지도" draggable="false" />
+    // 3840x1920 그림이라 풀어 놓는 데 300ms 가 든다. 화면을 멈추지 않게 따로 푼다.
+    map.innerHTML = `<img class="wm-img" src="${WORLD_IMG}" alt="세계지도" draggable="false" decoding="async" />
       <div class="wm-pins" id="fglpPins"></div>`;
     map.dataset.drawn = "1";
     // 창 크기가 바뀌면 보이는 각도도 달라진다
@@ -7193,6 +8859,7 @@ function showFglpDetail(index) {
     ${
       s.language
         ? `<dl class="fd-list"><div><dt>어학 기준</dt><dd><b>${escapeHtml(s.language)}</b></dd></div>
+           ${s.group ? `<div><dt>구분</dt><dd>${escapeHtml(s.group)} <span class="fd-note">(2027 안내서 분류)</span></dd></div>` : ""}
            <div><dt>학점</dt><dd>${escapeHtml(prog.gpa || "-")}</dd></div></dl>`
         : `<p class="fd-hint">학점교류 대학입니다. 위의 공통 안내를 참고하세요.</p>`
     }
@@ -7231,3 +8898,1611 @@ function bindFglp() {
     renderFglpAll();
   });
 }
+
+
+/* ===== 강의자료를 내 컴퓨터에도 자동 저장 =====
+   동기화가 끝날 때마다 서버가 알아서 맞춘다(web_ui.autosave_local).
+   여기서는 '지금 저장' 버튼과, 처음 켰을 때 한 번 맞추는 일만 한다.
+   처음 켜면 수백 개를 복사할 수 있어 서버가 뒤에서 돌리고 진행만 받아 온다. */
+/** C:\Users\이름\OneDrive\문서\붕어빵 → 문서\붕어빵 (전체 경로는 title 로 남긴다) */
+function friendlyPath(path) {
+  return String(path || "").replace(/^[A-Za-z]:\\Users\\[^\\]+\\(?:OneDrive[^\\]*\\)?/i, "");
+}
+
+/** 스위치 + 범위(이번 학기/모든 과목)를 서버 값(off/current/all)으로 */
+function saveScopeValue() {
+  return $("#configForm")?.querySelector("input[name=localSaveScope]:checked")?.value || "current";
+}
+
+function localSaveMode() {
+  if (!$("#localSaveToggle")?.checked) return "off";
+  return saveScopeValue();
+}
+
+/** 켜 둔 클라우드 폴더가 하나라도 있나 (초안 기준) */
+function anyCloudOn() {
+  return (state.config?.clouds || []).some((c) => {
+    const draft = state.cloudDraft?.[c.key];
+    const installed = c.installed || Boolean(draft?.path);
+    return installed && draft?.on;
+  });
+}
+
+/** 설정 저장·지금 맞추기에 함께 보내는 저장 위치 값 */
+function savePlacePayload() {
+  const form = $("#configForm");
+  return {
+    driveUpload: Boolean(form?.elements?.driveUpload?.checked),
+    autoLocalSave: localSaveMode(),
+    saveScope: saveScopeValue(),
+    localSavePath: form?.elements?.localSavePath?.value || "",
+    clouds: state.cloudDraft || {},
+  };
+}
+
+function syncLocalSaveButton() {
+  const button = $("#localSaveNowButton");
+  if (!button) return;
+  const off = localSaveMode() === "off" && !anyCloudOn();
+  button.disabled = off;
+  button.title = off ? "먼저 내 컴퓨터나 클라우드 저장을 켜 주세요" : "켜 둔 저장 위치를 지금 맞춥니다";
+  const row = $("#saveScopeRow");
+  if (row) row.classList.toggle("muted", off);
+}
+
+/* 클라우드 로고: 공식 로고 파일 대신 알아볼 만한 단순한 그림 */
+const CLOUD_LOGOS = {
+  onedrive:
+    '<svg viewBox="0 0 24 24"><path fill="#0364b8" d="M9.8 8.2a5.3 5.3 0 0 1 8.9 2.3 3.9 3.9 0 0 1 1.2 7.6H7.4l2.4-9.9Z"/><path fill="#0078d4" d="M9.6 8.4 7 18.1H5.2a3.7 3.7 0 0 1-.8-7.3 5 5 0 0 1 5.2-2.4Z"/><path fill="#28a8ea" d="M20 11.2a3.5 3.5 0 0 1-.6 6.9H7.4l3.1-5.3a4 4 0 0 1 5-1.6l4.5 0Z"/></svg>',
+  dropbox:
+    '<svg viewBox="0 0 24 24" fill="#0061ff"><path d="m7 3 5 3.2-5 3.2L2 6.2 7 3Zm10 0 5 3.2-5 3.2-5-3.2L17 3ZM2 12.6l5-3.2 5 3.2-5 3.2-5-3.2Zm15-3.2 5 3.2-5 3.2-5-3.2 5-3.2ZM7 17l5-3.2 5 3.2-5 3.2L7 17Z"/></svg>',
+  icloud:
+    '<svg viewBox="0 0 24 24"><path fill="#3e9bf0" d="M17.6 18H6.8a4.3 4.3 0 0 1-.6-8.5 5.9 5.9 0 0 1 11.2 1.6 3.5 3.5 0 0 1 .2 6.9Z"/></svg>',
+  mybox:
+    '<svg viewBox="0 0 24 24"><rect width="20" height="20" x="2" y="2" rx="5" fill="#03c75a"/><path fill="#fff" d="M8 7h2.6l3.1 4.6V7H16v10h-2.6l-3.1-4.6V17H8V7Z"/></svg>',
+};
+
+/* 클라우드 카드: 이 PC 에 그 프로그램이 있으면 스위치, 없으면 흐리게 + '폴더 고르기' */
+function renderCloudDests() {
+  const grid = $("#cloudDestGrid");
+  if (!grid) return;
+  const clouds = state.config?.clouds || [];
+  const html = clouds
+    .map((c) => {
+      const draft = state.cloudDraft?.[c.key] || { on: false, path: "" };
+      const root = draft.path || c.root;
+      const installed = Boolean(root);
+      const on = installed && draft.on;
+      const where = installed ? `${friendlyPath(root)} › 붕어빵 강의자료` : "이 PC에서 찾지 못했어요";
+      return `
+        <div class="st-cloud-card${on ? " on" : ""}${installed ? "" : " missing"}" data-cloud="${c.key}">
+          <span class="st-cloud-logo" aria-hidden="true">${CLOUD_LOGOS[c.key] || ""}</span>
+          <span class="st-cloud-text">
+            <strong>${escapeHtml(c.label)}</strong>
+            <span title="${escapeHtml(root ? root : "")}">${escapeHtml(on ? "자동 저장 중" : where)}</span>
+          </span>
+          ${
+            installed
+              ? `<label class="toggle" title="${escapeHtml(c.label)}에 자동 저장">
+                   <input type="checkbox" data-cloud-toggle="${c.key}" ${on ? "checked" : ""} />
+                   <span class="track"></span>
+                 </label>`
+              : `<button type="button" class="button compact ghost" data-cloud-pick="${c.key}">폴더 고르기</button>`
+          }
+        </div>`;
+    })
+    .join("");
+  if (grid.dataset.html !== html) {
+    grid.dataset.html = html;
+    grid.innerHTML = html;
+  }
+
+  // 내 컴퓨터 저장 폴더가 이미 켜 둔 클라우드 안에 있으면 같은 파일이 두 번 올라간다
+  const note = $("#cloudOverlapNote");
+  if (note) {
+    const localFolder = String(state.config?.localSaveFolder || "").toLowerCase();
+    const inside = localSaveMode() !== "off"
+      ? clouds.find((c) => {
+          const root = String(state.cloudDraft?.[c.key]?.path || c.root || "").toLowerCase();
+          return root && state.cloudDraft?.[c.key]?.on && localFolder.startsWith(root + "\\");
+        })
+      : null;
+    note.hidden = !inside;
+    if (inside) {
+      note.textContent = `내 컴퓨터 저장 폴더가 이미 ${inside.label} 안에 있어요. 둘 다 켜면 ${inside.label}에 같은 자료가 두 벌 올라갑니다.`;
+    }
+  }
+}
+
+/* 강의자료 저장 카드: 켜진 곳은 테두리로, 상태는 한 단어로 보인다.
+   드라이브를 켜 두었는데 구글 로그인이 안 되어 있으면 바로 아래에 알린다. */
+function renderSaveDestinations() {
+  const drive = $("#driveUploadToggle");
+  const local = $("#localSaveToggle");
+  if (!drive || !local) return;
+  const googleOk = Boolean(state.status?.googleOAuth?.tokenUsable);
+  const driveOn = drive.checked;
+  $("#driveDest").classList.toggle("on", driveOn && googleOk);
+  $("#driveDest").classList.toggle("blocked", driveOn && !googleOk);
+  $("#driveState").textContent = !driveOn ? "꺼짐" : googleOk ? "자동 저장 중" : "로그인 필요";
+  $("#driveWarn").hidden = !(driveOn && !googleOk);
+
+  const mode = localSaveMode();
+  $("#localDest").classList.toggle("on", mode !== "off");
+  $("#localState").textContent = mode === "off" ? "꺼짐" : "자동 저장 중";
+  $("#localSaveMore").hidden = mode === "off";
+  renderCloudDests();
+}
+
+/* 지금 맞추기: 화면에서 바꾼 저장 위치를 먼저 저장해야 서버가 그곳에 넣는다 */
+async function runLocalSaveNow(options = {}) {
+  const button = $("#localSaveNowButton");
+  if (button) button.disabled = true;
+  try {
+    if (!options.alreadySaved) {
+      await api("/api/config", { method: "POST", body: JSON.stringify(savePlacePayload()) });
+    }
+    const res = await api("/api/local-autosave/run", { method: "POST", body: "{}" });
+    showTopProgress("강의자료를 저장 위치에 넣는 중", 40);
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      const job = await api("/api/local-autosave/job");
+      if (job.running) continue;
+      const result = job.result || {};
+      finishTopProgress(result.ok === false ? "저장 실패" : "저장 완료");
+      showToast(result.message || res.message || "저장했습니다.");
+      break;
+    }
+    renderStorage();
+  } catch (error) {
+    hideTopProgress();
+    showToast(error.message);
+  } finally {
+    syncLocalSaveButton();
+  }
+}
+
+/* 저장 위치 스위치는 누르는 즉시 저장한다.
+   예전에는 맨 아래 '설정 저장' 을 눌러야 저장돼서, 안 누르고 나가거나 화면이 다시 그려지면
+   (설정 화면을 열 때마다 저장된 값으로 채운다) 켠 스위치가 도로 꺼졌다. config.json 은 9/23 이후 한 번도 안 바뀌어 있었다. */
+let savePlaceTimer = 0;
+function saveSavePlaceSoon() {
+  window.clearTimeout(savePlaceTimer);
+  savePlaceTimer = window.setTimeout(async () => {
+    const payload = savePlacePayload();
+    const wasLocal = state.config?.autoLocalSave || "off";
+    const cloudsBefore = (state.config?.clouds || []).filter((c) => c.on).map((c) => c.key).join();
+    try {
+      await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
+      state.config = await api("/api/config");
+      const cloudsNow = (state.config?.clouds || []).filter((c) => c.on).map((c) => c.key).join();
+      const localOn = payload.autoLocalSave !== "off";
+      showToast(
+        payload.autoLocalSave !== wasLocal
+          ? localOn ? "내 컴퓨터 저장을 켰어요" : "내 컴퓨터 저장을 껐어요"
+          : "저장 위치를 바꿨어요",
+      );
+      // 새로 켠 곳은 다음 동기화까지 기다리지 않고 지금 한 번 채운다
+      if ((localOn && payload.autoLocalSave !== wasLocal) || (cloudsNow && cloudsNow !== cloudsBefore)) {
+        runLocalSaveNow({ alreadySaved: true });
+      }
+    } catch (error) {
+      showToast(humanError(error));
+    }
+  }, 250);
+}
+
+(function bindLocalSave() {
+  const refresh = () => {
+    renderSaveDestinations();
+    syncLocalSaveButton();
+    saveSavePlaceSoon();
+  };
+  $("#localSaveToggle")?.addEventListener("change", refresh);
+  $("#driveUploadToggle")?.addEventListener("change", refresh);
+  $("#saveScopeRow")?.addEventListener("change", refresh);
+  $("#cloudDestGrid")?.addEventListener("change", (event) => {
+    const key = event.target.dataset?.cloudToggle;
+    if (!key) return;
+    state.cloudDraft = state.cloudDraft || {};
+    state.cloudDraft[key] = { ...(state.cloudDraft[key] || { path: "" }), on: event.target.checked };
+    refresh();
+  });
+  // 프로그램이 없거나 다른 곳에 깔린 클라우드는 동기화 폴더를 직접 고른다
+  $("#cloudDestGrid")?.addEventListener("click", async (event) => {
+    const key = event.target.closest("[data-cloud-pick]")?.dataset.cloudPick;
+    if (!key) return;
+    try {
+      const data = await api("/api/pick-folder", { method: "POST", body: "{}" });
+      if (!data.path) {
+        showToast(data.message || "폴더 고르기를 취소했습니다.");
+        return;
+      }
+      state.cloudDraft = state.cloudDraft || {};
+      state.cloudDraft[key] = { on: true, path: data.path };
+      refresh();
+      showToast("폴더를 골랐습니다. 설정 저장을 누르면 적용됩니다.");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $("#localSaveNowButton")?.addEventListener("click", () => {
+    if (localSaveMode() !== "off" || anyCloudOn()) runLocalSaveNow();
+  });
+})();
+
+
+/* ===== 메일 본문을 앱에 어울리게 =====
+   밝은 테마에서는 메일 속 순백(#fff) 바탕을 걷어 내 읽기 화면 배경 위에 그린다.
+   색을 넣은 칸(표 머리, 강조 상자)은 그대로 둔다. 어두운 테마는 종이 카드 위에 올린다. */
+const MAIL_PAPER = "#f7f5ef";
+
+function mailOnPaper() {
+  const theme = document.documentElement.dataset.theme || "";
+  return theme === "dark" || theme === "navy";
+}
+
+function blendMailBackground(frame) {
+  try {
+    const doc = frame.contentDocument;
+    const view = doc?.defaultView;
+    if (!doc?.body || !view) return;
+    const white = /^rgba?\(\s*255,\s*255,\s*255(?:,\s*1(?:\.0+)?)?\s*\)$/;
+    const nodes = doc.body.querySelectorAll("*");
+    // 소식지는 요소가 수천 개다. 너무 크면 바깥쪽 틀만 본다.
+    const limit = Math.min(nodes.length, 4000);
+    for (let i = 0; i < limit; i += 1) {
+      const el = nodes[i];
+      if (white.test(view.getComputedStyle(el).backgroundColor)) {
+        el.style.setProperty("background-color", "transparent", "important");
+      }
+    }
+    if (white.test(view.getComputedStyle(doc.body).backgroundColor)) {
+      doc.body.style.setProperty("background-color", mailOnPaper() ? MAIL_PAPER : "transparent", "important");
+    }
+  } catch (error) {
+    /* 다른 출처 문서면 건드리지 않는다 */
+  }
+}
+
+/* ===== 메일함 안 새로고침 =====
+   위쪽 새로고침 버튼까지 가지 않아도 메일함에서 바로. 마지막으로 받아 온 때도 여기 적는다. */
+function renderMailRefreshAgo() {
+  const node = $("#mailRefreshAgo");
+  const button = $("#mailRefreshButton");
+  if (!node || !button) return;
+  const stamp = state.health?.lastSuccess?.emails || state.emails?.updatedAt;
+  const text = state.mailRefreshing ? "가져오는 중…" : stamp ? `${agoText(stamp)} 업데이트` : "아직 안 받음";
+  if (node.textContent !== text) node.textContent = text;
+  button.classList.toggle("spinning", Boolean(state.mailRefreshing));
+  button.disabled = Boolean(state.mailRefreshing);
+  button.title = stamp ? `메일 새로고침 (마지막: ${String(stamp).replace("T", " ").slice(0, 16)})` : "메일 새로고침";
+}
+
+async function refreshMailNow() {
+  if (state.mailRefreshing) return;
+  state.mailRefreshing = true;
+  renderMailRefreshAgo();
+  try {
+    await startRun("/api/refresh-emails", "메일 가져오는 중");
+    await waitForTask();
+  } finally {
+    state.mailRefreshing = false;
+    await refreshAll();
+    renderMailRefreshAgo();
+  }
+}
+
+$("#mailRefreshButton")?.addEventListener("click", refreshMailNow);
+// '3분 전' 이 '4분 전' 으로 넘어가게 가끔 다시 적는다 (값이 같으면 DOM 은 안 건드림)
+window.setInterval(renderMailRefreshAgo, 20000);
+
+/* ===== 업데이트 소식 =====
+   새 버전이면 왼쪽 아래 '설정' 카드 위에 점 달린 알약이 뜨고, 누르면 바뀐 내용을 보여 준다.
+   한 번 보면 조용한 'v1.11.0 업데이트 내용' 링크로 남는다. */
+async function loadWhatsNew() {
+  try {
+    state.whatsNew = await api("/api/whats-new");
+  } catch (error) {
+    return;
+  }
+  renderWhatsNewButton();
+}
+
+function renderWhatsNewButton() {
+  const button = $("#whatsNewButton");
+  const info = state.whatsNew;
+  if (!button || !info?.entries?.length) return;
+  // 새 버전일 때만 보인다. 한 번 열어 보면 사라진다
+  // (지난 내용은 설정의 '업데이트 내용' 에서 본다. 남겨 두면 사이드바에 글자만 떠 있어 어색했다)
+  const fresh = info.seen !== info.version;
+  button.hidden = !fresh;
+  button.classList.toggle("fresh", fresh);
+  $("#whatsNewLabel").textContent = `새 업데이트 v${info.version}`;
+  button.title = "눌러서 무엇이 바뀌었는지 보기";
+}
+
+function whatsNewEntryHtml(entry, latest) {
+  const sections = (entry.sections || [])
+    .map(
+      (section) => `
+        <h4>${escapeHtml(section.name || "")}</h4>
+        <ul>${(section.items || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`,
+    )
+    .join("");
+  const head = `
+    <span class="wn-version">v${escapeHtml(entry.version || "")}</span>
+    <span class="wn-date">${escapeHtml(entry.date || "")}</span>
+    <strong class="wn-title">${escapeHtml(entry.title || "")}</strong>`;
+  return latest
+    ? `<section class="wn-entry latest"><header>${head}</header>${sections}</section>`
+    : `<details class="wn-entry"><summary>${head}</summary>${sections}</details>`;
+}
+
+async function openWhatsNew() {
+  const info = state.whatsNew;
+  const dialog = $("#whatsNewDialog");
+  if (!info || !dialog) return;
+  $("#whatsNewBody").innerHTML = info.entries.map((entry, i) => whatsNewEntryHtml(entry, i === 0)).join("");
+  installIcons(dialog);
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  if (info.seen !== info.version) {
+    info.seen = info.version;
+    renderWhatsNewButton();
+    api("/api/whats-new/seen", { method: "POST", body: JSON.stringify({ version: info.version }) }).catch(() => {});
+  }
+}
+
+$("#whatsNewButton")?.addEventListener("click", openWhatsNew);
+$("#whatsNewClose")?.addEventListener("click", () => $("#whatsNewDialog")?.close());
+$("#whatsNewDialog")?.addEventListener("click", (event) => {
+  // 바깥(어두운 막)을 누르면 닫는다
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+
+
+/* 설정 > 앱 > '업데이트 내용' 버튼. 사이드바의 업데이트 소식 창을 그대로 연다. */
+$("#settingsWhatsNewButton")?.addEventListener("click", () => {
+  if (typeof openWhatsNew === "function") openWhatsNew();
+});
+
+/* 설정의 '?' 설명: 마우스를 올리면 보이고, 누르면 켜진 채로 남는다(터치·트랙패드용).
+   다른 곳을 누르거나 Esc 를 누르면 닫는다. */
+document.addEventListener("click", (event) => {
+  const hint = event.target.closest(".hint");
+  document.querySelectorAll(".hint.show").forEach((h) => {
+    if (h !== hint) h.classList.remove("show");
+  });
+  if (hint) {
+    event.preventDefault();
+    hint.classList.toggle("show");
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") document.querySelectorAll(".hint.show").forEach((h) => h.classList.remove("show"));
+});
+
+
+/* ===== 메일 본문 링크 =====
+   본문은 스크립트를 막은 iframe 안에 있다. 그 안에서 링크를 누르면 새 창을 열려고 하는데
+   iframe 보안 설정이 새 창을 막아서, 눌러도 아무 일이 없었다(주간소식의 [학생]·[교직원] 링크).
+   메일 앱들이 하는 대로 바깥 브라우저로 넘긴다. 메일 주소(mailto:)는 앱의 메일 쓰기로 연다. */
+function bindMailLinks(frame) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc || doc.dataset?.linksBound === "1") return;
+    if (doc.documentElement) doc.documentElement.dataset.linksBound = "1";
+    doc.addEventListener("click", async (event) => {
+      const link = event.target?.closest?.("a[href]");
+      if (!link) return;
+      const href = (link.getAttribute("href") || "").trim();
+      if (!href || href.startsWith("#")) return;
+      event.preventDefault();
+
+      if (/^mailto:/i.test(href)) {
+        const [address, query = ""] = href.slice(7).split("?");
+        const params = new URLSearchParams(query);
+        openCompose({
+          to: decodeURIComponent(address || ""),
+          subject: params.get("subject") || "",
+          body: params.get("body") || "",
+          title: "새 메일",
+        });
+        return;
+      }
+      if (!/^https?:/i.test(href)) {
+        showToast("이 링크는 열 수 없어요.");
+        return;
+      }
+      try {
+        const res = await api("/api/mail/open-link", { method: "POST", body: JSON.stringify({ url: href }) });
+        showToast(res.opened ? `브라우저에서 열었어요 · ${res.host}` : "링크를 열지 못했어요.");
+      } catch (error) {
+        showToast(humanError(error));
+      }
+    });
+  } catch (error) {
+    /* 다른 출처 문서면 건드리지 않는다 */
+  }
+}
+
+
+/* ===== 목록은 드래그로 고친다 =====
+   버튼이나 입력창을 거치지 않고, 손으로 옮기는 것이 기본 방식이다.
+     - 메일: 목록에서 왼쪽 폴더로 끌어다 놓으면 옮기기·별표·휴지통
+     - 시간표: 수업 덩어리를 끌어 요일과 시간을 옮긴다
+   (버튼과 메뉴도 그대로 둔다. 키보드만 쓰는 경우와 좁은 화면을 위해서다) */
+
+function mailById(id) {
+  return (state.emails?.emails || []).find((m) => m.id === id) || null;
+}
+
+function clearMailDropMarks() {
+  document.querySelectorAll(".mail-folder.drop-over").forEach((el) => el.classList.remove("drop-over"));
+}
+
+async function dropMailsOnFolder(ids, key) {
+  const mails = ids.map(mailById).filter(Boolean);
+  if (!mails.length) return;
+  const label = MAIL_FOLDERS.find((f) => f.key === key)?.label || key;
+
+  if (key === "starred") {
+    for (const mail of mails) {
+      if (mail.starred) continue;
+      mail.starred = true;
+      try {
+        await api("/api/mail/star", {
+          method: "POST",
+          body: JSON.stringify({ uid: mail.uid, folder: mail.folder, starred: true }),
+        });
+      } catch (error) {
+        mail.starred = false;
+      }
+    }
+    renderEmails();
+    showToast(`${mails.length}통에 별표를 붙였습니다.`);
+    return;
+  }
+
+  if (key === "trash") {
+    const fromTrash = mails.filter((m) => m.folder === "trash");
+    if (fromTrash.length) return showToast("이미 휴지통에 있습니다.");
+    const before = state.emails.emails;
+    state.emails.emails = before.filter((m) => !ids.includes(m.id));
+    renderEmails();
+    let done = 0;
+    for (const mail of mails) {
+      try {
+        const res = await api("/api/delete-email", {
+          method: "POST",
+          body: JSON.stringify({ uid: mail.uid, folder: mail.folder, permanent: false }),
+        });
+        if (res.ok) done += 1;
+      } catch (error) {
+        /* 아래에서 개수로 알린다 */
+      }
+    }
+    showToast(done ? `${done}통을 휴지통으로 옮겼습니다.` : "옮기지 못했습니다.");
+    await refreshAll();
+    return;
+  }
+
+  if (key === "inbox" && mails.every((m) => m.folder === "trash")) {
+    // 휴지통에서 받은 편지함으로 = 되돌리기
+    for (const mail of mails) await restoreEmail(mail);
+    await refreshAll();
+    return;
+  }
+
+  const folders = await loadMailFolderChoices();
+  const target = folders.find((f) => f.key === key);
+  if (!target) return showToast(`'${label}' 폴더를 찾지 못했습니다.`);
+  let done = 0;
+  for (const mail of mails) {
+    if (mail.folder === key) continue;
+    try {
+      await api("/api/mail/move", {
+        method: "POST",
+        body: JSON.stringify({ uid: mail.uid, folder: mail.folder, target: target.raw }),
+      });
+      done += 1;
+    } catch (error) {
+      /* 아래에서 개수로 알린다 */
+    }
+  }
+  showToast(done ? `${done}통을 '${label}'(으)로 옮겼습니다.` : "옮기지 못했습니다.");
+  await refreshAll();
+}
+
+function bindMailDrag() {
+  const grid = $("#newsGrid");
+  const rail = $("#mailFolders");
+  if (!grid || !rail) return;
+
+  grid.addEventListener("dragstart", (event) => {
+    const row = event.target.closest("[data-mail-id]");
+    if (!row) return;
+    const id = row.dataset.mailId;
+    // 고른 메일 위에서 끌면 고른 것 전부, 아니면 그 한 통만
+    const picked = state.mailSelected || new Set();
+    const ids = picked.has(id) ? [...picked] : [id];
+    state.mailDragIds = ids;
+    event.dataTransfer.setData("text/x-mail-ids", ids.join(","));
+    event.dataTransfer.effectAllowed = "move";
+    document.body.classList.add("mail-dragging");
+    row.classList.add("dragging");
+  });
+
+  grid.addEventListener("dragend", (event) => {
+    event.target.closest?.("[data-mail-id]")?.classList.remove("dragging");
+    document.body.classList.remove("mail-dragging");
+    state.mailDragIds = null;
+    clearMailDropMarks();
+  });
+
+  rail.addEventListener("dragover", (event) => {
+    const folder = event.target.closest(".mail-folder[data-drop]");
+    if (!folder || !state.mailDragIds?.length) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = folder.dataset.folder === "starred" ? "link" : "move";
+    clearMailDropMarks();
+    folder.classList.add("drop-over");
+  });
+
+  rail.addEventListener("dragleave", (event) => {
+    event.target.closest(".mail-folder")?.classList.remove("drop-over");
+  });
+
+  rail.addEventListener("drop", async (event) => {
+    const folder = event.target.closest(".mail-folder[data-drop]");
+    if (!folder) return;
+    event.preventDefault();
+    const ids = (event.dataTransfer.getData("text/x-mail-ids") || "").split(",").filter(Boolean);
+    clearMailDropMarks();
+    document.body.classList.remove("mail-dragging");
+    state.mailDragIds = null;
+    if (ids.length) await dropMailsOnFolder(ids, folder.dataset.folder);
+  });
+}
+
+bindMailDrag();
+
+
+/* ===== 첫 실행 소개 (달구 튜토리얼) =====
+   처음 켠 사람에게 달구가 메뉴를 하나씩 비춰 주며 무엇을 하는지 알려 준다.
+   '건너뛰기' 로 언제든 끝낼 수 있고, 설정의 '앱 소개 다시 보기' 로 다시 볼 수 있다.
+   본 기록은 데이터 폴더(tutorial.json)에 적는다 — 앱 창은 브라우저 저장소가 매번 지워진다.
+
+   단계마다: 보여 줄 화면(view), 비출 곳(targets), 달구 포즈(pose), 제목, 설명.
+   비출 곳을 못 찾으면(숨겨졌거나 좁은 화면) 가운데에 카드만 띄운다. */
+const TOUR_STEPS = [
+  {
+    pose: "yay",
+    title: "안녕! 나는 달구야",
+    text: "붕어빵은 LMS 강의자료, 과제 마감, 학교 메일, 학사일정을 알아서 모아 한곳에 보여 주는 앱이야. 1분이면 다 둘러볼 수 있어.",
+  },
+  {
+    view: "settings",
+    targets: ['.nav-item[data-view="settings"]'],
+    pose: "point",
+    title: "먼저 계정부터 넣어 줘",
+    text: "설정에서 LMS 아이디·비밀번호와 학교 메일을 넣으면 시작돼. 비밀번호는 이 컴퓨터 안에서만 암호화해서 저장해.",
+  },
+  {
+    view: "dashboard",
+    targets: ['.nav-item[data-view="dashboard"]'],
+    pose: "skip",
+    title: "대시보드",
+    text: "오늘 시간표, 다가오는 마감, 새 메일을 한눈에 봐. '화면 편집'을 누르면 블록을 끌어서 순서를 바꿀 수 있어.",
+  },
+  {
+    view: "deadlines",
+    targets: ['.nav-item[data-view="deadlines"]'],
+    pose: "search",
+    title: "과제 마감",
+    text: "LMS에 올라온 과제 마감을 다 모아 둬. 아직 안 낸 과제는 눌러서 바로 제출 페이지로 갈 수 있어.",
+  },
+  {
+    view: "calendar",
+    targets: ['.nav-item[data-view="calendar"]'],
+    pose: "wink",
+    title: "캘린더",
+    text: "학사일정, 과제 마감, 내 일정을 달력 하나에 모았어. 구글 캘린더로 보내기도 돼.",
+  },
+  {
+    view: "courses",
+    targets: ['.nav-item[data-view="courses"]'],
+    pose: "book",
+    title: "강의",
+    text: "이번 학기 과목과 학점, 강의계획서를 카드로 정리해 뒀어.",
+  },
+  {
+    view: "files",
+    targets: ['.nav-item[data-view="files"]'],
+    pose: "munch",
+    title: "자료",
+    text: "LMS 강의자료를 받아서 LMS와 같은 폴더(1주차 › 파일) 그대로 보여 줘. 폴더째 골라 내 컴퓨터·Drive·삼성 노트로 보낼 수 있어.",
+  },
+  {
+    view: "emails",
+    targets: ['.nav-item[data-view="emails"]'],
+    pose: "stretch",
+    title: "메일함",
+    text: "학교 메일을 오늘·어제로 묶어 보여 줘. 메일을 왼쪽 폴더로 끌어다 놓으면 옮겨지고, 휴지통에 놓으면 지워져.",
+  },
+  {
+    view: "storage",
+    targets: ['.nav-item[data-view="storage"]'],
+    pose: "back",
+    title: "창고",
+    text: "셔틀버스 시간표와 FGLP 파견 대학 지도가 여기 있어. 셔틀은 학교 홈페이지 기준으로 매일 확인해.",
+  },
+  {
+    view: "dashboard",
+    targets: [".search-wrap"],
+    pose: "reachup",
+    title: "뭐든 여기서 찾아",
+    text: "과목·자료·과제·메일·일정·설정을 한 번에 찾아. Ctrl+K 로 바로 오고, 초성(ㅇㅂㅁㄹ)으로도 돼. 고르면 그곳으로 데려다줄게.",
+  },
+  {
+    view: "dashboard",
+    targets: ["#lastSync", "#refreshAllButton"],
+    pose: "nap",
+    title: "나머지는 내가 알아서",
+    text: "메일은 5분, 마감은 1시간, 자료는 3시간마다 알아서 가져와. 언제 가져왔는지는 여기 적혀 있고, 지금 바로 받고 싶으면 새로고침을 눌러.",
+  },
+  {
+    view: "dashboard",
+    targets: ["#whatsNewButton"],
+    pose: "give",
+    title: "새 소식은 여기서",
+    text: "새 버전이 나오면 왼쪽 아래에 '새 업데이트'가 떠. 한 번 보면 사라지고, 지난 내용과 이 소개는 설정에서 다시 볼 수 있어.",
+  },
+  {
+    pose: "laugh",
+    title: "준비 끝!",
+    text: "궁금한 게 생기면 언제든 설정의 '앱 소개 다시 보기'를 눌러 줘. 이제 붕어빵 구우러 가자!",
+    last: true,
+  },
+];
+
+const tour = { index: 0, active: false, returnView: null, buddy: null, walkTimer: 0 };
+
+async function maybeStartTour() {
+  try {
+    const res = await api("/api/tutorial");
+    if (res.done) return;
+  } catch (error) {
+    return; // 서버가 대답을 못 하면 소개를 억지로 띄우지 않는다
+  }
+  // 첫 화면이 다 그려진 다음에 띄운다
+  window.setTimeout(() => startTour(), 700);
+}
+
+function startTour() {
+  const root = $("#tour");
+  if (!root || tour.active) return;
+  // 그림을 미리 받아 둬서 단계를 넘길 때 달구가 깜빡이지 않게
+  [...TOUR_STEPS.map((s) => s.pose), ...Object.keys(BUDDY_MOVES)].forEach((pose) => {
+    const img = new Image();
+    img.src = `/img/dalgu/${pose}.png`;
+  });
+  tour.buddy = null; // 첫 단계에서는 화면 왼쪽 밖에서 뛰어 들어온다
+  $("#tourDots").innerHTML = TOUR_STEPS.map(() => "<span></span>").join("");
+  tour.active = true;
+  tour.index = 0;
+  tour.returnView = state.view;
+  root.hidden = false;
+  // 첫 자리는 미끄러져 들어오지 않고 제자리에 바로 나타나게 (단계 사이에서만 움직인다)
+  root.classList.add("entering");
+  window.setTimeout(() => root.classList.remove("entering"), 400);
+  document.body.classList.add("tour-open");
+  showTourStep(0);
+  $("#tourNext").focus();
+}
+
+function finishTour(skipped) {
+  const root = $("#tour");
+  if (!root || !tour.active) return;
+  tour.active = false;
+  window.clearTimeout(tour.walkTimer);
+  root.hidden = true;
+  document.body.classList.remove("tour-open");
+  api("/api/tutorial/done", {
+    method: "POST",
+    body: JSON.stringify({ skipped: Boolean(skipped), step: tour.index }),
+  })
+    .then(() => loadWhatsNew())
+    .catch(() => {});
+  // 마지막 단계에서 끝냈고 아직 계정이 없으면 설정으로 데려간다
+  const needsAccount = !state.status?.requiredConfig?.lms;
+  if (!skipped && needsAccount) switchView("settings");
+  else if (tour.returnView && state.view !== tour.returnView) switchView(tour.returnView);
+}
+
+function tourTargetRect(selectors) {
+  const rects = (selectors || [])
+    .map((sel) => document.querySelector(sel))
+    .filter((el) => el && !el.hidden && el.offsetParent !== null)
+    .map((el) => el.getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > 0);
+  if (!rects.length) return null;
+  const pad = 6;
+  const left = Math.min(...rects.map((r) => r.left)) - pad;
+  const top = Math.min(...rects.map((r) => r.top)) - pad;
+  const right = Math.max(...rects.map((r) => r.right)) + pad;
+  const bottom = Math.max(...rects.map((r) => r.bottom)) + pad;
+  return { left, top, width: right - left, height: bottom - top, right, bottom };
+}
+
+/* 비추는 곳 둘레를 네 장(위·아래·왼쪽·오른쪽)으로 덮는다.
+   처음에는 box-shadow 를 아주 크게 퍼뜨려 한 장으로 덮었는데, WebView 가 큰 그림자를
+   그리지 않는 경우가 있어(실측: 같은 값이 한 번은 그려지고 한 번은 안 그려짐) 화면이 안 어두워졌다.
+   평범한 반투명 사각형 네 장은 언제나 그려진다. */
+function placeTourDim(rect) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const hole = rect || { left: vw / 2, top: vh / 2, right: vw / 2, bottom: vh / 2, width: 0, height: 0 };
+  const boxes = {
+    top: { left: 0, top: 0, width: vw, height: Math.max(0, hole.top) },
+    bottom: { left: 0, top: hole.bottom, width: vw, height: Math.max(0, vh - hole.bottom) },
+    left: { left: 0, top: hole.top, width: Math.max(0, hole.left), height: hole.height },
+    right: { left: hole.right, top: hole.top, width: Math.max(0, vw - hole.right), height: hole.height },
+  };
+  document.querySelectorAll("#tour .tour-dim").forEach((el) => {
+    const b = boxes[el.dataset.dim];
+    el.style.left = `${b.left}px`;
+    el.style.top = `${b.top}px`;
+    el.style.width = `${b.width}px`;
+    el.style.height = `${b.height}px`;
+  });
+}
+
+/* ===== 돌아다니는 달구 =====
+   예전에는 카드 모서리에 붙박이였다. 이제 단계가 바뀌면 달구가 다음 비출 곳 옆으로 걸어가거나
+   (멀면) 뛰어가고, 도착하면 그 단계 포즈로 바뀐다. 자리는 비출 곳 둘레에서 화면 안이면서
+   카드와 겹치지 않는 곳을 고른다. 옆모습 그림은 가는 쪽을 보도록 좌우를 뒤집는다. */
+const BUDDY_MOVES = { trot: "left", dash: "right" }; // 그림이 원래 보는 쪽
+const BUDDY_SIZE = 116;
+const BUDDY_HERO_SIZE = 176; // 시작·끝 화면에서는 크게
+
+function buddySpot(rect, card, B = BUDDY_SIZE) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const m = 8;
+  const hit = (x, y) =>
+    x < card.right + 6 && x + B > card.left - 6 && y < card.bottom + 6 && y + B > card.top - 6;
+  const inside = (x, y) => x >= m && y >= m && x + B <= vw - m && y + B <= vh - m;
+  let options;
+  if (!rect) {
+    // 시작·끝 화면: 카드 왼쪽에 크게 서서 말을 건다 (자리가 없으면 오른쪽, 그래도 없으면 카드 위)
+    const midY = card.top + (card.bottom - card.top) / 2 - B / 2;
+    options = [
+      [card.left - B - 4, midY],
+      [card.right + 4, midY],
+      [card.left + (card.right - card.left) / 2 - B / 2, card.top - B + 10],
+    ];
+    const ok = options.find(([x, y]) => inside(x, y));
+    return ok || options[2];
+  }
+  const cx = rect.left + rect.width / 2 - B / 2;
+  const cy = rect.top + rect.height / 2 - B / 2;
+  options = [
+    [rect.left, rect.bottom + m], // 아래
+    [rect.right + m, cy], // 오른쪽
+    [cx, rect.bottom + m], // 아래 가운데
+    [rect.left - B - m, cy], // 왼쪽
+    [rect.left, rect.top - B - m], // 위
+    [rect.right + m, rect.bottom + m], // 오른쪽 아래
+    // 비출 곳 둘레가 비좁으면(메일함의 좁은 사이드바, 위쪽 막대) 카드 옆에 선다
+    [card.right + m, card.top],
+    [card.left, card.bottom + m],
+    [card.right - B, card.top - B - m],
+    [card.left - B - m, card.top],
+  ];
+  const ok = options.find(([x, y]) => inside(x, y) && !hit(x, y));
+  if (ok) return ok;
+  const loose = options.find(([x, y]) => inside(x, y));
+  return loose || [Math.min(Math.max(m, cx), vw - B - m), Math.min(Math.max(m, cy), vh - B - m)];
+}
+
+function setBuddy(pose, face, cls) {
+  const box = $("#tourBuddy");
+  const img = $("#tourBuddyImg");
+  if (!box || !img) return;
+  const src = `/img/dalgu/${pose}.png`;
+  if (!img.src.endsWith(src)) img.src = src;
+  box.style.setProperty("--face", String(face));
+  box.classList.remove("walking", "arrived");
+  void box.offsetWidth; // 도착 애니메이션을 처음부터 다시
+  if (cls) box.classList.add(cls);
+}
+
+function placeBuddy(rect, card) {
+  const box = $("#tourBuddy");
+  if (!box) return;
+  const size = rect ? BUDDY_SIZE : BUDDY_HERO_SIZE;
+  box.style.setProperty("--b", `${size}px`);
+  const [x, y] = buddySpot(rect, card, size);
+  const pose = tour.pose || "yay";
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const first = !tour.buddy;
+  const from = first ? { x: -size - 20, y } : tour.buddy;
+  const dx = x - from.x;
+  const dist = Math.hypot(dx, y - from.y);
+  const moved = first || Math.abs(from.x - x) > 3 || Math.abs(from.y - y) > 3;
+  tour.buddy = { x, y };
+
+  if (reduce || (!moved && !tour.walkTimer)) {
+    box.style.setProperty("--walk", "0s");
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
+    if (!box.classList.contains("arrived") || !$("#tourBuddyImg").src.endsWith(`/${pose}.png`)) setBuddy(pose, 1, "arrived");
+    return;
+  }
+  // 걷는 중에 자리가 다시 계산되면 목적지만 바꾼다 (걸음은 그대로)
+  const running = dist > 360;
+  const move = running ? "dash" : "trot";
+  const facesRight = BUDDY_MOVES[move] === "right";
+  const face = dx === 0 ? 1 : (dx > 0) === facesRight ? 1 : -1;
+  const secs = Math.min(1.1, Math.max(0.35, dist / (running ? 900 : 520)));
+  if (moved) {
+    if (first) {
+      // 처음: 화면 왼쪽 밖에서 뛰어 들어온다
+      box.style.setProperty("--walk", "0s");
+      box.style.left = `${from.x}px`;
+      box.style.top = `${from.y}px`;
+      void box.offsetWidth;
+    }
+    setBuddy(move, face, "walking");
+    box.style.setProperty("--walk", `${secs}s`);
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
+    window.clearTimeout(tour.walkTimer);
+    tour.walkTimer = window.setTimeout(() => {
+      tour.walkTimer = 0;
+      setBuddy(tour.pose || pose, 1, "arrived");
+    }, secs * 1000);
+  }
+}
+
+function placeTourCard(rect) {
+  const card = $("#tourCard");
+  const spot = $("#tourSpot");
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  placeTourDim(rect);
+  const cw = card.offsetWidth;
+  const ch = card.offsetHeight;
+  const gap = 18;
+  const margin = 12;
+
+  if (!rect) {
+    // 비출 곳이 없으면 화면 가운데. 구멍은 가운데 한 점으로 오므려 전체를 어둡게.
+    // (0×0 으로 만들면 크롬이 그림자를 아예 안 그려서 화면이 어두워지지 않았다. 1px 로 둔다)
+    Object.assign(spot.style, { left: `${vw / 2}px`, top: `${vh / 2}px`, width: "1px", height: "1px" });
+    spot.classList.add("none");
+    const cx = Math.max(margin, (vw - cw) / 2);
+    const cy = Math.max(margin, (vh - ch) / 2);
+    card.style.left = `${cx}px`;
+    card.style.top = `${cy}px`;
+    card.dataset.side = "center";
+    placeBuddy(null, { left: cx, top: cy, right: cx + cw, bottom: cy + ch });
+    return;
+  }
+
+  spot.classList.remove("none");
+  Object.assign(spot.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
+
+  // 오른쪽 → 아래 → 왼쪽 → 위 순서로 들어갈 자리를 찾는다
+  const clampY = (y) => Math.min(Math.max(margin, y), vh - ch - margin);
+  const clampX = (x) => Math.min(Math.max(margin, x), vw - cw - margin);
+  const midY = rect.top + rect.height / 2 - ch / 2;
+  const midX = rect.left + rect.width / 2 - cw / 2;
+  const options = [
+    { side: "right", ok: rect.right + gap + cw <= vw - margin, x: rect.right + gap, y: clampY(midY) },
+    { side: "bottom", ok: rect.bottom + gap + ch <= vh - margin, x: clampX(midX), y: rect.bottom + gap },
+    { side: "left", ok: rect.left - gap - cw >= margin, x: rect.left - gap - cw, y: clampY(midY) },
+    { side: "top", ok: rect.top - gap - ch >= margin, x: clampX(midX), y: rect.top - gap - ch },
+  ];
+  const pick = options.find((o) => o.ok) || { side: "center", x: clampX((vw - cw) / 2), y: clampY((vh - ch) / 2) };
+  card.style.left = `${pick.x}px`;
+  card.style.top = `${pick.y}px`;
+  card.dataset.side = pick.side;
+  placeBuddy(rect, { left: pick.x, top: pick.y, right: pick.x + cw, bottom: pick.y + ch });
+}
+
+function showTourStep(index) {
+  const step = TOUR_STEPS[index];
+  if (!step) return;
+  tour.index = index;
+  if (step.view && state.view !== step.view) applyView(step.view);
+
+  tour.pose = step.pose;
+  // 비출 곳이 없는 첫·마지막 단계는 카드를 크게 가운데에 (시작 화면)
+  $("#tourCard").classList.toggle("hero", !step.targets);
+  $("#tourCount").textContent = `${index + 1} / ${TOUR_STEPS.length}`;
+  $("#tourTitle").textContent = step.title;
+  $("#tourText").textContent = step.text;
+  $("#tourPrev").hidden = index === 0;
+  $("#tourNext").textContent =
+    index === 0 ? "둘러보기" : step.last ? (state.status?.requiredConfig?.lms ? "시작하기" : "계정 넣으러 가기") : "다음";
+  $("#tourSkip").hidden = Boolean(step.last);
+  document.querySelectorAll("#tourDots span").forEach((dot, i) => {
+    dot.classList.toggle("on", i === index);
+    dot.classList.toggle("past", i < index);
+  });
+  // 화면을 바꾼 뒤 자리가 잡히고 나서 비출 곳을 잰다
+  window.requestAnimationFrame(() => placeTourCard(tourTargetRect(step.targets)));
+  window.setTimeout(() => placeTourCard(tourTargetRect(step.targets)), 260);
+}
+
+function stepTour(delta) {
+  const next = tour.index + delta;
+  if (next < 0) return;
+  if (next >= TOUR_STEPS.length) {
+    finishTour(false);
+    return;
+  }
+  showTourStep(next);
+}
+
+$("#tourNext")?.addEventListener("click", () => stepTour(1));
+$("#tourPrev")?.addEventListener("click", () => stepTour(-1));
+$("#tourSkip")?.addEventListener("click", () => finishTour(true));
+$("#replayTourButton")?.addEventListener("click", () => startTour());
+document.addEventListener("keydown", (event) => {
+  if (!tour.active) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    finishTour(true);
+  } else if (event.key === "ArrowRight" || event.key === "Enter") {
+    event.preventDefault();
+    stepTour(1);
+  } else if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    stepTour(-1);
+  }
+});
+window.addEventListener("resize", () => {
+  if (tour.active) placeTourCard(tourTargetRect(TOUR_STEPS[tour.index]?.targets));
+});
+
+/* ===== 통합 검색 (상단 검색창) =====
+   예전 검색창은 '지금 보고 있는 화면의 목록'만 걸렀다. 대시보드에서 치면 아무 일도 안 일어나는 것처럼
+   보였고, 글자 하나마다 화면 전체를 다시 그려 느렸다. 이제는 치는 동안 아래에 결과 창을 띄워
+   과목·자료·과제·메일·일정·공지·설정을 한꺼번에 찾고, 고르면 바로 그곳으로 간다.
+   ↑↓ 로 고르고 Enter, Esc 로 닫는다. 초성(ㅇㅂㅁㄹ)으로도 찾는다. */
+const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+function searchKey(text) {
+  return String(text || "").toLowerCase().replace(/\s+/g, "");
+}
+function choseong(text) {
+  let out = "";
+  for (const ch of String(text || "")) {
+    const code = ch.charCodeAt(0) - 0xac00;
+    out += code >= 0 && code < 11172 ? CHO[Math.floor(code / 588)] : /\s/.test(ch) ? "" : ch.toLowerCase();
+  }
+  return out;
+}
+/** 점수: 앞부분 일치 > 낱말 앞 일치 > 포함 > 초성 일치. 안 맞으면 0 */
+function matchScore(query, ...fields) {
+  const q = searchKey(query);
+  if (!q) return 0;
+  const onlyCho = /^[ㄱ-ㅎ]+$/.test(q);
+  let best = 0;
+  fields.forEach((field, i) => {
+    if (!field) return;
+    const weight = i === 0 ? 1 : 0.6; // 첫 칸(제목)이 맞을수록 위로
+    const raw = String(field).toLowerCase();
+    const key = searchKey(field);
+    let s = 0;
+    if (onlyCho) {
+      // 초성은 앞에서부터 맞는 것을 훨씬 위로 ('ㄱㅎㅈ' → 김호정 > 의생명공학전공)
+      const cho = choseong(field);
+      if (cho.startsWith(q)) s = 70;
+      else if (cho.includes(q)) s = 30;
+    } else if (key.startsWith(q)) s = 100;
+    else if (raw.split(/[\s_\-·:()[\]\/]+/).some((w) => w.startsWith(q))) s = 80;
+    else if (key.includes(q)) s = 60;
+    best = Math.max(best, s * weight);
+  });
+  return best;
+}
+
+// 맞은 것에만 가산점 (0 에 더하면 안 맞는 것까지 결과에 섞인다)
+const bumpScore = (score, extra) => (score ? score + extra : 0);
+
+const SEARCH_GROUPS = [
+  ["go", "바로 가기"],
+  ["course", "과목"],
+  ["file", "자료"],
+  ["deadline", "과제"],
+  ["mail", "메일"],
+  ["event", "일정"],
+  ["notice", "공지"],
+  ["setting", "설정"],
+];
+const SEARCH_ICON = {
+  go: "layout", course: "book", file: "file", deadline: "clock", mail: "mail",
+  event: "calendar", notice: "alert", setting: "settings",
+};
+const SEARCH_VIEWS = [
+  ["dashboard", "대시보드", "홈 첫화면 시간표 셔틀 버스"],
+  ["deadlines", "과제 마감", "숙제 과제 제출"],
+  ["calendar", "캘린더", "달력 일정 학사일정"],
+  ["courses", "강의", "개설강좌 수업 강좌"],
+  ["files", "자료", "강의자료 파일 다운로드"],
+  ["emails", "메일함", "이메일 편지"],
+  ["storage", "창고", "fglp 파견 지도"],
+  ["settings", "설정", "환경설정 옵션"],
+];
+
+function searchSettings() {
+  // 설정 화면의 제목·라벨을 그대로 찾을거리로 쓴다 (새 설정이 생겨도 따로 적을 필요 없게)
+  if (searchSettings.cache) return searchSettings.cache;
+  const out = [];
+  const seen = new Set();
+  document.querySelectorAll("#view-settings h2, #view-settings h3, #view-settings label").forEach((el) => {
+    // 라벨 안의 입력칸·도움말 글자는 빼고 앞 글자만 이름으로 쓴다
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll("input, select, textarea, option, small, .hint, .help, button").forEach((x) => x.remove());
+    const text = clone.textContent.replace(/\s+/g, " ").trim();
+    const title = text.split(/ — | - |\?/)[0].trim().slice(0, 40);
+    if (!title || title.length < 2 || seen.has(title)) return;
+    seen.add(title);
+    out.push({ title, el });
+  });
+  searchSettings.cache = out;
+  return out;
+}
+
+function dueText(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const days = Math.ceil((d - Date.now()) / 86400000);
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  if (days < 0) return `${when} · 지남`;
+  return `${when} · ${days === 0 ? "오늘" : `D-${days}`}`;
+}
+
+function buildSearchResults(query) {
+  const res = [];
+  const add = (group, score, item) => score > 0 && res.push({ group, score, ...item });
+
+  SEARCH_VIEWS.forEach(([view, label, words]) => {
+    const s = matchScore(query, label, words);
+    add("go", s && s + 5, { title: label, sub: "화면으로 가기", run: () => switchView(view) });
+  });
+  [
+    ["지금 새로고침", "새로고침 동기화 가져오기", () => $("#refreshAllButton")?.click()],
+    ["테마 바꾸기", "테마 다크 화이트 남색 색", () => $("#themeFlip")?.click()],
+    // 작성 창은 메일함 안의 칸이라 먼저 메일함으로 간 뒤 연다
+    ["메일 쓰기", "메일쓰기 보내기 작성 새메일", () => {
+      switchView("emails");
+      window.setTimeout(() => openCompose({}), 200);
+    }],
+    ["업데이트 내용", "업데이트 새 버전 변경", () => openWhatsNew()],
+    ["처음 소개 다시 보기", "튜토리얼 소개 도움말 달구", () => startTour()],
+  ].forEach(([title, words, run]) => add("go", matchScore(query, title, words), { title, sub: "바로 하기", run }));
+
+  // 과목: 이번 학기 수강 과목 + 자료가 있는 과목 + 시간표
+  const courses = new Map();
+  (state.courseState?.current || []).forEach((c) => courses.set(extractCourseLabelJs(c.name), c.name));
+  (state.files || []).forEach((f) => f.courseLabel && !courses.has(f.courseLabel) && courses.set(f.courseLabel, f.course));
+  courses.forEach((full, label) => {
+    const count = (state.files || []).filter((f) => f.course === full).length;
+    const dl = (state.deadlines.items || []).filter((d) => d.course === full && !isSubmitted(d) && parseDue(d) > new Date()).length;
+    add("course", matchScore(query, label, full), {
+      title: label,
+      sub: [count ? `자료 ${count}개` : "", dl ? `남은 과제 ${dl}개` : ""].filter(Boolean).join(" · ") || "과목",
+      run: () => {
+        switchView("files");
+        state.course = full;
+        const sel = $("#courseFilter");
+        if (sel) sel.value = full;
+        renderFiles();
+      },
+    });
+  });
+  // 시간표는 요일마다 한 칸씩이라 같은 과목이 여러 번 나온다. 과목 하나로 묶어 요일을 모아 적는다.
+  const slots = new Map();
+  (state.timetable || []).forEach((t) => {
+    const key = t.title || t.courseLabel;
+    if (!key) return;
+    if (!slots.has(key)) slots.set(key, { t, times: [] });
+    slots.get(key).times.push(`${TT_DAYS[t.day] || ""} ${t.start}`); // 시간표 day 는 0=월
+  });
+  slots.forEach(({ t, times }, key) => {
+    add("course", matchScore(query, key, t.courseLabel, t.professor, t.courseNo) * 0.9, {
+      title: key,
+      sub: `시간표 · ${times.join(", ")}${t.room ? ` · ${t.room}` : ""}${t.professor ? ` · ${t.professor}` : ""}`,
+      run: () => switchView("dashboard"),
+    });
+  });
+
+  (state.files || []).forEach((f) =>
+    add("file", matchScore(query, f.name, f.courseLabel, f.folder), {
+      title: f.name,
+      sub: [f.courseLabel, (f.folderPath || []).join(" › ") || f.folder, f.status === "local" ? "" : "내 컴퓨터에 없음"]
+        .filter(Boolean)
+        .join(" · "),
+      run: () => {
+        if (f.status === "local") {
+          window.open(`/api/file?name=${encodeURIComponent(f.localName)}`, "_blank");
+        } else {
+          setViewFilter("files", f.name);
+        }
+      },
+    }),
+  );
+
+  (state.deadlines.items || []).forEach((d) => {
+    const due = parseDue(d);
+    add("deadline", bumpScore(matchScore(query, d.name, d.courseLabel || d.course), due && due > new Date() ? 3 : 0), {
+      title: d.name,
+      sub: [d.courseLabel || extractCourseLabelJs(d.course), due ? dueText(due) : "", isSubmitted(d) ? "제출함" : ""]
+        .filter(Boolean)
+        .join(" · "),
+      run: () => setViewFilter("deadlines", d.name),
+    });
+  });
+
+  // 같은 제목으로 여러 번 온 공지 메일은 가장 최근 것 하나만
+  const seenSubjects = new Set();
+  [...(state.emails.emails || [])]
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .forEach((m) => {
+    if (m.folder === "trash") return;
+    const subjectKey = searchKey(m.subject);
+    if (seenSubjects.has(subjectKey)) return;
+    seenSubjects.add(subjectKey);
+    add("mail", matchScore(query, m.subject, m.fromName, m.fromEmail, m.summary) , {
+      title: m.subject || "(제목 없음)",
+      sub: [m.fromName || m.fromEmail, m.date ? String(m.date).slice(0, 10) : ""].filter(Boolean).join(" · "),
+      date: m.date || "",
+      // 화면 전환(최대 150ms)이 끝나면서 메일 창을 목록으로 되돌리므로, 전환 뒤에 연다
+      run: () => {
+        switchView("emails");
+        window.setTimeout(() => openEmailDetail(m), 200);
+      },
+    });
+  });
+
+  const openDay = (date) => {
+    switchView("calendar");
+    state.calMonth = { y: date.getFullYear(), m: date.getMonth() };
+    renderedViews.delete("calendar");
+    renderAll();
+    window.setTimeout(() => openDayDetail(date.getDate()), 200);
+  };
+  calendarItems()
+    .filter((it) => it.kind === "event" || it.kind === "school" || it.kind === "mine")
+    .forEach((it) =>
+      add("event", matchScore(query, it.title, it.full, it.sub), {
+        title: it.title,
+        sub: `${it.date.getMonth() + 1}/${it.date.getDate()}${it.allDay ? "" : ` ${pad2(it.date.getHours())}:${pad2(it.date.getMinutes())}`} · ${
+          it.kind === "mine" ? "내 일정" : it.kind === "school" ? "학교 행사" : "세미나"
+        }`,
+        run: () => openDay(it.date),
+      }),
+    );
+  (Array.isArray(state.academic) ? state.academic : []).forEach((a) => {
+    const d = new Date(`${a.start}T00:00`);
+    if (Number.isNaN(d.getTime())) return;
+    add("event", bumpScore(matchScore(query, a.title, a.kind), d > new Date() ? 2 : 0), {
+      title: a.title,
+      sub: `학사일정 · ${a.start}${a.end && a.end !== a.start ? ` ~ ${a.end}` : ""}`,
+      run: () => openDay(d),
+    });
+  });
+
+  (Array.isArray(state.notices) ? state.notices : []).forEach((n) =>
+    add("notice", matchScore(query, n.title, n.writer, n.board), {
+      title: n.title,
+      sub: [n.board, n.writer, n.date].filter(Boolean).join(" · "),
+      run: () => n.url && api("/api/open-url", { method: "POST", body: JSON.stringify({ url: n.url }) }).catch(() => {}),
+    }),
+  );
+
+  searchSettings().forEach((s) =>
+    add("setting", matchScore(query, s.title), {
+      title: s.title,
+      sub: "설정",
+      run: () => {
+        switchView("settings");
+        window.setTimeout(() => {
+          const target = s.el.closest(".settings-card, .card, section, fieldset") || s.el;
+          target.scrollIntoView({ block: "center", behavior: "smooth" });
+          target.classList.remove("search-flash");
+          void target.offsetWidth;
+          target.classList.add("search-flash");
+          const field =
+            (s.el.htmlFor && document.getElementById(s.el.htmlFor)) ||
+            s.el.querySelector?.("input, select, textarea") ||
+            s.el.nextElementSibling?.matches?.("input, select, textarea") && s.el.nextElementSibling;
+          field?.focus?.({ preventScroll: true });
+        }, 200);
+      },
+    }),
+  );
+
+  // 무리마다 점수순(같으면 최근 것 먼저)으로 몇 개만
+  const LIMIT = { go: 3, course: 4, file: 6, deadline: 4, mail: 5, event: 4, notice: 3, setting: 3 };
+  const grouped = SEARCH_GROUPS.map(([key, label]) => {
+    const items = res
+      .filter((r) => r.group === key)
+      .sort((a, b) => b.score - a.score || String(b.date || "").localeCompare(String(a.date || "")));
+    return { key, label, total: items.length, items: items.slice(0, LIMIT[key]) };
+  }).filter((g) => g.items.length);
+  // 가장 잘 맞는 무리를 위로. 과목·바로 가기는 조금 더 앞에 (찾는 게 대개 '그 과목' 이라서)
+  const groupBonus = (g) => g.items[0].score + (g.key === "course" || g.key === "go" ? 15 : 0);
+  grouped.sort((a, b) => groupBonus(b) - groupBonus(a));
+  return grouped;
+}
+
+function extractCourseLabelJs(name) {
+  // "일반물리Ⅱ (General PhysicsⅡ )_03[ 2026_2학기 ]" → "General PhysicsⅡ" (자료 목록의 courseLabel 과 같게)
+  const m = String(name || "").match(/\(([^()]*)\)\s*_\d+/);
+  return (m ? m[1] : String(name || "").replace(/_\d+\s*\[.*$/, "")).trim();
+}
+
+/** 결과를 고른 뒤 그 화면의 목록을 그 이름으로 걸러 보여 준다 (검색창에 남아 있어 지우면 풀린다) */
+function setViewFilter(view, text) {
+  switchView(view);
+  state.query = text;
+  $("#searchInput").value = text;
+  SEARCH_PARTS_ALL.forEach((key) => renderedViews.delete(key));
+  renderAll();
+  closeSearchPop();
+}
+const SEARCH_PARTS_ALL = ["upcoming", "deadlines", "emails", "courses", "files", "courseFilter"];
+
+let searchFlat = [];
+let searchActive = 0;
+function renderSearchPop() {
+  const pop = $("#searchPop");
+  const input = $("#searchInput");
+  if (!pop || !input) return;
+  const q = input.value.trim();
+  if (!q) {
+    closeSearchPop();
+    return;
+  }
+  const groups = buildSearchResults(q);
+  searchFlat = groups.flatMap((g) => g.items);
+  searchActive = Math.min(searchActive, Math.max(0, searchFlat.length - 1));
+  let i = -1;
+  pop.innerHTML = groups.length
+    ? groups
+        .map(
+          (g) => `
+      <div class="sp-group">
+        <div class="sp-head">${g.label}${g.total > g.items.length ? `<span>${g.total}개 중 ${g.items.length}개</span>` : ""}</div>
+        ${g.items
+          .map((it) => {
+            i += 1;
+            return `<div class="sp-item${i === searchActive ? " active" : ""}" role="option" data-sp="${i}">
+              <span class="sp-icon sp-${g.key}">${iconHtml(SEARCH_ICON[g.key])}</span>
+              <span class="sp-text"><strong>${highlightMatch(it.title, q)}</strong><em>${escapeHtml(it.sub || "")}</em></span>
+            </div>`;
+          })
+          .join("")}
+      </div>`,
+        )
+        .join("")
+    : `<div class="sp-empty">'${escapeHtml(q)}'와 맞는 게 없어요.<br><small>과목 이름, 파일 이름, 메일 제목, 보낸 사람, 행사 이름으로 찾아보세요.</small></div>`;
+  pop.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+}
+
+function highlightMatch(text, q) {
+  const raw = String(text || "");
+  const idx = raw.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0 || /^[ㄱ-ㅎ]+$/.test(q)) return escapeHtml(raw);
+  return `${escapeHtml(raw.slice(0, idx))}<mark>${escapeHtml(raw.slice(idx, idx + q.length))}</mark>${escapeHtml(raw.slice(idx + q.length))}`;
+}
+
+function closeSearchPop() {
+  const pop = $("#searchPop");
+  if (pop) pop.hidden = true;
+  $("#searchInput")?.setAttribute("aria-expanded", "false");
+}
+
+function runSearchItem(index) {
+  const item = searchFlat[index];
+  if (!item) return;
+  closeSearchPop();
+  $("#searchInput")?.blur();
+  try {
+    item.run();
+  } catch (error) {
+    reportError(error, "검색 결과 열기");
+  }
+}
+
+function bindSearchPop() {
+  const input = $("#searchInput");
+  const pop = $("#searchPop");
+  if (!input || !pop) return;
+  let timer = 0;
+  input.addEventListener("input", () => {
+    searchActive = 0;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(renderSearchPop, 60);
+    // 검색창을 비우면 걸어 둔 목록 거르기도 푼다
+    if (!input.value.trim() && state.query) {
+      state.query = "";
+      SEARCH_PARTS_ALL.forEach((key) => renderedViews.delete(key));
+      renderAll();
+    }
+  });
+  input.addEventListener("focus", () => {
+    searchSettings.cache = null;
+    if (input.value.trim()) renderSearchPop();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (!pop.hidden) closeSearchPop();
+      else input.blur();
+      return;
+    }
+    if (pop.hidden && event.key !== "Enter") return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const n = searchFlat.length;
+      if (!n) return;
+      searchActive = (searchActive + (event.key === "ArrowDown" ? 1 : -1) + n) % n;
+      pop.querySelectorAll(".sp-item").forEach((el) => el.classList.toggle("active", Number(el.dataset.sp) === searchActive));
+      pop.querySelector(".sp-item.active")?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (pop.hidden) renderSearchPop();
+      runSearchItem(searchActive);
+    }
+  });
+  // mousedown: 입력칸이 blur 로 창을 닫기 전에 고른다
+  pop.addEventListener("mousedown", (event) => {
+    const item = event.target.closest(".sp-item");
+    if (!item) return;
+    event.preventDefault();
+    runSearchItem(Number(item.dataset.sp));
+  });
+  pop.addEventListener("mousemove", (event) => {
+    const item = event.target.closest(".sp-item");
+    if (!item || Number(item.dataset.sp) === searchActive) return;
+    searchActive = Number(item.dataset.sp);
+    pop.querySelectorAll(".sp-item").forEach((el) => el.classList.toggle("active", el === item));
+  });
+  input.addEventListener("blur", () => window.setTimeout(closeSearchPop, 120));
+}
+
+/** 자동완성에서 친 글자에 밑줄 (웹메일과 같은 표시) */
+function acMark(text, q) {
+  const raw = String(text || "");
+  const needle = String(q || "").trim();
+  const idx = needle ? raw.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+  if (idx < 0) return escapeHtml(raw);
+  return `${escapeHtml(raw.slice(0, idx))}<u>${escapeHtml(raw.slice(idx, idx + needle.length))}</u>${escapeHtml(raw.slice(idx + needle.length))}`;
+}
+
+/* ===== 사이드바 상태판 =====
+   LMS · 메일 · Drive 가 제대로 도는지 불빛으로, 다음에 무엇을 언제 가져오는지 한 줄로.
+   문제가 있으면 그 문제를 맨 위에 쓰고, 누르면 고칠 곳(설정의 계정)으로 간다. */
+const STATUS_KIND_LABEL = { emails: "메일", deadlines: "마감", sync: "자료" };
+// '다음: 메일 곧' 은 무엇을 하는지 알 수 없었다. 하는 일을 문장으로 적는다.
+const STATUS_KIND_DOING = { emails: "새 메일 확인하는 중", deadlines: "과제 마감 확인하는 중", sync: "새 강의자료 받는 중" };
+const STATUS_KIND_NEXT = { emails: "새 메일 확인", deadlines: "과제 마감 확인", sync: "새 강의자료 확인" };
+
+function statusLights() {
+  const cfg = state.config || {};
+  const h = state.health || {};
+  const auth = h.authFailed || {};
+  const streak = h.failStreak || {};
+  const ok = h.lastSuccess || {};
+  const oauth = state.status?.googleOAuth || {};
+  const since = (k) => (ok[k] ? agoText(ok[k]) : "아직 안 함");
+
+  const lms = !cfg.lmsId || !cfg.hasLmsPassword
+    ? { tone: "off", why: "LMS 계정을 넣어 주세요" }
+    : auth.sync || auth.deadlines
+      ? { tone: "bad", why: "LMS 로그인 실패" }
+      : (streak.sync || 0) >= 2 || (streak.deadlines || 0) >= 2
+        ? { tone: "warn", why: "LMS 가져오기가 계속 실패해요" }
+        : { tone: "ok", why: "" };
+  lms.tip = `LMS · 자료 ${since("sync")} · 마감 ${since("deadlines")}`;
+
+  const mail = !cfg.schoolEmail || !cfg.hasSchoolEmailPassword
+    ? { tone: "off", why: "학교 메일 계정을 넣어 주세요" }
+    : auth.emails
+      ? { tone: "bad", why: "학교 메일 로그인 실패" }
+      : (streak.emails || 0) >= 2
+        ? { tone: "warn", why: "메일 가져오기가 계속 실패해요" }
+        : { tone: "ok", why: "" };
+  mail.tip = `학교 메일 · ${since("emails")}`;
+
+  const drive = cfg.driveUpload === false
+    ? { tone: "off", why: "", tip: "Drive · 꺼 둠" }
+    : !oauth.tokenUsable
+      ? { tone: "bad", why: "구글 로그인이 필요해요", tip: "Drive · 로그인 필요" }
+      : { tone: "ok", why: "", tip: "Drive · 연결됨" };
+
+  return { lms, mail, drive };
+}
+
+/** 다음 자동 확인: 메일 5분·마감 1시간·자료 3시간 주기와 마지막 성공 시각으로 계산 */
+function nextAutoJob() {
+  const cfg = state.config || {};
+  const h = state.health || {};
+  const every = { emails: cfg.autoEmailMinutes, deadlines: cfg.autoDeadlineMinutes, sync: cfg.autoSyncMinutes };
+  let best = null;
+  Object.entries(every).forEach(([kind, minutes]) => {
+    const m = Number(minutes) || 0;
+    if (m <= 0 || (h.authFailed || {})[kind]) return;
+    const last = h.lastSuccess?.[kind] ? new Date(h.lastSuccess[kind]).getTime() : 0;
+    let at = last + m * 60000;
+    // 실패한 뒤에는 앱이 쉬었다가 다시 한다 (app.next_due_job 과 같은 셈: 연속 실패마다 두 배, 최대 6시간)
+    const fail = h.lastFailure || {};
+    const streak = Number((h.failStreak || {})[kind]) || 0;
+    if (fail.kind === kind && fail.at) {
+      const wait = Math.max(streak ? Math.min(Math.max(5, m) * 2 ** (streak - 1), 360) : 0, Math.max(5, m / 2));
+      at = Math.max(at, new Date(fail.at).getTime() + wait * 60000);
+    }
+    at = Math.max(Date.now(), at);
+    if (!best || at < best.at) best = { kind, at };
+  });
+  return best;
+}
+
+function renderStatusCard(task) {
+  const card = $("#statusCard");
+  if (!card) return;
+  const lights = statusLights();
+  const order = [lights.mail, lights.lms, lights.drive];
+  const problem = order.find((l) => l.tone === "bad") || order.find((l) => l.tone === "off" && l.why) || order.find((l) => l.tone === "warn");
+  const tone = problem ? (problem.tone === "warn" ? "warn" : "bad") : "ok";
+
+  const title = problem ? problem.why : "모두 정상";
+  let line;
+  const running = task ? task.running : state._taskRunning;
+  const kind = task?.kind || state.task?.kind;
+  if (running && STATUS_KIND_DOING[kind]) {
+    line = STATUS_KIND_DOING[kind];
+  } else {
+    const next = nextAutoJob();
+    if (!next) line = "자동으로 가져오기 꺼짐";
+    else {
+      const mins = Math.ceil((next.at - Date.now()) / 60000);
+      // 앱은 30초마다 차례를 보므로, 시간이 됐으면 1분 안에 시작한다
+      const when = mins <= 1 ? "1분 안에" : mins < 60 ? `${mins}분 뒤` : `${pad2(new Date(next.at).getHours())}:${pad2(new Date(next.at).getMinutes())}에`;
+      line = `${when} ${STATUS_KIND_NEXT[next.kind]}`;
+    }
+  }
+  const lightHtml = [["LMS", lights.lms], ["메일", lights.mail], ["Drive", lights.drive]]
+    .map(([name, l]) => `<i class="sl-${l.tone}" title="${escapeHtml(l.tip || name)}">${name}</i>`)
+    .join("");
+  const full = state.health?.lastFullSync;
+  const tip = [
+    lights.lms.tip,
+    lights.mail.tip,
+    lights.drive.tip,
+    `전체 확인 매일 ${state.status?.scheduleTime || "08:00"}${full ? ` (마지막 ${agoText(full)})` : ""}`,
+    problem ? "누르면 설정으로 갑니다" : "누르면 자동 가져오기 설정으로 갑니다",
+  ].join("\n");
+
+  const sig = `${tone}|${title}|${line}|${lightHtml}|${tip}`;
+  if (card.dataset.sig === sig) return;
+  card.dataset.sig = sig;
+  $("#sidebarStatus").textContent = title;
+  $("#sidebarSchedule").textContent = line;
+  $("#statusLights").innerHTML = lightHtml;
+  const dot = $("#sidebarStatusDot");
+  dot.classList.toggle("ready", tone === "ok");
+  dot.classList.toggle("warn", tone === "warn");
+  dot.classList.toggle("bad", tone === "bad");
+  card.title = tip;
+  card.dataset.target = problem ? "stAccounts" : "stAuto";
+}
+
+$("#statusCard")?.addEventListener("click", () => {
+  const target = $("#statusCard").dataset.target || "stAuto";
+  openSettings();
+  window.setTimeout(() => {
+    const el = document.getElementById(target);
+    if (!el) return;
+    el.scrollIntoView({ block: "start", behavior: "smooth" });
+    el.classList.remove("search-flash");
+    void el.offsetWidth;
+    el.classList.add("search-flash");
+  }, 220);
+});
+// '3분 뒤' 가 멈춰 있지 않게 30초마다 다시 쓴다 (값이 같으면 DOM 은 건드리지 않음)
+window.setInterval(() => renderStatusCard(), 30000);
+
+
+/* ===== 새 버전 (GitHub 릴리스) =====
+   켤 때 한 번, 그 뒤로는 6시간마다 조용히 확인한다. 새 버전이 있으면 사이드바에 '새 버전 설치'
+   알약이 뜨고, 설정 > 앱의 '지금 업데이트' 를 누르면 받아서 확인(SHA-256)한 뒤 조용히 설치하고 다시 켠다. */
+async function checkForUpdate(manual = false) {
+  const status = $("#updateStatus");
+  const apply = $("#applyUpdateButton");
+  if (manual && status) status.textContent = "GitHub에서 확인하는 중…";
+  let d;
+  try {
+    d = await api("/api/update/check");
+  } catch (error) {
+    if (status) status.textContent = humanError ? humanError(error) : error.message;
+    return;
+  }
+  state.update = d;
+  if (d.current) $("#appVersion").textContent = `v${d.current}`;
+  const ready = Boolean(d.ok && d.updateAvailable);
+  if (status) {
+    if (!d.ok) status.textContent = d.message || "확인하지 못했어요";
+    else if (ready) status.textContent = `v${d.latest} 이 나왔어요${d.size ? ` · ${Math.round(d.size / 1048576)}MB` : ""}`;
+    else status.textContent = `최신 버전이에요 (v${d.current})`;
+  }
+  if (apply) {
+    apply.hidden = !ready;
+    apply.disabled = ready && !d.canInstall;
+    apply.title = ready && !d.canInstall ? "설치형 앱에서만 자동으로 업데이트해요" : "";
+  }
+  const pill = $("#updateReadyButton");
+  if (pill) {
+    pill.hidden = !ready;
+    $("#updateReadyLabel").textContent = ready ? `새 버전 v${d.latest} 설치` : "새 버전 설치";
+  }
+}
+
+async function startAppUpdate() {
+  const d = state.update;
+  if (!d?.updateAvailable) return;
+  if (!window.confirm(`v${d.latest} 으로 업데이트할까요?\n\n받아서 설치하는 동안 앱이 잠깐 꺼졌다가 다시 켜집니다.`)) return;
+  const status = $("#updateStatus");
+  const apply = $("#applyUpdateButton");
+  if (apply) apply.disabled = true;
+  try {
+    const res = await api("/api/update/apply", { method: "POST", body: "{}" });
+    if (!res.ok) throw new Error(res.message || "업데이트를 시작하지 못했어요");
+    showTopProgress("새 버전을 내려받는 중", 5);
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      let job;
+      try {
+        job = await api("/api/update/job");
+      } catch (error) {
+        // 설치 프로그램이 앱을 끄면 여기로 온다. 곧 새 버전으로 다시 켜진다.
+        finishTopProgress("설치 중 · 곧 다시 켜져요");
+        if (status) status.textContent = "설치 중이에요. 잠시 뒤 앱이 다시 켜집니다.";
+        return;
+      }
+      if (job.total) showTopProgress("새 버전을 내려받는 중", Math.min(95, Math.round((job.done / job.total) * 95)));
+      if (status && job.message) status.textContent = job.message;
+      if (job.running) continue;
+      if (job.ok === false) throw new Error(job.message || "업데이트하지 못했어요");
+      finishTopProgress("설치를 시작했어요 · 곧 다시 켜져요");
+      if (status) status.textContent = "설치 중이에요. 잠시 뒤 앱이 다시 켜집니다.";
+      return;
+    }
+  } catch (error) {
+    hideTopProgress();
+    if (status) status.textContent = error.message;
+    showToast(error.message);
+    if (apply) apply.disabled = false;
+  }
+}
+
+$("#checkUpdateButton")?.addEventListener("click", () => checkForUpdate(true));
+$("#applyUpdateButton")?.addEventListener("click", startAppUpdate);
+$("#updateReadyButton")?.addEventListener("click", () => {
+  switchView("settings");
+  window.setTimeout(() => $("#updateRow")?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+});
+window.setTimeout(() => checkForUpdate(false), 4000);
+window.setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000);

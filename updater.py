@@ -1,58 +1,41 @@
-"""GitHub 기반 앱 자가 업데이트.
+"""GitHub 릴리스로 앱을 업데이트한다.
 
-배포된 앱이 GitHub 공개 저장소(raw)에서 최신 코드 파일을 받아 스스로 교체한다.
-credentials.json 등 개인정보 파일은 대상에서 제외한다.
+설치형 앱(EXE)의 파이썬 코드는 실행 파일 안에 묶여 있어서, 예전처럼 저장소의 .py 파일을
+받아 덮어써서는 바뀌지 않는다. 그래서 새 버전은 GitHub 릴리스에 설치 파일(setup.exe)로 올리고,
+앱은 그것을 받아 조용히 설치한 뒤 다시 켠다.
+
+  1) api.github.com/repos/<저장소>/releases/latest 에서 최신 릴리스(태그 v1.2.3)를 읽는다
+  2) 첨부된 bungeoppang-<버전>-win-x64-setup.exe 를 내려받는다
+  3) GitHub 이 붙여 주는 SHA-256(자산 digest) 과 맞는지 확인한다 — 안 맞거나 값이 없으면 설치하지 않는다
+  4) 설치 파일을 /SILENT 로 실행하고 앱은 스스로 끈다. 설치가 끝나면 설치 프로그램이 앱을 다시 켠다(/RELAUNCH=1)
+
+예전 방식(저장소 main 의 VERSION 과 비교)은 저장소가 1.8.6 에 멈춰 있어 늘 '최신' 으로 나왔다(2026-09-28).
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
-import time
+import subprocess
+import sys
+import tempfile
+import threading
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# 배포자(사장님) GitHub 저장소
+# 배포자 GitHub 저장소 (공개)
 REPO = "jykim5215/dgist-lms-autosaver"
-BRANCH = "main"
-# Contents API(api.github.com)는 비인증 시 시간당 60회 제한이라
-# 파일 개수만큼 호출하면 금방 rate limit에 걸린다.
-# raw는 그 쿼터를 쓰지 않으므로 raw + 캐시무효화 쿼리로 최신본을 받는다.
-RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+ASSET_PATTERN = re.compile(r"^bungeoppang-[\d.]+-win-x64-setup\.exe$")
+# 설치 파일만 받는다. 다른 호스트로 넘어가는 주소는 쓰지 않는다 (GitHub 이 저장소를 옮기는 곳은 이 둘)
+ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
 VERSION_FILE = PROJECT_ROOT / "VERSION"
-
-# 업데이트가 교체할 수 있는 파일 (개인정보 파일은 제외)
-UPDATE_FILES = [
-    "app.py",
-    "web_ui.py",
-    "main.py",
-    "lms_crawler.py",
-    "drive_uploader.py",
-    "calendar_sync.py",
-    "timetable_import.py",
-    "academic_calendar.py",
-    "notice_board.py",
-    "directory.py",
-    "shuttle.py",
-    "email_reader.py",
-    "email_notifier.py",
-    "ai_summarizer.py",
-    "runtime_config.py",
-    "updater.py",
-    "verify.py",
-    "requirements.txt",
-    "config.example.py",
-    "README.md",
-    "web/index.html",
-    "web/app.js",
-    "web/styles.css",
-    "web/favicon.svg",
-    # 창·바로가기 아이콘 (갱신되지 않으면 예전 로고가 남는다)
-    "web/app.png",
-    "web/app.ico",
-    "web/brand-fish.png",
-]
+USER_AGENT = "Bungeoppang-Updater"
 
 
 def local_version() -> str:
@@ -62,67 +45,6 @@ def local_version() -> str:
         return "0.0.0"
 
 
-def _fetch_file(rel_path: str) -> bytes:
-    """raw.githubusercontent.com에서 파일 원본(bytes)을 캐시 없이 받는다."""
-    # CDN 캐시(~5분)를 피하려고 매 요청마다 다른 쿼리를 붙인다.
-    url = f"{RAW_BASE}/{rel_path}?nocache={int(time.time() * 1000)}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "DGIST-AutoSaver-Updater",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            return resp.read()
-    except urllib.error.HTTPError as exc:
-        if exc.code == 403:
-            raise RuntimeError(
-                "GitHub 요청 한도에 걸렸습니다. 잠시 후(약 1시간) 다시 시도해 주세요."
-            ) from exc
-        if exc.code == 404:
-            raise RuntimeError(f"저장소에 파일이 없습니다: {rel_path}") from exc
-        raise
-
-
-def _fetch_version_via_api() -> str:
-    """VERSION만 Contents API로 읽는다 (캐시 없이 즉시 최신).
-
-    호출이 1회뿐이라 시간당 60회 제한에 여유가 있다.
-    """
-    import base64
-    import json
-
-    url = f"https://api.github.com/repos/{REPO}/contents/VERSION?ref={BRANCH}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "DGIST-AutoSaver-Updater",
-            "Accept": "application/vnd.github+json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    if data.get("encoding") == "base64" and "content" in data:
-        return base64.b64decode(data["content"]).decode("utf-8").strip()
-    raise RuntimeError("VERSION을 읽을 수 없습니다.")
-
-
-def remote_version() -> str:
-    """최신 버전 문자열.
-
-    버전은 '갱신 필요 여부'의 기준이라 캐시 지연이 있으면 안 된다.
-    → Contents API를 먼저 쓰고(1회), 막혀 있으면 raw로 대체한다.
-    """
-    try:
-        return _fetch_version_via_api()
-    except Exception:
-        # API가 rate limit 등으로 막힌 경우: raw는 최대 몇 분 늦을 수 있다.
-        return _fetch_file("VERSION").decode("utf-8").strip()
-
-
 def _ver_tuple(v: str) -> tuple[int, ...]:
     nums = [int(x) for x in re.findall(r"\d+", v)[:3]]
     while len(nums) < 3:
@@ -130,74 +52,162 @@ def _ver_tuple(v: str) -> tuple[int, ...]:
     return tuple(nums)
 
 
+def _get_json(url: str) -> dict:
+    req = urllib.request.Request(
+        url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _pick_asset(release: dict) -> dict | None:
+    for asset in release.get("assets") or []:
+        if ASSET_PATTERN.match(str(asset.get("name", ""))):
+            return asset
+    return None
+
+
+def _asset_sha256(release: dict, asset: dict) -> str:
+    """GitHub 이 자산마다 계산해 주는 digest("sha256:…"). 없으면 릴리스 본문의 'SHA256: …' 줄."""
+    digest = str(asset.get("digest") or "")
+    if digest.lower().startswith("sha256:"):
+        return digest.split(":", 1)[1].strip().lower()
+    body = str(release.get("body") or "")
+    m = re.search(r"SHA-?256\s*[:=]\s*([0-9a-fA-F]{64})", body)
+    return m.group(1).lower() if m else ""
+
+
+def _release_notes(body: str) -> list[str]:
+    """릴리스 본문에서 '- ' 로 시작하는 줄만 짧게 뽑는다 (화면에 몇 줄 보여 주려고)."""
+    lines = []
+    for raw in str(body or "").splitlines():
+        line = raw.strip()
+        if line.startswith(("- ", "* ")):
+            lines.append(line[2:].strip())
+    return lines[:8]
+
+
 def check_update() -> dict:
     current = local_version()
     try:
-        latest = remote_version()
+        release = _get_json(LATEST_RELEASE_API)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"ok": True, "current": current, "latest": current, "updateAvailable": False,
+                    "message": "아직 올라온 릴리스가 없습니다.", "repo": REPO}
+        if exc.code == 403:
+            return {"ok": False, "current": current, "message": "GitHub 확인 한도에 걸렸습니다. 잠시 뒤 다시 확인해 주세요."}
+        return {"ok": False, "current": current, "message": f"업데이트 확인 실패: HTTP {exc.code}"}
     except Exception as exc:
         return {"ok": False, "current": current, "message": f"업데이트 확인 실패: {exc}"}
-    available = _ver_tuple(latest) > _ver_tuple(current)
+
+    latest = str(release.get("tag_name") or "").lstrip("vV") or current
+    asset = _pick_asset(release)
+    available = _ver_tuple(latest) > _ver_tuple(current) and asset is not None
     return {
         "ok": True,
         "current": current,
         "latest": latest,
         "updateAvailable": available,
+        "title": release.get("name") or f"v{latest}",
+        "notes": _release_notes(release.get("body", "")),
+        "publishedAt": release.get("published_at"),
+        "size": (asset or {}).get("size"),
+        "canInstall": bool(getattr(sys, "frozen", False)) and os.name == "nt",
         "repo": REPO,
     }
 
 
-def apply_update() -> dict:
-    """최신 파일을 '전부' 받은 뒤에만 덮어쓴다. 성공 후 재시작 필요.
+# 내려받기·설치 진행 (화면이 물어 볼 수 있게)
+_job_lock = threading.Lock()
+_job: dict = {"running": False, "stage": "", "done": 0, "total": 0, "message": "", "ok": None}
 
-    한 개라도 못 받으면 아무 파일도 건드리지 않는다.
-    (중간에 끊겨 프론트/백엔드 버전이 어긋나는 상태를 막기 위함)
-    """
-    root = PROJECT_ROOT.resolve()
 
-    # 1단계: 모두 메모리로 내려받는다. 여기서 실패하면 디스크는 그대로다.
-    payloads: list[tuple[Path, str, bytes]] = []
-    for rel in UPDATE_FILES:
-        target = (root / rel).resolve()
-        # 경로 탈출 방지
-        if target != root and root not in target.parents:
-            continue
-        try:
-            payloads.append((target, rel, _fetch_file(rel)))
-        except Exception as exc:
-            return {
-                "ok": False,
-                "updated": [],
-                "failed": [rel],
-                "count": 0,
-                "version": local_version(),
-                "message": f"'{rel}' 을(를) 받지 못해 업데이트를 취소했습니다. 기존 파일은 그대로입니다. ({exc})",
-            }
+def get_update_job() -> dict:
+    with _job_lock:
+        return dict(_job)
 
+
+def _set_job(**values) -> None:
+    with _job_lock:
+        _job.update(values)
+
+
+def _download(url: str, dest: Path, total: int) -> str:
+    """dest 에 받으면서 SHA-256 을 같이 계산해 돌려준다."""
+    host = urlparse(url).hostname or ""
+    if not any(host == h or host.endswith("." + h) for h in ALLOWED_DOWNLOAD_HOSTS):
+        raise RuntimeError(f"허용되지 않은 다운로드 주소입니다: {host}")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/octet-stream"})
+    sha = hashlib.sha256()
+    done = 0
+    with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as out:
+        final_host = urlparse(resp.geturl()).hostname or ""
+        if not any(final_host == h or final_host.endswith("." + h) for h in ALLOWED_DOWNLOAD_HOSTS):
+            raise RuntimeError(f"허용되지 않은 다운로드 주소로 넘어갔습니다: {final_host}")
+        while True:
+            chunk = resp.read(1024 * 256)
+            if not chunk:
+                break
+            out.write(chunk)
+            sha.update(chunk)
+            done += len(chunk)
+            _set_job(done=done, total=total)
+    return sha.hexdigest()
+
+
+def _run_update(on_ready_to_exit) -> None:
     try:
-        latest = remote_version()
-    except Exception:
-        latest = ""
+        _set_job(stage="확인", message="새 버전을 확인하는 중")
+        release = _get_json(LATEST_RELEASE_API)
+        latest = str(release.get("tag_name") or "").lstrip("vV")
+        if _ver_tuple(latest) <= _ver_tuple(local_version()):
+            raise RuntimeError(f"이미 최신입니다 (v{local_version()}).")
+        asset = _pick_asset(release)
+        if not asset:
+            raise RuntimeError("릴리스에 설치 파일이 없습니다.")
+        expected = _asset_sha256(release, asset)
+        if not expected:
+            # 확인할 값이 없으면 받은 파일이 진짜인지 알 수 없다. 설치하지 않는다.
+            raise RuntimeError("설치 파일의 확인값(SHA-256)이 없어 설치하지 않았습니다.")
 
-    # 2단계: 전부 받아둔 뒤에만 기록한다.
-    updated: list[str] = []
-    for target, rel, data in payloads:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        updated.append(rel)
+        folder = Path(tempfile.gettempdir()) / "bungeoppang-update"
+        folder.mkdir(parents=True, exist_ok=True)
+        dest = folder / asset["name"]
+        _set_job(stage="내려받기", message="새 버전을 내려받는 중", total=int(asset.get("size") or 0))
+        actual = _download(asset["browser_download_url"], dest, int(asset.get("size") or 0))
+        if actual != expected:
+            dest.unlink(missing_ok=True)
+            raise RuntimeError("받은 파일이 원본과 달라 설치하지 않았습니다. 다시 시도해 주세요.")
 
-    if latest:
-        try:
-            VERSION_FILE.write_text(latest + "\n", encoding="utf-8")
-        except OSError:
-            pass
+        _set_job(stage="설치", message="설치를 시작합니다. 잠시 뒤 앱이 다시 켜집니다.")
+        # 설치 프로그램이 켜져 있는 앱을 닫고(CloseApplications) 파일을 바꾼 뒤 다시 켠다(/RELAUNCH=1).
+        # 앱과 따로 살아야 하므로 새 프로세스 묶음으로 띄운다.
+        flags = 0
+        if os.name == "nt":
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(
+            [str(dest), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1"],
+            close_fds=True,
+            creationflags=flags,
+        )
+        _set_job(running=False, ok=True, stage="설치")
+        if on_ready_to_exit:
+            on_ready_to_exit()
+    except Exception as exc:
+        _set_job(running=False, ok=False, stage="실패", message=str(exc))
 
-    return {
-        "ok": True,
-        "updated": updated,
-        "failed": [],
-        "count": len(updated),
-        "version": local_version(),
-    }
+
+def apply_update(on_ready_to_exit=None) -> dict:
+    """설치형 앱: 최신 설치 파일을 받아 확인한 뒤 설치를 시작한다(뒤에서 돈다)."""
+    if not (getattr(sys, "frozen", False) and os.name == "nt"):
+        return {"ok": False, "message": "소스로 실행 중이면 git pull 로 받아 주세요. 설치형 앱에서만 자동 업데이트합니다."}
+    with _job_lock:
+        if _job["running"]:
+            return {"ok": False, "busy": True, "message": "이미 업데이트하는 중입니다."}
+        _job.update(running=True, stage="확인", done=0, total=0, message="", ok=None)
+    threading.Thread(target=_run_update, args=(on_ready_to_exit,), name="app-update", daemon=True).start()
+    return {"ok": True, "started": True, "message": "새 버전을 내려받는 중입니다."}
 
 
 if __name__ == "__main__":
