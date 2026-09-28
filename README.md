@@ -15,33 +15,20 @@ DGIST LMS 강의 자료를 찾아 Google Drive에 정리하고, 새 자료 확�
 
 ## 실행
 
-데스크톱 앱 (권장):
+**쓰는 사람은 설치 파일로 설치합니다 (Windows).**
+[Releases](https://github.com/jykim5215/dgist-lms-autosaver/releases/latest)의 Assets에서 `…-setup.exe`를 받아 실행하면 됩니다.
+설치한 앱은 새 버전이 나오면 앱 안에서 업데이트됩니다.
 
-바탕화면의 **DGIST LMS AutoSaver** 바로가기를 더블클릭하면 네이티브 창으로 실행됩니다.
-서버를 따로 띄울 필요가 없고, 이미 실행 중이면 기존 인스턴스에 창만 다시 엽니다.
+> 웹 주소(Render)로 쓰는 방식은 2026-09-29에 멈췄습니다. 무료 서버에서는 LMS 동기화가 계속 실패했고
+> 학교 비밀번호가 서버에 평문으로 남았습니다. 그 주소는 이제 설치 안내만 보여 줍니다(`hosted_notice.py`).
+> `DEPLOYMENT.md`, `GITHUB_DEPLOY.md`는 옛 기록입니다.
 
-```powershell
-# 바로가기가 없을 때 직접 실행
-pythonw app.py
-```
-
-최초 설치:
+개발할 때 (소스에서 실행):
 
 ```powershell
 pip install -r requirements.txt
-python -m playwright install chromium
+pythonw app.py            # 앱 창으로 실행 (LMS용 브라우저는 처음 동기화 때 자동으로 받음)
 ```
-
-브라우저 모드 (선택):
-
-```powershell
-python web_ui.py
-```
-
-운영 배포:
-
-- GitHub + Render 상시 호스팅: [DEPLOYMENT.md](DEPLOYMENT.md)
-- GitHub 기반 배포 방식 비교: [GITHUB_DEPLOY.md](GITHUB_DEPLOY.md)
 
 ## Google API 설정
 
