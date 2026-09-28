@@ -881,7 +881,8 @@ body {
   overflow-wrap: anywhere;
 }
 .tt-block span,
-.tt-block em {
+.tt-block em,
+.tt-block .tt-prof {
   font-size: 9.5px;
   font-style: normal;
   opacity: 0.9;
@@ -7071,8 +7072,7 @@ body.dash-dragging-now * { cursor: grabbing !important; }
   /* 흑백 지도라 테마 색에 맞춰 은은하게 */
   opacity: 0.5;
 }
-[data-theme="dark"] .wm-img,
-[data-theme="navy"] .wm-img { filter: invert(1); opacity: 0.28; }
+[data-theme="dark"] .wm-img { filter: invert(1); opacity: 0.28; }
 
 /* 핀의 기준점 = 점의 한가운데.
    예전에는 '점 + 이름표' 덩어리 전체의 가운데를 좌표에 맞췄다. 이름표는 평소
@@ -7190,40 +7190,26 @@ body.dash-dragging-now * { cursor: grabbing !important; }
 }
 
 /* ===== 남색 테마 =====
-   다크보다 파랗고 차분하게. 강조색은 남색 위에서 살아나도록 살구빛으로 올린다. */
+   예전에는 남색 바탕의 어두운 테마였는데(다크와 겹쳤다), 사용자가 고른 '잉크 남색'으로 바꿨다.
+   밝은 바탕은 기본과 같게 두되 살짝 차가운 종이색으로, 강조색만 남색이다. */
 [data-theme="navy"] {
-  --bg: #172033;
-  --bg-deep: #111827;
-  --surface: #1e293f;
-  --surface-soft: #26324c;
-  --border: #2e3b57;
-  --border-strong: #405072;
-  /* 남색 위에서는 글자를 파랗게 두면 가라앉는다. 흰색 계열로 올린다. */
-  --text: #f7fafd;
-  --text-soft: #d2dbea;
-  --text-faint: #a6b3cb;
-  --accent: #e08a63;
-  --accent-strong: #f0a582;
-  --accent-soft: #33303c;
-  --green: #7fbfa0;
-  --green-soft: #1e3630;
-  --amber: #d9b063;
-  --amber-soft: #38321f;
-  --violet: #bca6f4;
-  --violet-soft: #2e2a4a;
-  --red: #e28b8b;
-  --red-soft: #40262c;
-  --blue: #8fb4e8;
-  --blue-soft: #223350;
-  --bp-bg: #eef2fb;
-  --bp-body: #f3bc55;
-  --bp-hi: #ffd98a;
-  --bp-line: #16203a;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px -8px rgba(0, 0, 0, 0.5);
+  --bg: #f6f8fb;
+  --bg-deep: #eceff5;
+  --surface: #ffffff;
+  --surface-soft: #f3f5f9;
+  --border: #dfe4ec;
+  --border-strong: #c7cfdc;
+  --text: #1b2130;
+  --text-soft: #4f5a6e;
+  --text-faint: #8490a3;
+  --accent: #3e63a6;
+  --accent-strong: #2d4c85;
+  --accent-soft: #e6ecf6;
+  /* 정보 파랑이 강조 남색과 겹치지 않게 청록 쪽으로 비킨다 */
+  --blue: #3f7f8c;
+  --blue-soft: #e3f0f1;
+  --shadow: 0 1px 2px rgba(27, 33, 48, 0.05), 0 8px 24px -10px rgba(27, 33, 48, 0.12);
 }
-[data-theme="navy"] .toast { background: #eef2fb; color: #111827; }
-[data-theme="navy"] .topbar { background: rgba(23, 32, 51, 0.92); }
-[data-theme="navy"] .check-item.ready .check-icon { background: var(--surface); }
 
 /* ===== 테마 넘기기 단추 ===== */
 .theme-flip {
@@ -9112,3 +9098,123 @@ body.tour-open { overflow: hidden; }
 @keyframes buddy-bob {
   50% { transform: scaleX(var(--face, 1)) translateY(-5px); }
 }
+
+/* ===== 화면 전환: 깜빡임 없는 겹침 전환 (2026-09-28) =====
+   예전에는 옛 화면을 0.12초 만에 완전히 지운 뒤 0.1초 늦게 새 화면을 들여서, 그 사이 화면이
+   한 번 비었다가 채워졌다 — 사용자가 '깜빡거려 눈이 피곤하다' 고 했다.
+   이제 옛 화면과 새 화면을 같은 시간에 겹쳐 바꾼다. plus-lighter 로 섞으면 두 화면에 똑같이 있는
+   부분(배경·카드 틀)은 밝기가 그대로 유지되고, 달라지는 글자만 서서히 바뀐다. 새 화면은 4px 만 떠오른다. */
+::view-transition-image-pair(appview),
+::view-transition-image-pair(sidebar),
+::view-transition-image-pair(topbar) {
+  isolation: isolate;
+}
+::view-transition-old(appview),
+::view-transition-new(appview),
+::view-transition-old(sidebar),
+::view-transition-new(sidebar),
+::view-transition-old(topbar),
+::view-transition-new(topbar) {
+  mix-blend-mode: plus-lighter;
+}
+::view-transition-old(appview),
+::view-transition-old(sidebar),
+::view-transition-old(topbar) {
+  animation: vt-soft-out 0.26s ease both;
+}
+::view-transition-new(appview) {
+  animation: vt-soft-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+::view-transition-new(sidebar),
+::view-transition-new(topbar) {
+  animation: vt-soft-fade 0.26s ease both;
+}
+@keyframes vt-soft-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes vt-soft-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes vt-soft-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+}
+
+/* 메일함 ↔ 다른 화면: 사이드바가 232px↔72px 로 바뀌고 상단 막대가 생기고 사라져 움직임이 컸다
+   ('느리고 눈이 피곤하다'). 이때만 0.15초, 미끄러짐·크기 변화 없이 제자리에서 바꾼다. */
+html.vt-quick::view-transition-group(*) { animation-duration: 0s; }
+html.vt-quick::view-transition-old(appview),
+html.vt-quick::view-transition-old(sidebar),
+html.vt-quick::view-transition-old(topbar) { animation: vt-soft-out 0.15s ease both; }
+html.vt-quick::view-transition-new(appview),
+html.vt-quick::view-transition-new(sidebar),
+html.vt-quick::view-transition-new(topbar) { animation: vt-soft-fade 0.15s ease both; }
+
+/* ===== 앱 안 업데이트 카드 =====
+   예전에는 위쪽 얇은 진행 막대 + Inno 설치 창(회색 윈도우 창)이 떠서 앱과 따로 놀았다.
+   이제 달구가 있는 카드 하나로 끝까지 보여 주고, 설치 창은 띄우지 않는다. */
+.update-dialog {
+  width: min(380px, calc(100vw - 32px));
+  padding: 26px 26px 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 60px -20px rgba(31, 30, 29, 0.35);
+  text-align: center;
+}
+.update-dialog::backdrop { background: rgba(31, 30, 29, 0.42); }
+.update-buddy { width: 96px; height: 96px; object-fit: contain; display: block; margin: -4px auto 6px; }
+.update-dialog.working .update-buddy { animation: update-bob 0.9s ease-in-out infinite; }
+@keyframes update-bob { 50% { transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .update-dialog.working .update-buddy { animation: none; } }
+.update-dialog h2 { margin: 0; font-family: var(--font-serif); font-size: 20px; font-weight: 600; }
+.update-versions { margin: 4px 0 16px; font-size: 12.5px; color: var(--text-faint); }
+.update-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.update-steps li { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-faint); }
+.update-steps li em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--text-soft); }
+.update-step-dot {
+  width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  display: grid; place-items: center;
+}
+.update-steps li.active { color: var(--text); font-weight: 600; }
+.update-steps li.active .update-step-dot { border-color: var(--accent); border-top-color: transparent; animation: update-spin 0.8s linear infinite; }
+.update-steps li.done { color: var(--text-soft); }
+.update-steps li.done .update-step-dot { border-color: var(--green); background: var(--green); }
+.update-steps li.done .update-step-dot::after { content: ""; width: 5px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.update-steps li.failed { color: var(--red); font-weight: 600; }
+.update-steps li.failed .update-step-dot { border-color: var(--red); }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+.update-bar { height: 6px; border-radius: 999px; background: var(--bg-deep); overflow: hidden; }
+.update-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width 0.3s ease; }
+.update-dialog.failed .update-bar span { background: var(--red); }
+.update-note { margin: 12px 0 0; font-size: 12px; color: var(--text-faint); line-height: 1.5; }
+.update-dialog.failed .update-note { color: var(--red); }
+.update-actions { margin-top: 14px; display: flex; justify-content: center; }
+
+/* 업데이트를 마친 뒤 '업데이트 내용' 창 맨 위 카드 */
+.wn-updated {
+  display: flex; align-items: center; gap: 14px;
+  margin: 6px 0 4px; padding: 14px 16px;
+  border-radius: 14px; background: var(--green-soft);
+}
+.wn-updated img { width: 56px; height: 56px; object-fit: contain; flex: none; }
+.wn-updated strong { display: block; font-family: var(--font-serif); font-size: 16px; font-weight: 600; color: var(--text); }
+.wn-updated span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-soft); }

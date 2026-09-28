@@ -160,6 +160,184 @@ async function api(path, options = {}) {
   return data;
 }
 
+/* ===== 영어 화면 (i18n) =====
+   외국인 학생도 쓸 수 있게 화면을 영어로 보여 준다.
+   문구가 app.js·index.html·web_ui.py 에 1,100개 넘게 흩어져 있어 하나하나 바꾸지 않고,
+   화면에 그려진 글자를 번역표(web/i18n/en.json)로 바꿔 보여 준다.
+     - 표에 정확히 있는 문구만 바꾼다. 메일 제목·과목명·파일명 같은 자료는 그대로 둔다.
+     - '{0}개 골랐어요' 처럼 숫자·이름이 끼는 문구는 틀로 맞춘다({0} 자리는 그대로 옮긴다).
+     - 새로 그려지는 글자는 MutationObserver 가 따라가며 바꾼다. 글자를 바꾸면 한글이 없어지므로 다시 걸리지 않는다.
+   빠진 문구 찾기: python scripts/i18n_extract.py */
+const I18N = { lang: "ko", exact: new Map(), patterns: [], observer: null };
+const HANGUL_RE = /[가-힣]/;
+const I18N_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const I18N_DATE_MAP = { "(월)": "(Mon)", "(화)": "(Tue)", "(수)": "(Wed)", "(목)": "(Thu)", "(금)": "(Fri)", "(토)": "(Sat)", "(일)": "(Sun)" };
+const I18N_DATE_RE = /\((월|화|수|목|금|토|일)\)/g;
+const I18N_ATTRS = ["placeholder", "title", "aria-label", "data-hint", "alt"];
+
+function i18nCompile(table) {
+  I18N.exact.clear();
+  I18N.patterns = [];
+  const esc = (s) => s.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
+  Object.entries(table || {}).forEach(([ko, en]) => {
+    if (typeof en !== "string" || !en) return;
+    if (/\{\d+\}/.test(ko)) {
+      // '{0}' '{0} · {1}' 처럼 한글이 없는 틀은 모든 문장을 잡아먹는다 (실제로 그랬다). 건너뛴다.
+      if (!HANGUL_RE.test(ko.replace(/\{\d+\}/g, ""))) return;
+      const parts = ko.split(/(\{\d+\})/);
+      const order = [];
+      const source = parts
+        .map((part) => {
+          const m = part.match(/^\{(\d+)\}$/);
+          if (!m) return esc(part).replace(/\\\{/g, "{").replace(/[{}]/g, "\\$&");
+          order.push(Number(m[1]));
+          return "([\\s\\S]*?)";
+        })
+        .join("");
+      const fixed = (ko.replace(/\{\d+\}/g, "").match(/[가-힣]/g) || []).length;
+      // 고정 한글이 두 글자 이하인 틀('{0}개', '{0} 시작')은 사용자 글(메일 제목 등)에도 걸리기 쉽다.
+      // 이런 틀은 빈자리 글자까지 모두 영어가 될 때만 쓴다 (weak).
+      I18N.patterns.push({ re: new RegExp(`^${source}$`), en, order, weight: ko.replace(/\{\d+\}/g, "").length, weak: fixed <= 2 });
+    } else {
+      I18N.exact.set(ko, en);
+    }
+  });
+  // 글자가 많이 고정된 틀부터 (짧은 틀이 긴 문구를 먼저 삼키지 않게)
+  I18N.patterns.sort((a, b) => b.weight - a.weight);
+}
+
+function tr(text, depth = 0) {
+  if (I18N.lang !== "en" || text == null) return text;
+  const s = String(text);
+  if (!HANGUL_RE.test(s) || depth > 2) return s;
+  const core = s.replace(/\s+/g, " ").trim();
+  let out = I18N.exact.get(core);
+  if (out == null) {
+    for (const p of I18N.patterns) {
+      const m = core.match(p.re);
+      if (!m) continue;
+      const groups = p.order.map((_, at) => tr(m[at + 1], depth + 1));
+      if (p.weak && groups.some((g) => HANGUL_RE.test(g))) continue;
+      // 빈자리가 ' · ' 로 이어진 여러 마디를 삼켰으면 이 틀이 아니다 → 아래에서 마디별로 옮긴다
+      if (groups.some((g) => HANGUL_RE.test(g) && / [·—|] /.test(g))) continue;
+      out = p.en.replace(/\{(\d+)\}/g, (_, i) => {
+        const at = p.order.indexOf(Number(i));
+        return at < 0 ? "" : groups[at];
+      });
+      break;
+    }
+  }
+  // '오늘은 남은 수업이 없어요 · 안 읽은 메일 25통' 처럼 여러 문구를 이어 붙인 줄은 마디마다 옮긴다
+  if (out == null && depth === 0 && / [·—|] /.test(core)) {
+    const parts = core.split(/( [·—|] )/);
+    const moved = parts.map((part, i) => (i % 2 ? part : tr(part, depth + 1)));
+    if (moved.some((part, i) => part !== parts[i])) out = moved.join("");
+  }
+  // 날짜·시각 조각('9/7 (월) 23:59', '오후 4:18', '2026년 9월')은 규칙으로 바꾼다.
+  // 다 바꿔서 한글이 하나도 안 남을 때만 쓴다 (메일 제목 같은 글은 건드리지 않게)
+  if (out == null && depth === 0) {
+    const moved = core.replace(I18N_DATE_RE, (m) => I18N_DATE_MAP[m] || m)
+      .replace(/(오전|오후) (\d{1,2}):(\d{2})/g, (_, ap, h, mm) => `${h}:${mm} ${ap === "오전" ? "AM" : "PM"}`)
+      .replace(/(\d{4})년 (\d{1,2})월/g, (_, y, mo) => `${I18N_MONTHS[Number(mo) - 1] || mo} ${y}`);
+    if (moved !== core && !HANGUL_RE.test(moved)) out = moved;
+  }
+  if (out == null) return s;
+  const lead = s.match(/^\s*/)[0];
+  const trail = s.match(/\s*$/)[0];
+  return lead + out + trail;
+}
+
+function i18nSkip(node) {
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  return !el || !!el.closest("script, style, textarea, [contenteditable], [data-no-i18n]");
+}
+
+function i18nTranslateTree(root) {
+  if (I18N.lang !== "en" || !root) return;
+  if (root.nodeType === 3) {
+    if (!i18nSkip(root)) {
+      const next = tr(root.nodeValue);
+      if (next !== root.nodeValue) root.nodeValue = next;
+    }
+    return;
+  }
+  if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!HANGUL_RE.test(n.nodeValue) || i18nSkip(n)) continue;
+    const next = tr(n.nodeValue);
+    if (next !== n.nodeValue) n.nodeValue = next;
+  }
+  const els = root.nodeType === 1 ? [root, ...root.querySelectorAll("*")] : [...root.querySelectorAll("*")];
+  els.forEach((el) => {
+    I18N_ATTRS.forEach((name) => {
+      const v = el.getAttribute(name);
+      if (v && HANGUL_RE.test(v) && !i18nSkip(el)) {
+        const next = tr(v);
+        if (next !== v) el.setAttribute(name, next);
+      }
+    });
+    // 입력칸에 미리 들어간 값(버튼 input 등)
+    if (el.tagName === "INPUT" && (el.type === "button" || el.type === "submit") && HANGUL_RE.test(el.value)) {
+      el.value = tr(el.value);
+    }
+  });
+}
+
+function i18nStartObserver() {
+  if (I18N.observer || !document.body) return;
+  I18N.observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type === "characterData") i18nTranslateTree(m.target);
+      else if (m.type === "attributes") {
+        // 표에 없는 한글(과목명 등)을 같은 값으로 다시 쓰면 그 쓰기가 또 감지돼 끝없이 돈다 (실제로 화면이 멈췄다)
+        const v = m.target.getAttribute(m.attributeName);
+        if (v && HANGUL_RE.test(v) && !i18nSkip(m.target)) {
+          const next = tr(v);
+          if (next !== v) m.target.setAttribute(m.attributeName, next);
+        }
+      } else m.addedNodes.forEach((n) => i18nTranslateTree(n));
+    }
+  });
+  I18N.observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: I18N_ATTRS,
+  });
+}
+
+/** 저장된 언어 → 없으면 윈도우 언어 (한국어가 아니면 영어) */
+async function initLanguage(pref) {
+  const lang = pref === "ko" || pref === "en" ? pref : /^ko/i.test(navigator.language || "") ? "ko" : "en";
+  I18N.lang = lang;
+  document.documentElement.lang = lang;
+  if (lang !== "en") return;
+  try {
+    const res = await fetch("/i18n/en.json", { cache: "no-store" });
+    i18nCompile(await res.json());
+  } catch (error) {
+    I18N.lang = "ko";
+    document.documentElement.lang = "ko";
+    return;
+  }
+  document.title = tr(document.title);
+  i18nTranslateTree(document.body);
+  i18nStartObserver();
+}
+
+// 알림창·확인창도 같은 표로 바꾼다 (문구가 여러 줄이면 줄마다)
+(function wrapDialogs() {
+  const trLines = (msg) => String(msg ?? "").split("\n").map((line) => tr(line)).join("\n");
+  const confirm0 = window.confirm.bind(window);
+  const alert0 = window.alert.bind(window);
+  const prompt0 = window.prompt.bind(window);
+  window.confirm = (msg) => confirm0(trLines(msg));
+  window.alert = (msg) => alert0(trLines(msg));
+  window.prompt = (msg, def) => prompt0(trLines(msg), def);
+})();
+
 function showToast(message) {
   const toast = $("#toast");
   if (!toast) return;
@@ -265,7 +443,11 @@ function switchView(view) {
     done = true;
     applyView(view);
   };
+  // 메일함을 오갈 때는 사이드바 폭·상단 막대가 함께 바뀌어 움직임이 크다. 빠르고(0.15초) 움직임 없는 전환으로.
+  const mailSwitch = [state.view, view].some((v) => v === "emails" || v === "compose");
+  document.documentElement.classList.toggle("vt-quick", mailSwitch);
   const transition = document.startViewTransition(apply);
+  transition.finished.finally(() => document.documentElement.classList.remove("vt-quick"));
   transition.finished.catch(() => {});
   transition.updateCallbackDone.catch(() => {});
   window.setTimeout(apply, 150);
@@ -4645,6 +4827,8 @@ async function populateSettings() {
   state.interestTags = new Set(state.config?.interestTags || []);
   form.elements.interestsCustom.value = state.config?.interestsCustom || "";
   form.elements.hidePastEmails.checked = Boolean(state.config?.hidePastEmails);
+  if (form.elements.notifyDeadlines) form.elements.notifyDeadlines.checked = state.config?.notifyDeadlines !== false;
+  if (form.elements.notifyNewFiles) form.elements.notifyNewFiles.checked = state.config?.notifyNewFiles !== false;
   // 구글 캘린더 동기화 (체크박스라 value 대입으로는 반영되지 않음)
   form.elements.gcalSyncEnabled.checked = Boolean(state.config?.gcalSyncEnabled);
   form.elements.gcalCalendarName.value = state.config?.gcalCalendarName || "DGIST 메일 일정";
@@ -5826,6 +6010,8 @@ function bindEvents() {
     const payload = Object.fromEntries(formData.entries());
     payload.interestTags = [...state.interestTags];
     payload.hidePastEmails = event.currentTarget.elements.hidePastEmails.checked;
+    payload.notifyDeadlines = event.currentTarget.elements.notifyDeadlines?.checked !== false;
+    payload.notifyNewFiles = event.currentTarget.elements.notifyNewFiles?.checked !== false;
     payload.gcalSyncEnabled = event.currentTarget.elements.gcalSyncEnabled.checked;
     payload.driveUpload = event.currentTarget.elements.driveUpload.checked;
     Object.assign(payload, savePlacePayload());
@@ -5864,7 +6050,7 @@ const THEMES = [
   { key: "auto", label: "자동", icon: "monitor" },
   { key: "claude", label: "기본", icon: "sparkle" },
   { key: "light", label: "화이트", icon: "sun" },
-  { key: "navy", label: "남색", icon: "moonStar" },
+  { key: "navy", label: "남색", icon: "star" },
   { key: "dark", label: "다크", icon: "moon" },
 ];
 
@@ -5957,8 +6143,10 @@ function initTheme() {
   api("/api/ui-prefs")
     .then((prefs) => {
       if (prefs?.theme && prefs.theme !== state.themeChoice) applyTheme(prefs.theme, { save: false });
+      initLanguage(prefs?.lang);
+      paintLanguageChoice(prefs?.lang);
     })
-    .catch(() => {});
+    .catch(() => initLanguage(null));
 }
 
 /* ===== 학교 사이트 바로가기 =====
@@ -6426,6 +6614,7 @@ function renderTimetable() {
             <strong>${escapeHtml(e.title)}</strong>
             ${e.room ? `<span>${escapeHtml(shortText(e.room, 14))}</span>` : ""}
             <em>${escapeHtml(e.start)}~${escapeHtml(e.end)}</em>
+            ${e.professor ? `<small class="tt-prof">${escapeHtml(e.professor)}</small>` : ""}
           </button>`;
       })
       .join("");
@@ -9139,7 +9328,8 @@ const MAIL_PAPER = "#f7f5ef";
 
 function mailOnPaper() {
   const theme = document.documentElement.dataset.theme || "";
-  return theme === "dark" || theme === "navy";
+  // 남색 테마는 밝은 테마가 되었다 (예전엔 어두운 남색 바탕)
+  return theme === "dark";
 }
 
 function blendMailBackground(frame) {
@@ -9207,6 +9397,7 @@ async function loadWhatsNew() {
     return;
   }
   renderWhatsNewButton();
+  if (state.whatsNew?.justUpdated) window.setTimeout(openWhatsNew, 600);
 }
 
 function renderWhatsNewButton() {
@@ -9243,12 +9434,23 @@ async function openWhatsNew() {
   const info = state.whatsNew;
   const dialog = $("#whatsNewDialog");
   if (!info || !dialog) return;
-  $("#whatsNewBody").innerHTML = info.entries.map((entry, i) => whatsNewEntryHtml(entry, i === 0)).join("");
+  const just = info.justUpdated;
+  const done = just
+    ? `<div class="wn-updated">
+         <img src="/img/dalgu/yay.png" alt="" />
+         <div>
+           <strong>업데이트를 마쳤어요</strong>
+           <span>v${escapeHtml(just.from || "")} → v${escapeHtml(just.to || info.version)} · 아래에서 바뀐 점을 볼 수 있어요</span>
+         </div>
+       </div>`
+    : "";
+  $("#whatsNewBody").innerHTML = done + info.entries.map((entry, i) => whatsNewEntryHtml(entry, i === 0)).join("");
   installIcons(dialog);
   if (typeof dialog.showModal === "function") dialog.showModal();
   else dialog.setAttribute("open", "");
-  if (info.seen !== info.version) {
+  if (info.seen !== info.version || info.justUpdated) {
     info.seen = info.version;
+    info.justUpdated = null;
     renderWhatsNewButton();
     api("/api/whats-new/seen", { method: "POST", body: JSON.stringify({ version: info.version }) }).catch(() => {});
   }
@@ -10462,43 +10664,77 @@ async function checkForUpdate(manual = false) {
   }
 }
 
+/* 업데이트 카드: 단계(확인 → 내려받기 → 파일 확인 → 설치)를 차례로 켠다 */
+const UPDATE_STEPS = ["확인", "내려받기", "검사", "설치"];
+
+function setUpdateStep(stage, { percent = null, failed = false, note = "" } = {}) {
+  const dialog = $("#updateDialog");
+  if (!dialog) return;
+  const at = UPDATE_STEPS.indexOf(stage);
+  dialog.querySelectorAll("#updateSteps li").forEach((li, i) => {
+    li.classList.toggle("done", !failed ? i < at : i < at);
+    li.classList.toggle("active", !failed && i === at);
+    li.classList.toggle("failed", failed && i === at);
+  });
+  const pct = $("#updatePercent");
+  if (pct) pct.textContent = stage === "내려받기" && percent != null ? `${percent}%` : "";
+  // 막대: 단계마다 몫을 나눠 준다 (받기가 가장 길다)
+  const base = { 확인: 4, 내려받기: 8, 검사: 86, 설치: 92 }[stage] ?? 0;
+  const width = stage === "내려받기" && percent != null ? 8 + percent * 0.78 : base;
+  $("#updateBarFill").style.width = `${failed ? 100 : width}%`;
+  dialog.classList.toggle("failed", failed);
+  dialog.classList.toggle("working", !failed);
+  if (note) $("#updateNote").textContent = note;
+  $("#updateActions").hidden = !failed;
+  $("#updateBuddy").src = failed ? "/img/dalgu/shy.png" : stage === "설치" ? "/img/dalgu/cheer.png" : "/img/dalgu/run.png";
+}
+
 async function startAppUpdate() {
   const d = state.update;
   if (!d?.updateAvailable) return;
   if (!window.confirm(`v${d.latest} 으로 업데이트할까요?\n\n받아서 설치하는 동안 앱이 잠깐 꺼졌다가 다시 켜집니다.`)) return;
-  const status = $("#updateStatus");
+  const dialog = $("#updateDialog");
   const apply = $("#applyUpdateButton");
   if (apply) apply.disabled = true;
+  $("#updateVersions").textContent = `v${d.current} → v${d.latest}`;
+  $("#updateDialogTitle").textContent = "새 버전으로 바꾸는 중";
+  setUpdateStep("확인", { note: "잠깐 꺼졌다가 저절로 다시 켜져요. 그대로 두세요." });
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
   try {
     const res = await api("/api/update/apply", { method: "POST", body: "{}" });
     if (!res.ok) throw new Error(res.message || "업데이트를 시작하지 못했어요");
-    showTopProgress("새 버전을 내려받는 중", 5);
     for (;;) {
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
       let job;
       try {
         job = await api("/api/update/job");
       } catch (error) {
         // 설치 프로그램이 앱을 끄면 여기로 온다. 곧 새 버전으로 다시 켜진다.
-        finishTopProgress("설치 중 · 곧 다시 켜져요");
-        if (status) status.textContent = "설치 중이에요. 잠시 뒤 앱이 다시 켜집니다.";
+        setUpdateStep("설치", { note: "설치하는 중이에요. 곧 새 버전으로 다시 켜져요." });
         return;
       }
-      if (job.total) showTopProgress("새 버전을 내려받는 중", Math.min(95, Math.round((job.done / job.total) * 95)));
-      if (status && job.message) status.textContent = job.message;
-      if (job.running) continue;
-      if (job.ok === false) throw new Error(job.message || "업데이트하지 못했어요");
-      finishTopProgress("설치를 시작했어요 · 곧 다시 켜져요");
-      if (status) status.textContent = "설치 중이에요. 잠시 뒤 앱이 다시 켜집니다.";
-      return;
+      if (job.ok === false) throw Object.assign(new Error(job.message || "업데이트하지 못했어요"), { stage: job.stage });
+      const percent = job.total ? Math.min(100, Math.round((job.done / job.total) * 100)) : null;
+      setUpdateStep(job.stage || "확인", { percent });
+      if (!job.running && job.ok) {
+        setUpdateStep("설치", { note: "설치하는 중이에요. 곧 새 버전으로 다시 켜져요." });
+        return;
+      }
     }
   } catch (error) {
-    hideTopProgress();
-    if (status) status.textContent = error.message;
-    showToast(error.message);
+    const stage = UPDATE_STEPS.includes(error.stage) ? error.stage : "확인";
+    $("#updateDialogTitle").textContent = "업데이트하지 못했어요";
+    setUpdateStep(stage === "실패" ? "확인" : stage, { failed: true, note: error.message });
     if (apply) apply.disabled = false;
   }
 }
+
+$("#updateDialogClose")?.addEventListener("click", () => $("#updateDialog")?.close());
+// 받는 중에 Esc 로 닫히면 진행이 안 보인다. 실패했을 때만 닫을 수 있다.
+$("#updateDialog")?.addEventListener("cancel", (event) => {
+  if (!$("#updateDialog").classList.contains("failed")) event.preventDefault();
+});
 
 $("#checkUpdateButton")?.addEventListener("click", () => checkForUpdate(true));
 $("#applyUpdateButton")?.addEventListener("click", startAppUpdate);
@@ -10509,3 +10745,40 @@ $("#updateReadyButton")?.addEventListener("click", () => {
 });
 window.setTimeout(() => checkForUpdate(false), 4000);
 window.setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000);
+
+/* 알림 스위치는 누르는 즉시 저장한다 ('설정 저장' 을 안 눌러 도로 꺼지는 일이 없게) */
+["notifyDeadlines", "notifyNewFiles"].forEach((name) => {
+  $(`#${name}`)?.addEventListener("change", async (event) => {
+    const on = event.target.checked;
+    try {
+      await api("/api/config", { method: "POST", body: JSON.stringify({ [name]: on }) });
+      if (state.config) state.config[name] = on;
+      showToast(`${name === "notifyDeadlines" ? "마감 알림" : "새 자료 알림"}을 ${on ? "켰어요" : "껐어요"}`);
+    } catch (error) {
+      event.target.checked = !on;
+      showToast(humanError(error));
+    }
+  });
+});
+
+
+/* ===== 언어 고르기 (설정 > 앱) =====
+   영어 ↔ 한국어를 오가면 이미 바꿔 그린 글자를 되돌릴 수 없어서, 저장하고 화면을 다시 불러온다. */
+function paintLanguageChoice(pref) {
+  const lang = pref === "ko" || pref === "en" ? pref : I18N.lang;
+  document.querySelectorAll("input[name=uiLang]").forEach((input) => {
+    input.checked = input.value === lang;
+  });
+}
+
+document.getElementById("langRow")?.addEventListener("change", async (event) => {
+  const lang = event.target?.value;
+  if (lang !== "ko" && lang !== "en") return;
+  try {
+    await api("/api/ui-prefs", { method: "POST", body: JSON.stringify({ lang }) });
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+  window.location.reload();
+});

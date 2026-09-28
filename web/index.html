@@ -139,6 +139,24 @@
         <div class="whats-new-body" id="whatsNewBody"></div>
       </dialog>
 
+      <!-- 앱 안 업데이트: 받기부터 설치까지 이 카드 하나로 보여 준다 (설치 창은 띄우지 않는다) -->
+      <dialog class="update-dialog" id="updateDialog" aria-labelledby="updateDialogTitle">
+        <img class="update-buddy" id="updateBuddy" src="/img/dalgu/run.png" alt="" />
+        <h2 id="updateDialogTitle">새 버전으로 바꾸는 중</h2>
+        <p class="update-versions" id="updateVersions">v1.0.0 → v1.0.1</p>
+        <ol class="update-steps" id="updateSteps">
+          <li data-step="확인"><span class="update-step-dot"></span>새 버전 확인</li>
+          <li data-step="내려받기"><span class="update-step-dot"></span>내려받기 <em id="updatePercent"></em></li>
+          <li data-step="검사"><span class="update-step-dot"></span>받은 파일 확인</li>
+          <li data-step="설치"><span class="update-step-dot"></span>설치하고 다시 켜기</li>
+        </ol>
+        <div class="update-bar"><span id="updateBarFill"></span></div>
+        <p class="update-note" id="updateNote">잠깐 꺼졌다가 저절로 다시 켜져요. 그대로 두세요.</p>
+        <div class="update-actions" id="updateActions" hidden>
+          <button type="button" class="button compact" id="updateDialogClose">닫기</button>
+        </div>
+      </dialog>
+
       <main class="main">
         <header class="topbar">
           <div class="search-wrap">
@@ -1403,6 +1421,21 @@
                 </span>
                 <input name="scheduleTime" type="time" aria-label="매일 전체 확인 시각" />
               </label>
+              <!-- 알림: 누르는 즉시 저장된다 -->
+              <label class="st-auto-item">
+                <span class="icon" data-icon="clock"></span>
+                <span class="st-auto-label">마감 알림
+                  <button type="button" class="hint" data-hint="안 낸 과제를 마감 하루·3시간·1시간 전에 Windows 알림으로 알려 줍니다.">?</button>
+                </span>
+                <span class="toggle"><input type="checkbox" name="notifyDeadlines" id="notifyDeadlines" /><span class="track"></span></span>
+              </label>
+              <label class="st-auto-item">
+                <span class="icon" data-icon="file"></span>
+                <span class="st-auto-label">새 자료 알림
+                  <button type="button" class="hint" data-hint="LMS에 새 강의자료가 올라오거나 고쳐 다시 올라오면 알려 줍니다.">?</button>
+                </span>
+                <span class="toggle"><input type="checkbox" name="notifyNewFiles" id="notifyNewFiles" /><span class="track"></span></span>
+              </label>
             </div>
           </section>
 
@@ -1500,6 +1533,17 @@
             </header>
             <span id="aboutVersion" hidden></span>
             <div class="st-list">
+              <!-- 화면 언어: 외국인 학생용 영어 화면 (app.js 의 i18n 부분). 'Language' 는 영어 화면에서도 알아보게 같이 적는다 -->
+              <div class="st-list-row" id="langRow">
+                <div>
+                  <strong>언어 · Language</strong>
+                  <span>메일·과목 이름 같은 자료는 원래 글자 그대로 보여요.</span>
+                </div>
+                <div class="st-seg" role="radiogroup" aria-label="Language">
+                  <label><input type="radio" name="uiLang" value="ko" /><span data-no-i18n>한국어</span></label>
+                  <label><input type="radio" name="uiLang" value="en" /><span>English</span></label>
+                </div>
+              </div>
               <!-- 새 버전: GitHub 릴리스에서 확인하고, 누르면 받아 조용히 설치한 뒤 다시 켠다 (updater.py) -->
               <div class="st-list-row" id="updateRow">
                 <div>

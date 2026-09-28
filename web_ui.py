@@ -380,6 +380,11 @@ def write_config(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str,
     )
     if "hidePastEmails" in payload:
         values["EMAIL_HIDE_PAST"] = bool(payload.get("hidePastEmails"))
+    # 알림 스위치 (기본은 켜짐)
+    if "notifyDeadlines" in payload:
+        values["NOTIFY_DEADLINES"] = bool(payload.get("notifyDeadlines"))
+    if "notifyNewFiles" in payload:
+        values["NOTIFY_NEW_FILES"] = bool(payload.get("notifyNewFiles"))
     else:
         values["EMAIL_HIDE_PAST"] = bool(existing.get("EMAIL_HIDE_PAST", False))
 
@@ -2769,10 +2774,15 @@ def get_whats_new(workspace: UserWorkspace) -> dict[str, Any]:
 
     entries = read_seed("changelog.json").get("entries") or []
     seen = read_json(workspace.root / "whats_new.json", {})
+    version = updater.local_version()
+    # 앱 안 '지금 업데이트' 로 방금 바뀌었으면 화면이 '업데이트를 마쳤어요' 카드를 띄운다
+    marker = read_json(updater.update_marker_path(), {})
+    just = marker if isinstance(marker, dict) and str(marker.get("to", "")) == version else None
     return {
-        "version": updater.local_version(),
+        "version": version,
         "seen": str((seen or {}).get("seen", "")) if isinstance(seen, dict) else "",
         "entries": entries,
+        "justUpdated": just,
     }
 
 
@@ -2784,19 +2794,31 @@ def get_ui_prefs(workspace: UserWorkspace) -> dict[str, Any]:
     data = read_json(workspace.root / "ui_prefs.json", {})
     data = data if isinstance(data, dict) else {}
     theme = data.get("theme")
-    return {"theme": theme if theme in UI_THEMES else None}
+    lang = data.get("lang")
+    return {"theme": theme if theme in UI_THEMES else None, "lang": lang if lang in UI_LANGS else None}
+
+
+# 화면 언어. None 이면 화면이 윈도우 언어를 보고 고른다 (한국어가 아니면 영어)
+UI_LANGS = ("ko", "en")
 
 
 def save_ui_prefs(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str, Any]:
-    theme = str(payload.get("theme") or "")
-    if theme not in UI_THEMES:
-        raise ValueError("알 수 없는 테마입니다.")
+    """테마·언어 중 보낸 것만 바꾼다."""
     data = read_json(workspace.root / "ui_prefs.json", {})
     data = data if isinstance(data, dict) else {}
-    data["theme"] = theme
+    if "theme" in payload:
+        theme = str(payload.get("theme") or "")
+        if theme not in UI_THEMES:
+            raise ValueError("알 수 없는 테마입니다.")
+        data["theme"] = theme
+    if "lang" in payload:
+        lang = str(payload.get("lang") or "")
+        if lang not in UI_LANGS:
+            raise ValueError("알 수 없는 언어입니다.")
+        data["lang"] = lang
     workspace.root.mkdir(parents=True, exist_ok=True)
     atomic_write_text(workspace.root / "ui_prefs.json", json.dumps(data, ensure_ascii=False))
-    return {"ok": True, "theme": theme}
+    return {"ok": True, **{k: data.get(k) for k in ("theme", "lang")}}
 
 
 def get_tutorial_state(workspace: UserWorkspace) -> dict[str, Any]:
@@ -2835,6 +2857,12 @@ def mark_tutorial_done(workspace: UserWorkspace, payload: dict[str, Any]) -> dic
 
 def mark_whats_new_seen(workspace: UserWorkspace, version: str) -> dict[str, Any]:
     workspace.root.mkdir(parents=True, exist_ok=True)
+    try:
+        import updater
+
+        updater.update_marker_path().unlink(missing_ok=True)  # '업데이트를 마쳤어요' 는 한 번만
+    except OSError:
+        pass
     atomic_write_text((workspace.root / "whats_new.json"), 
         json.dumps({"seen": str(version)[:20], "at": now_iso()}, ensure_ascii=False), encoding="utf-8"
     )
@@ -3315,6 +3343,8 @@ def safe_public_config(workspace: UserWorkspace) -> dict[str, Any]:
         "interestTags": config.get("EMAIL_INTEREST_TAGS", []),
         "interestsCustom": config.get("EMAIL_INTERESTS_CUSTOM", ""),
         "hidePastEmails": bool(config.get("EMAIL_HIDE_PAST", False)),
+        "notifyDeadlines": config.get("NOTIFY_DEADLINES", True) is not False,
+        "notifyNewFiles": config.get("NOTIFY_NEW_FILES", True) is not False,
         "localSavePath": config.get("LOCAL_SAVE_PATH", ""),
         "autoLocalSave": local_autosave_mode(config),
         "localSaveFolder": str(get_local_save_dir(workspace)),
@@ -4029,6 +4059,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             ".js": "text/javascript; charset=utf-8",
             ".css": "text/css; charset=utf-8",
             ".html": "text/html; charset=utf-8",
+            # 영어 화면 번역표 (web/i18n/en.json)
+            ".json": "application/json; charset=utf-8",
         }
         target = Path(self.translate_path(self.path))
         if target.suffix.lower() in static_types and target.is_file():

@@ -63,3 +63,4 @@ packaging/out/
 packaging/MicrosoftEdgeWebview2Setup.exe
 # 메일 본문 그림 캐시
 mail_images/
+scripts/i18n_missing.json

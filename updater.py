@@ -156,6 +156,24 @@ def _download(url: str, dest: Path, total: int) -> str:
     return sha.hexdigest()
 
 
+def update_marker_path() -> Path:
+    try:
+        from runtime_config import AUTOSAVER_DATA_ROOT
+
+        return Path(AUTOSAVER_DATA_ROOT) / "update_done.json"
+    except Exception:
+        return Path(tempfile.gettempdir()) / "bungeoppang-update" / "update_done.json"
+
+
+def _write_update_marker(old: str, new: str) -> None:
+    try:
+        path = update_marker_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"from": old, "to": new}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _run_update(on_ready_to_exit) -> None:
     try:
         _set_job(stage="확인", message="새 버전을 확인하는 중")
@@ -176,18 +194,22 @@ def _run_update(on_ready_to_exit) -> None:
         dest = folder / asset["name"]
         _set_job(stage="내려받기", message="새 버전을 내려받는 중", total=int(asset.get("size") or 0))
         actual = _download(asset["browser_download_url"], dest, int(asset.get("size") or 0))
+        _set_job(stage="검사", message="받은 파일이 진짜인지 확인하는 중")
         if actual != expected:
             dest.unlink(missing_ok=True)
             raise RuntimeError("받은 파일이 원본과 달라 설치하지 않았습니다. 다시 시도해 주세요.")
 
         _set_job(stage="설치", message="설치를 시작합니다. 잠시 뒤 앱이 다시 켜집니다.")
+        # 다시 켜진 앱이 '업데이트를 마쳤어요' 를 보여 줄 수 있게 적어 둔다 (web_ui.get_whats_new)
+        _write_update_marker(local_version(), latest)
         # 설치 프로그램이 켜져 있는 앱을 닫고(CloseApplications) 파일을 바꾼 뒤 다시 켠다(/RELAUNCH=1).
+        # 진행은 앱 안 업데이트 카드가 보여 주므로 설치 창은 띄우지 않는다(/VERYSILENT).
         # 앱과 따로 살아야 하므로 새 프로세스 묶음으로 띄운다.
         flags = 0
         if os.name == "nt":
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         subprocess.Popen(
-            [str(dest), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1"],
+            [str(dest), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1"],
             close_fds=True,
             creationflags=flags,
         )

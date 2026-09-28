@@ -115,6 +115,140 @@ def notify(title: str, message: str) -> None:
         pass
 
 
+# ===== 마감 알림 · 새 자료 알림 =====
+# 예전 알림은 예약 동기화마다 '새 자료가 없습니다' 를, 켤 때마다 48시간 마감 요약을 띄워
+# 쓸모 없이 자주 떴다. 이제 꼭 필요할 때만: 마감은 하루·3시간·1시간 전에 한 번씩,
+# 자료는 새로 들어오거나 고쳐 다시 올라왔을 때만. 무엇을 알렸는지는 alerts.json 에 적어 두 번 알리지 않는다.
+DEADLINE_ALERT_HOURS = ((1, "1시간"), (3, "3시간"), (24, "하루"))  # 가까운 것부터
+
+
+def _alerts_path(workspace):
+    return workspace.root / "alerts.json"
+
+
+def _load_alerts(workspace) -> dict:
+    data = web_ui.read_json(_alerts_path(workspace), {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_alerts(workspace, data: dict) -> None:
+    import json
+
+    web_ui.atomic_write_text(_alerts_path(workspace), json.dumps(data, ensure_ascii=False))
+
+
+def _alert_on(config: dict, key: str) -> bool:
+    return config.get(key, True) is not False
+
+
+def check_deadline_alerts(workspace, config: dict) -> None:
+    """안 낸 과제가 하루·3시간·1시간 안으로 들어오면 알린다. 늦게 켜졌으면 지금 해당하는 가장 가까운 것 하나만."""
+    if not _alert_on(config, "NOTIFY_DEADLINES"):
+        return
+    now = datetime.now().astimezone()
+    data = _load_alerts(workspace)
+    sent = data.setdefault("sent", {})
+    hits = []
+    for item in web_ui.get_deadlines(workspace).get("items", []):
+        if item.get("myStatus") in ("Graded", "NeedsGrading"):
+            continue
+        try:
+            due = datetime.fromisoformat(str(item.get("due") or "").replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            continue
+        left = (due - now).total_seconds()
+        if left <= 0 or left > 24 * 3600:
+            continue
+        # 마감이 바뀌면 다시 알리도록 마감 시각까지 열쇠에 넣는다
+        base = f"{item.get('courseId')}:{item.get('columnId') or item.get('name')}:{due.isoformat()}"
+        for hours, label in DEADLINE_ALERT_HOURS:
+            if left <= hours * 3600:
+                key = f"{base}:{hours}"
+                if key not in sent:
+                    sent[key] = now.isoformat(timespec="seconds")
+                    hits.append((due, label, item))
+                break
+    # 지난 지 사흘 넘은 기록은 치운다
+    for key in list(sent):
+        try:
+            due_part = key.rsplit(":", 1)[0].split(":", 2)[2]
+            if (now - datetime.fromisoformat(due_part)).days > 3:
+                del sent[key]
+        except (IndexError, ValueError):
+            continue
+    if not hits:
+        return
+    _save_alerts(workspace, data)
+    hits.sort(key=lambda h: h[0])
+
+    def line(due, item):
+        course = item.get("courseLabel") or web_ui.extract_course_label(item.get("course", ""))
+        when = "오늘" if due.date() == now.date() else "내일" if (due.date() - now.date()).days == 1 else due.strftime("%m/%d")
+        return f"{course} · {item.get('name', '과제')} ({when} {due.strftime('%H:%M')})"
+
+    if len(hits) == 1:
+        due, label, item = hits[0]
+        notify(f"과제 마감 {label} 전", line(due, item))
+    else:
+        text = "\n".join(line(d, i) for d, _, i in hits[:4])
+        if len(hits) > 4:
+            text += f"\n… 외 {len(hits) - 4}건"
+        notify(f"과제 마감 {len(hits)}건 임박", text)
+
+
+def _current_files(workspace) -> dict:
+    """받아 둔 자료: 이름 → (크기). 크기가 바뀌면 교수가 고쳐 다시 올린 것."""
+    meta = web_ui.read_json(workspace.file_metadata_log, None)
+    if not isinstance(meta, dict):
+        return {}
+    base = web_ui.get_download_path(workspace)
+    out = {}
+    for name, info in meta.items():
+        try:
+            size = (base / web_ui.stored_relpath(name, info)).stat().st_size
+        except OSError:
+            continue
+        out[name] = size
+    return out
+
+
+def check_new_file_alerts(workspace, config: dict) -> None:
+    """동기화가 끝난 뒤 새로 들어온 자료·새 판을 알린다. 처음에는 지금 있는 것을 기억만 한다."""
+    with web_ui.task_lock:
+        if web_ui.task_states.get(workspace.user_id, {}).get("running"):
+            return  # 받는 중에는 반쯤 들어온 목록으로 알리지 않는다
+    current = _current_files(workspace)
+    if not current:
+        return
+    data = _load_alerts(workspace)
+    known = data.get("files")
+    if not isinstance(known, dict):
+        data["files"] = current
+        _save_alerts(workspace, data)
+        return
+    new = [n for n in current if n not in known]
+    changed = [n for n in current if n in known and known[n] and known[n] != current[n]]
+    if current == known:
+        return
+    data["files"] = current
+    _save_alerts(workspace, data)
+    if not (new or changed) or not _alert_on(config, "NOTIFY_NEW_FILES"):
+        return
+    meta = web_ui.read_json(workspace.file_metadata_log, {}) or {}
+
+    def line(name, tag=""):
+        info = meta.get(name) if isinstance(meta.get(name), dict) else {}
+        course = web_ui.extract_course_label(info.get("course", ""))
+        return f"{course} · {info.get('original_name', name)}{tag}"
+
+    lines = [line(n) for n in new] + [line(n, " (새 판)") for n in changed]
+    title = " · ".join(
+        part for part in (f"새 강의자료 {len(new)}개" if new else "", f"새 판 {len(changed)}개" if changed else "") if part
+    )
+    text = "\n".join(lines[:4]) + (f"\n… 외 {len(lines) - 4}개" if len(lines) > 4 else "")
+    notify(title, text)
+
+
 def upcoming_deadline_summary(workspace, hours: int = 48) -> str:
     """N시간 내 미제출 마감 요약 문자열 (없으면 빈 문자열)."""
     deadlines = web_ui.get_deadlines(workspace)
@@ -165,14 +299,8 @@ def run_scheduled_sync(workspace) -> None:
             task = web_ui.task_states.get(workspace.user_id, {})
             if not task.get("running"):
                 break
-    new_count = downloaded_count(workspace) - before
-    if new_count > 0:
-        notify("자동 동기화 완료", f"새 자료 {new_count}건을 받았습니다.")
-    else:
-        notify("자동 동기화 완료", "새 자료가 없습니다.")
-    summary = upcoming_deadline_summary(workspace)
-    if summary:
-        notify("과제 마감 임박", summary)
+    # 새 자료·마감 알림은 scheduler_loop 의 check_new_file_alerts / check_deadline_alerts 가 한다
+    # (예전에는 여기서 매일 '새 자료가 없습니다' 까지 알려 귀찮았다)
 
 
 def scheduler_loop() -> None:
@@ -215,6 +343,13 @@ def scheduler_loop() -> None:
                 if not running:
                     last_run_day = today
                     run_scheduled_sync(workspace)
+
+            # 알림: 마감이 가까워졌는지, 새 자료가 들어왔는지 (둘 다 파일만 읽어 가볍다)
+            try:
+                check_deadline_alerts(workspace, config)
+                check_new_file_alerts(workspace, config)
+            except Exception:
+                pass
 
             # 종류별 자동 실행. 자동이 기본이고, 새로고침 버튼은 '지금 당장' 용.
             # 기준은 메모리가 아니라 health.json 의 마지막 성공 시각이라,
@@ -465,13 +600,7 @@ def main() -> None:
     if server is not None:
         threading.Thread(target=scheduler_loop, daemon=True).start()
 
-        def startup_notice():
-            time.sleep(3)
-            summary = upcoming_deadline_summary(web_ui.workspace_for_user("local"))
-            if summary:
-                notify("과제 마감 임박 (48시간 이내)", summary)
-
-        threading.Thread(target=startup_notice, daemon=True).start()
+        # 켤 때마다 띄우던 '48시간 마감 요약' 은 없앴다. 마감 알림(하루·3시간·1시간 전)이 대신한다.
 
     url = f"http://{HOST}:{PORT}"
     webview.create_window(

@@ -145,7 +145,7 @@ DGIST 학생용 데스크톱 앱 "붕어빵"(저장소 이름 dgist-lms-autosave
 - **드래그로 옮기기**: 메일 줄을 왼쪽 폴더로 끌어다 놓으면 받은 편지함·프로모션으로 이동, 휴지통으로 삭제, 중요로 별표. 고른 메일이 여럿이면 함께 옮겨집니다 (`bindMailDrag`, `dropMailsOnFolder`). 휴지통에서 받은 편지함으로 끌면 되돌리기.
 
 읽기 화면:
-- HTML 메일을 스크립트 막은 iframe(srcdoc)으로 그림. 밝은 테마에서는 본문 바탕을 투명하게 하고 메일 속 순백 바탕을 걷어 내 앱 배경 위에 앉힘(`blendMailBackground`). 어두운 테마(다크·남색)는 종이 카드 위에 올림(`mailOnPaper`). 본문 안 그림(`cid:`)은 `/api/mail-image`로 서빙. 긴 메일은 40,000px까지 높이 맞춤.
+- HTML 메일을 스크립트 막은 iframe(srcdoc)으로 그림. 밝은 테마에서는 본문 바탕을 투명하게 하고 메일 속 순백 바탕을 걷어 내 앱 배경 위에 앉힘(`blendMailBackground`). 다크 테마는 종이 카드 위에 올림(`mailOnPaper`). 남색 테마는 1.11.10부터 밝은 바탕 + 잉크 남색 강조(`#3e63a6`)라 밝은 테마로 친다. 본문 안 그림(`cid:`)은 `/api/mail-image`로 서빙. 긴 메일은 40,000px까지 높이 맞춤.
 - 본문 링크는 기본 브라우저에서 열림(`bindMailLinks`, `/api/mail/open-link`). 메일 주소(mailto:)는 앱의 메일 쓰기로 열림. http·https 가 아닌 주소는 열지 않음.
 - 답장, 전체 답장, 전달, 이전/다음 메일, 별표(서버 `\Flagged`), 삭제.
 - ⋮ 메뉴: 읽지 않음으로 표시, 한국어로 번역, 다시 알림, 이메일 이동(폴더 만들기 포함), 인쇄, 파일로 저장(.eml), 일정 추가, 리마인드 메일 쓰기.
@@ -535,3 +535,24 @@ GitHub raw에서 `UPDATE_FILES`를 모두 받은 뒤에만 덮어씁니다.
   `/SILENT /CLOSEAPPLICATIONS /RELAUNCH=1` 로 실행, 앱은 2초 뒤 스스로 끈다. 설치 스크립트 `ShouldRelaunch` 가 끝나고 앱을 다시 켠다. 진행은 `/api/update/job`.
 - 새 버전 내기: VERSION·changelog 올리고 빌드 → `gh release create v<버전> packaging/out/bungeoppang-<버전>-win-x64-setup.exe` (본문은 '- ' 줄로 짧게).
 - 예전 방식(저장소 main 의 VERSION·raw 파일 교체)은 설치형에서 동작하지 않았고, main 이 1.8.6 에 멈춰 늘 '최신' 이었다.
+- 화면 전환(2026-09-28): 옛 화면을 먼저 지우고 0.1초 뒤 새 화면을 들이던 방식은 한 번 비어 보여 '깜빡임'으로 느껴졌다. 이제 `appview`·`sidebar`·`topbar` 모두 옛/새를 동시에 0.26~0.3초 겹쳐 바꾸고 `mix-blend-mode: plus-lighter` + `isolation` 으로 같은 부분의 밝기가 꺼지지 않게 한다(`vt-soft-*`). 실측: 모든 옛/새 애니메이션 delay 0.
+
+## 알림 (2026-09-28)
+- `app.scheduler_loop` 가 30초마다 `check_deadline_alerts`·`check_new_file_alerts` 를 부른다. 알림은 `app.notify`(winotify).
+- 마감: 안 낸 과제가 24h·3h·1h 안으로 들어오면 그 순간 가장 가까운 칸 하나만 알린다(늦게 켜져도 몰아서 안 뜸). 열쇠에 마감 시각을 넣어 마감이 바뀌면 다시 알린다. 기록은 `alerts.json` 의 `sent`(지난 지 3일 지나면 지움).
+- 새 자료: 작업이 돌지 않을 때 메타데이터의 파일 크기 목록을 `alerts.json` 의 `files` 와 비교. 새 이름 = 새 자료, 크기 바뀜 = 새 판. 처음에는 기억만 하고 알리지 않는다.
+- 설정 키 `NOTIFY_DEADLINES`, `NOTIFY_NEW_FILES`(기본 켜짐, 화면 `notifyDeadlines`/`notifyNewFiles`, 누르는 즉시 저장). 예전의 '자동 동기화 완료/새 자료가 없습니다' 와 켤 때 48시간 요약 알림은 없앴다.
+- 메일함 ↔ 다른 화면 전환은 `html.vt-quick` 로 0.15초, 크기 변화 없이(`view-transition-group` 0초).
+
+- 설치 창 디자인: `bungeoppang.iss` 의 WizardStyle(modern dynamic windows11 hidebevels)·WizardBackColor(앱 --bg)·WizardImageFile(+DynamicDark). 그림은 `scripts/make_installer_art.py` (시스템 파이썬 Pillow, Noto Serif KR 제목 + 달구) → `packaging/art/`. 단계는 환영 → 추가 옵션 → 설치 → 완료 (언어·위치·준비됨 창은 뺐다). 문구는 [Messages] 에 앱 말투로.
+- 앱 안 업데이트 화면: `#updateDialog` 카드(`setUpdateStep`, 확인→내려받기→검사→설치). 설치는 /VERYSILENT 라 윈도우 설치 창이 안 뜬다. 설치 직전 `update_done.json`(데이터 폴더)에 from/to 를 적고, 다시 켜진 앱은 `/api/whats-new` 의 `justUpdated` 로 '업데이트를 마쳤어요' 카드를 연다(본 뒤 지운다).
+
+
+### 영어 화면 (i18n)
+
+- 코드의 문구는 한국어 그대로 두고, 화면에 그려진 글자를 번역표 `web/i18n/en.json`(한국어 → 영어)으로 바꿔 보여 준다 (`app.js` 앞부분 `I18N`, `tr`, `i18nTranslateTree`, MutationObserver).
+- 표에 정확히 있는 문구만 바꾼다. `{0}` 이 든 틀은 빈자리를 옮겨 넣는다. 고정 한글이 두 글자 이하인 틀은 빈자리까지 모두 영어가 될 때만 쓴다(메일 제목 등 사용자 글 보호). 한글 없는 틀은 무시한다.
+- ` · ` 로 이어 붙인 줄은 마디마다 옮긴다. 날짜(`(월)`, `오후 4:18`, `2026년 9월`)는 규칙으로 바꾼다.
+- 알림·확인창(`confirm`/`alert`)과 토스트도 같은 표를 쓴다. 속성은 placeholder·title·aria-label·data-hint·alt.
+- 언어는 `ui_prefs.json` 의 `lang`(ko/en), 없으면 윈도우 언어(한국어가 아니면 영어). 바꾸면 화면을 다시 불러온다. 번역하지 않을 곳은 `data-no-i18n`.
+- **새 화면 문구를 넣으면** `python scripts/i18n_extract.py` 로 빠진 문구를 찾아 `en.json` 에 채운다. 업데이트 내용(changelog)은 한국어로만 쓴다.

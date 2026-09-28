@@ -29,11 +29,14 @@ VersionInfoDescription={#AppName} - DGIST LMS AutoSaver
 
 ; 관리자 권한 없이 사용자 폴더에 설치 → 공용/제한 PC에서도 UAC 없이 설치됨
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-DisableDirPage=no
+; 단계는 앱처럼 짧게: 환영(달구) → 추가 옵션 → 설치 → 완료.
+; 설치 위치·'모든 사용자' 고르기·'준비됨' 확인은 학생에게 필요 없어 뺐다 (사용자 폴더에 설치)
+DisableDirPage=yes
+DisableWelcomePage=no
+DisableReadyPage=yes
 AllowNoIcons=yes
 
 ; x64 전용 빌드 (arm64에서는 에뮬레이션으로 동작)
@@ -48,7 +51,21 @@ UninstallDisplayName={#AppName} {#AppVersion}
 
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+; 앱과 같은 모양으로: 크림색 바탕(--bg #faf9f5), 왼쪽은 사이드바 색(--bg-deep)에 달구,
+; 어두운 모드는 윈도우 설정을 따라 앱의 다크 색(--bg #262624)으로. 구분선은 뺀다.
+; 그림은 scripts/make_installer_art.py 가 만든다 (배율별 4벌, Inno 가 맞는 크기를 고른다)
+WizardStyle=modern dynamic windows11 hidebevels
+; 언어 고르기 창을 건너뛴다 (윈도우 언어가 한국어면 한국어, 아니면 영어)
+ShowLanguageDialog=no
+WizardBackColor=#faf9f5
+WizardBackColorDynamicDark=#262624
+WizardImageFile=art\wizard-100.png,art\wizard-125.png,art\wizard-150.png,art\wizard-200.png
+WizardImageBackColor=#f0eee6
+WizardImageBackColorDynamicDark=#1f1e1d
+WizardSmallImageFile=art\small-100.png,art\small-125.png,art\small-150.png,art\small-200.png
+; 어두운 모드는 따로 적지 않으면 Inno 기본 상자 그림이 나온다 (그림은 배경이 투명해 두 모드에 같이 쓴다)
+WizardImageFileDynamicDark=art\wizard-100.png,art\wizard-125.png,art\wizard-150.png,art\wizard-200.png
+WizardSmallImageFileDynamicDark=art\small-100.png,art\small-125.png,art\small-150.png,art\small-200.png
 
 ; 실행 중이면 닫도록 유도 (재부팅 요구 없이)
 CloseApplications=yes
@@ -58,6 +75,17 @@ RestartApplications=no
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; 앱 말투로 짧게 (기본 문구는 '마법사' 같은 딱딱한 말이 많다)
+korean.WelcomeLabel1=붕어빵을 설치할게요
+korean.WelcomeLabel2=LMS 강의자료, 과제 마감, 학교 메일을 한 화면에 모아 주는 앱이에요.
+korean.ClickNext=[다음] 을 누르면 바로 설치해요. 1분이면 끝나요.
+korean.FinishedHeadingLabel=설치를 마쳤어요
+korean.FinishedLabel=이제 붕어빵을 쓸 수 있어요.%n처음 켜면 달구가 앱을 짧게 소개해 줄 거예요.
+korean.FinishedLabelNoIcons=이제 붕어빵을 쓸 수 있어요.
+korean.ClickFinish=[마침] 을 누르면 창이 닫힙니다.
+korean.SelectTasksLabel2=원하는 것만 켜고 [다음] 을 눌러 주세요.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
