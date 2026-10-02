@@ -14,7 +14,7 @@
 
 바로 배포 버튼:
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jykim5215/dgist-lms-autosaver)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/tutleblue/dgist-lms-autosaver)
 
 운영 세부사항은 [DEPLOYMENT.md](DEPLOYMENT.md)를 참고하세요.
 

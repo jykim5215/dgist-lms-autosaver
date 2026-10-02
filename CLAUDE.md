@@ -10,7 +10,7 @@ DGIST 학생용 Windows 데스크톱 앱입니다. LMS 강의자료·과제 마�
 
 | 무엇 | 경로 |
 |---|---|
-| 저장소 | `C:\Users\jykim\바탕화면\dgist-lms-autosaver-main\dgist-lms-autosaver-main` (git `main`, 원격 `jykim5215/dgist-lms-autosaver`) |
+| 저장소 | `C:\Users\jykim\바탕화면\dgist-lms-autosaver-main\dgist-lms-autosaver-main` (git `main`, 원격 `tutleblue/dgist-lms-autosaver`) |
 | 설치된 앱 | `%LOCALAPPDATA%\Programs\붕어빵\붕어빵.exe` |
 | 사용자 데이터 | `C:\lms-autosaver\` (설치 앱과 개발 서버가 **함께** 씀) |
 | 파이썬 | 저장소의 `.venv` (Python 3.14). 시스템 `python`이 아니라 `.venv\Scripts\python.exe`를 씁니다 |

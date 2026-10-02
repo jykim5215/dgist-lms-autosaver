@@ -2,7 +2,7 @@ services:
   - type: web
     name: dgist-lms-autosaver
     runtime: docker
-    repo: https://github.com/jykim5215/dgist-lms-autosaver
+    repo: https://github.com/tutleblue/dgist-lms-autosaver
     branch: main
     plan: free
     region: singapore

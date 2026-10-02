@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-RELEASES = "https://github.com/jykim5215/dgist-lms-autosaver/releases/latest"
+RELEASES = "https://github.com/tutleblue/dgist-lms-autosaver/releases/latest"
 
 PAGE = """<!doctype html>
 <html lang="ko">

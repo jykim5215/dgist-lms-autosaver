@@ -15,7 +15,7 @@
 
 1. GitHub 저장소의 `main` 브랜치에 최신 코드를 push합니다.
 2. Render에서 **New > Blueprint**를 선택합니다.
-3. 저장소 `jykim5215/dgist-lms-autosaver`를 연결합니다.
+3. 저장소 `tutleblue/dgist-lms-autosaver`를 연결합니다.
 4. Render가 `render.yaml`을 읽어 `dgist-lms-autosaver` 서비스를 생성하게 둡니다.
 5. 배포가 끝난 뒤 Render 서비스 URL을 엽니다.
 6. Google Drive OAuth를 실제로 사용할 때 Render Dashboard에서 환경 변수 `AUTOSAVER_GOOGLE_CLIENT_ID`, `AUTOSAVER_GOOGLE_CLIENT_SECRET`을 추가합니다.

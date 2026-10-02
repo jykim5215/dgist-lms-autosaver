@@ -29,7 +29,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 # 배포자 GitHub 저장소 (공개)
-REPO = "jykim5215/dgist-lms-autosaver"
+REPO = "tutleblue/dgist-lms-autosaver"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_PATTERN = re.compile(r"^bungeoppang-[\d.]+-win-x64-setup\.exe$")
 # 설치 파일만 받는다. 다른 호스트로 넘어가는 주소는 쓰지 않는다 (GitHub 이 저장소를 옮기는 곳은 이 둘)

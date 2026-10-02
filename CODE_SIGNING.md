@@ -17,8 +17,8 @@ bootstrapper) are not re-signed by this project.
 
 | Role | Members |
 |---|---|
-| Committers and reviewers | [jykim5215](https://github.com/jykim5215) |
-| Approvers | [jykim5215](https://github.com/jykim5215) |
+| Committers and reviewers | [tutleblue](https://github.com/tutleblue) |
+| Approvers | [tutleblue](https://github.com/tutleblue) |
 
 Every signing request is approved manually by an approver in SignPath. All members use multi-factor authentication
 on GitHub and SignPath.

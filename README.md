@@ -19,7 +19,7 @@ DGIST LMS 강의 자료를 찾아 Google Drive에 정리하고, 새 자료 확�
 ## 실행
 
 **쓰는 사람은 설치 파일로 설치합니다 (Windows).**
-[Releases](https://github.com/jykim5215/dgist-lms-autosaver/releases/latest)의 Assets에서 `…-setup.exe`를 받아 실행하면 됩니다.
+[Releases](https://github.com/tutleblue/dgist-lms-autosaver/releases/latest)의 Assets에서 `…-setup.exe`를 받아 실행하면 됩니다.
 설치한 앱은 새 버전이 나오면 앱 안에서 업데이트됩니다.
 
 > 웹 주소(Render)로 쓰는 방식은 2026-09-29에 멈췄습니다. 무료 서버에서는 LMS 동기화가 계속 실패했고
