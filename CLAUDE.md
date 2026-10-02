@@ -74,6 +74,7 @@ AUTOSAVER_DATA_ROOT=C:/lms-autosaver AUTOSAVER_CONFIG_PATH=C:/lms-autosaver/conf
 19. PyInstaller 결과물에서 `pythonnet`의 `runtimes\*`를 지우지 않습니다(pywebview가 깨짐).
 20. 한글이 든 `.ps1`은 **UTF-8 BOM**으로 저장합니다. BOM이 없으면 PowerShell 5.1이 구문 오류를 냅니다.
 21. 포트 8765는 다른 도구가 잡고 있을 수 있습니다. 앱은 빈 포트로 옮겨 뜨고(`app.start_server`), 서버는 `SO_EXCLUSIVEADDRUSE`로 혼자 잡습니다. **내가 띄우지 않은 프로세스는 끄지 않습니다.**
+22-1. **코드 서명**: `build_installer.ps1`이 사설 인증서(`CN=붕어빵 (jykim5215)`, 현재 사용자 `My` 저장소, 내보내기 불가)가 있으면 EXE·설치 파일·`unins000.exe`를 서명합니다(`packaging\sign_tools.ps1`). 2026-10-02 Defender가 서명·버전 정보 없는 EXE를 `Bearfoos.A!ml`로 오탐해 지운 뒤 넣었습니다. 루트 신뢰(`-Trust`)는 보안 설정이라 사용자가 직접 합니다. 배포용 공인 서명은 SignPath Foundation(무료, Apache-2.0 공개 조건)으로, 태그 `v<버전>`을 푸시하면 `.github/workflows/release.yml`이 CI에서 빌드·서명·릴리스합니다(`CODE_SIGNING.md`, `.signpath/`). CI용 패키지 판은 `requirements-build.txt`.
 22. 실행 파일 안의 파이썬 코드는 GitHub 파일 교체로 바뀌지 않습니다. 설치형 앱의 `updater.apply_update`는 막혀 있습니다.
 
 ### 화면 (web/)

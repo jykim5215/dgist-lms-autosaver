@@ -195,6 +195,49 @@ class MiniIMAP:
         status, _ = self.cmd(f"UID COPY {uid} {self._quote(raw_folder)}")
         return status == "OK"
 
+    def append(self, raw_folder: str, data: bytes, flags: str = "(\\Seen)") -> bool:
+        """메일 한 통을 폴더에 넣는다 (보낸 편지함·임시 보관함에 사본 남기기).
+
+        SMTP 로 보내기만 하면 서버의 보낸 편지함에는 아무것도 안 남는다.
+        웹메일은 스스로 사본을 넣지만 우리 앱은 따로 넣어야 한다.
+        """
+        self.tag_n += 1
+        tag = f"A{self.tag_n:03d}"
+        self.sock.sendall(f"{tag} APPEND {self._quote(raw_folder)} {flags} {{{len(data)}}}\r\n".encode())
+        line = self.file.readline()
+        if not line.startswith(b"+"):
+            return False  # 서버가 거절(NO/BAD)
+        self.sock.sendall(data + b"\r\n")
+        while True:
+            line = self.file.readline()
+            if not line:
+                raise ConnectionError("서버 연결이 끊겼습니다.")
+            if line.startswith(tag.encode() + b" "):
+                return line.split(b" ", 2)[1] == b"OK"
+
+    def search_header(self, name: str, value: str, days: int = 60) -> list[int]:
+        """헤더 값이 맞는 메일 UID.
+
+        이 서버는 'SEARCH HEADER' 를 받아도 아무것도 돌려주지 않는다(실측: 넣은 직후에도 빈 결과).
+        그래서 최근 메일의 그 헤더만 받아 와서 직접 비교한다.
+        """
+        ids = self.search_since(datetime.now() - timedelta(days=days))
+        if not ids:
+            return []
+        uid_set = ",".join(str(i) for i in ids[-200:])
+        status, lines = self.cmd(f"UID FETCH {uid_set} (UID BODY.PEEK[HEADER.FIELDS ({name})])")
+        if status != "OK":
+            return []
+        found: list[int] = []
+        for line, literal in lines:
+            m = re.search(rb"UID (\d+)", line)
+            if not m or not literal:
+                continue
+            got = literal.decode("utf-8", "replace").split(":", 1)[-1].strip()
+            if got == value:
+                found.append(int(m.group(1)))
+        return found
+
     def capabilities(self) -> set[str]:
         """서버가 알려 주는 기능 목록. 한 번 물어보고 기억해 둔다."""
         if getattr(self, "_caps", None) is None:
@@ -733,6 +776,49 @@ def sanitize_mail_html(text: str, limit: int = HTML_STORE_LIMIT) -> str:
     return text[:limit]
 
 
+_CSS_HINT = re.compile(r"@import|@media|@font-face|\{\s*[-a-z]+\s*:", re.I)
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_CSS_IMPORT = re.compile(r"@(?:import|charset)[^;\n]*;?", re.I)
+# 선택자(한 줄, 200자 이내) + { 안에 중괄호 없는 내용 } — 중첩은 바깥에서 여러 번 돌려 벗긴다.
+# 공백을 두 군데서 나눠 갖지 않게 써서 역추적이 터지지 않게 한다 (CLAUDE.md 5절).
+_CSS_BLOCK = re.compile(r"[^{}\n]{0,200}\{[^{}]*\}")
+
+
+def _css_block_or_keep(m: "re.Match[str]") -> str:
+    """속성(이름: 값)이 든 블록이나 빈 블록이면 CSS 로 보고 지운다. 아니면 그대로."""
+    block = m.group(0)
+    inner = block.split("{", 1)[1].rstrip("}").strip()
+    return " " if (":" in inner or not inner) else block
+
+
+def strip_css_text(text: str) -> str:
+    """평문에 섞여 들어온 CSS 를 걷어 낸다.
+
+    Blackboard 알림 메일('일일 통지', '제출물 수신함')은 평문 파트 맨 앞에 HTML 의 <style> 내용이 그대로 들어 있다.
+    목록 미리보기가 앞 300자를 쓰므로 '@import url(...fonts.googleapis...) /* Take care of image borders */' 만 보였다
+    (2026-10-02 실측: 78통 중 16통, 진짜 글은 1,111자째부터).
+    """
+    if not text or not _CSS_HINT.search(text[:3000]):
+        return text
+    out = _CSS_COMMENT.sub(" ", text)
+    out = _CSS_IMPORT.sub(" ", out)
+    for _ in range(3):  # @media { a { } } 같은 겹친 블록
+        new = _CSS_BLOCK.sub(_css_block_or_keep, out)
+        if new == out:
+            break
+        out = new
+    out = re.sub(r"[ \t]+", " ", out)
+    out = re.sub(r"\n\s*\n\s*", "\n\n", out).strip()
+    # 'table,\n td { … }' 처럼 줄을 넘긴 선택자 목록은 앞부분('table,')만 남는다. 맨 앞의 그런 조각을 뗀다.
+    out = re.sub(r"^(?:[A-Za-z0-9_.#*>\[\]=\"\- ]{1,60},\s*)+", "", out)
+    # 같은 메일에 '&nbsp;' 같은 HTML 글자 표기가 그대로 남아 있었다
+    if re.search(r"&(?:[a-z]+|#\d+);", out):
+        import html as _html
+
+        out = _html.unescape(out).replace("\xa0", " ")
+    return out.strip()
+
+
 def tidy_plain_text(text: str, limit: int = 4000) -> str:
     """진짜 평문 파트는 지울 태그가 없다. 공백만 정리한다."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -813,6 +899,7 @@ def _parse_one_message(client, msg_id: int, folder_key: str) -> dict | None:
         full_body = decode_body_snippet(raw.get("1", b""), limit=4000)
         body_html = decode_body_html(raw.get("2", b"")) or decode_body_html(raw.get("1", b""))
 
+    full_body = strip_css_text(full_body)
     if not full_body.strip() and body_html:
         # 그림·표뿐이라 평문이 비는 메일도 있다. 목록 미리보기가 비지 않게.
         full_body = clean_html_to_text(body_html, 4000)
@@ -1545,44 +1632,39 @@ def restore_message(uid: int, folder_key: str = "trash") -> dict:
 
 
 def _split_addrs(value: str) -> list[str]:
-    """쉼표/세미콜론으로 구분된 주소 문자열을 정리된 목록으로."""
+    """'"이름" <주소>, 주소2; …' → ['이름 <주소>', '주소2'] (헤더에 쓸 모양).
+
+    받는 사람 칸은 칩으로 '"최미연/화학물리학과(학생)" <ckjzzz@dgist.ac.kr>' 처럼 이름을 붙여 넣는다.
+    쉼표로만 자르면 이름 속 쉼표에서 깨지므로 email.utils 로 읽는다.
+    """
+    from email.utils import formataddr, getaddresses
+
     if not value:
         return []
-    parts = re.split(r"[,;]+", value)
-    return [p.strip() for p in parts if p.strip() and "@" in p]
+    out = []
+    for name, addr in getaddresses([str(value).replace(";", ",")]):
+        addr = addr.strip()
+        if "@" not in addr:
+            continue
+        out.append(formataddr((name.strip(), addr)) if name.strip() else addr)
+    return out
 
 
-def send_email(to_addr: str, subject: str, body: str,
-               cc: str = "", bcc: str = "", html: bool = False,
-               in_reply_to: str = "", references: str = "",
-               attachments: list | None = None,
-               account: str | None = None, password: str | None = None,
-               host: str | None = None, port: int | None = None) -> dict:
-    """SMTP(SSL)로 메일 발송. 참조(cc)/숨은참조(bcc)/첨부파일/HTML 지원.
+def _bare(addrs: list[str]) -> list[str]:
+    return [parseaddr(a)[1] for a in addrs if parseaddr(a)[1]]
 
-    attachments: [{"filename": str, "content": base64 str}]
-    html: True면 본문을 HTML로 전송.
-    account/password/host/port를 넘기면 최신 설정 값을 쓰고, 없으면 config 기본값.
-    """
-    import smtplib
+
+def build_message(account: str, to_list: list[str], subject: str, body: str,
+                  cc_list: list[str] | None = None, html: bool = False,
+                  in_reply_to: str = "", references: str = "",
+                  attachments: list | None = None, extra_headers: dict | None = None):
+    """보내기·임시저장이 함께 쓰는 메일 한 통."""
+    import mimetypes
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
     from email.mime.base import MIMEBase
     from email import encoders
     from email.utils import formatdate, make_msgid
-
-    account = account or SCHOOL_EMAIL
-    password = password or SCHOOL_EMAIL_PASSWORD
-    host = host or SCHOOL_SMTP_HOST
-    port = int(port or SCHOOL_SMTP_PORT)
-
-    if not account or not password:
-        raise RuntimeError("설정에서 학교 이메일 계정을 먼저 입력해 주세요.")
-    to_list = _split_addrs(to_addr)
-    cc_list = _split_addrs(cc)
-    bcc_list = _split_addrs(bcc)
-    if not to_list:
-        raise ValueError("받는 사람 주소가 올바르지 않습니다.")
 
     subtype = "html" if html else "plain"
     attachments = attachments or []
@@ -1599,23 +1681,19 @@ def send_email(to_addr: str, subject: str, body: str,
             total += len(raw)
             if total > 20 * 1024 * 1024:  # 20MB 상한
                 raise ValueError("첨부파일 총 용량은 20MB를 넘을 수 없습니다.")
-            # 이미지면 image/*, 아니면 octet-stream
-            import mimetypes
             guessed, _ = mimetypes.guess_type(filename)
             maintype, subtype2 = (guessed.split("/", 1) if guessed else ("application", "octet-stream"))
             part = MIMEBase(maintype, subtype2)
             part.set_payload(raw)
             encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition", "attachment",
-                filename=("utf-8", "", filename),
-            )
+            part.add_header("Content-Disposition", "attachment", filename=("utf-8", "", filename))
             msg.attach(part)
     else:
         msg = MIMEText(body or "", subtype, "utf-8")
 
     msg["From"] = account
-    msg["To"] = ", ".join(to_list)
+    if to_list:
+        msg["To"] = ", ".join(to_list)
     if cc_list:
         msg["Cc"] = ", ".join(cc_list)
     msg["Subject"] = subject or "(제목 없음)"
@@ -1624,16 +1702,151 @@ def send_email(to_addr: str, subject: str, body: str,
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = (references + " " + in_reply_to).strip()
+    for key, value in (extra_headers or {}).items():
+        msg[key] = value
+    return msg
 
-    recipients = to_list + cc_list + bcc_list  # bcc는 헤더에 안 넣고 수신자에만 포함
-    print(f"메일 발송 중... → {len(recipients)}명, 첨부 {len(attachments)}개 ({host}:{port})")
+
+def _message_bytes(msg) -> bytes:
+    """IMAP 에 넣을 모양 (줄끝 CRLF)."""
+    from email import policy
+
+    return msg.as_bytes(policy=policy.SMTP)
+
+
+def _imap_for(account: str, password: str, imap_host: str | None = None):
+    client = MiniIMAP(imap_host or SCHOOL_IMAP_HOST, SCHOOL_IMAP_PORT)
+    client.login(account, password)
+    return client
+
+
+DRAFT_HEADER = "X-Bungeoppang-Draft"
+
+
+def _drop_old_drafts(client, draft_id: str) -> int:
+    """우리가 넣었던 같은 임시저장본에 지운 표시만 한다.
+
+    EXPUNGE 는 절대 보내지 않는다(임시 보관함의 지운 표시 전부가 영구 삭제된다).
+    앱은 NOT DELETED 로 찾으니 지운 표시만으로 안 보인다.
+    """
+    raw = client.find_folder("임시")
+    if not raw or not draft_id or not client.select_folder(raw):
+        return 0
+    n = 0
+    for uid in client.search_header(DRAFT_HEADER, draft_id):
+        if client.store_flag(uid, "\\Deleted", True):
+            n += 1
+    return n
+
+
+def send_email(to_addr: str, subject: str, body: str,
+               cc: str = "", bcc: str = "", html: bool = False,
+               in_reply_to: str = "", references: str = "",
+               attachments: list | None = None,
+               account: str | None = None, password: str | None = None,
+               host: str | None = None, port: int | None = None,
+               imap_host: str | None = None, draft_id: str = "") -> dict:
+    """SMTP(SSL)로 메일 발송. 참조(cc)/숨은참조(bcc)/첨부파일/HTML 지원.
+
+    보낸 뒤 서버의 '보낸 편지함'에 사본을 넣는다. 예전에는 넣지 않아서
+    앱·웹메일 어디에도 보낸 기록이 남지 않았다(사용자는 '안 보내졌다'고 느꼈다).
+    attachments: [{"filename": str, "content": base64 str}]
+    """
+    import smtplib
+
+    account = account or SCHOOL_EMAIL
+    password = password or SCHOOL_EMAIL_PASSWORD
+    host = host or SCHOOL_SMTP_HOST
+    port = int(port or SCHOOL_SMTP_PORT)
+
+    if not account or not password:
+        raise RuntimeError("설정에서 학교 이메일 계정을 먼저 입력해 주세요.")
+    to_list = _split_addrs(to_addr)
+    cc_list = _split_addrs(cc)
+    bcc_list = _split_addrs(bcc)
+    if not to_list:
+        raise ValueError("받는 사람 주소가 올바르지 않습니다.")
+
+    msg = build_message(account, to_list, subject, body, cc_list, html, in_reply_to, references, attachments)
+    recipients = _bare(to_list + cc_list + bcc_list)  # bcc는 헤더에 안 넣고 수신자에만 포함
+    print(f"메일 발송 중... → {len(recipients)}명, 첨부 {len(attachments or [])}개 ({host}:{port})")
     context = ssl.create_default_context()
     # local_hostname을 ASCII로 고정 (Windows PC 이름에 한글이 있으면 EHLO 인코딩 오류)
     with smtplib.SMTP_SSL(host, port, timeout=40, context=context, local_hostname="localhost") as server:
         server.login(account, password)
-        server.sendmail(account, recipients, msg.as_string())
-    print("메일 발송 완료")
-    return {"ok": True, "to": ", ".join(to_list), "count": len(recipients), "subject": msg["Subject"]}
+        refused = server.sendmail(account, recipients, msg.as_string())
+    print(f"메일 발송 완료 (거절 {len(refused)}명)")
+
+    # 보낸 편지함에 사본 + 이 메일의 임시저장본 정리. 실패해도 보내기는 이미 끝났다.
+    saved = False
+    try:
+        client = _imap_for(account, password, imap_host)
+        raw = client.find_folder("보낸")
+        if raw:
+            saved = client.append(raw, _message_bytes(msg), "(\\Seen)")
+        if draft_id:
+            _drop_old_drafts(client, draft_id)
+        client.cmd("LOGOUT")
+    except Exception as exc:
+        print(f"보낸 편지함에 사본을 넣지 못했습니다: {exc}")
+    return {
+        "ok": True,
+        "to": ", ".join(to_list),
+        "count": len(recipients),
+        "subject": msg["Subject"],
+        "refused": sorted(refused.keys()) if refused else [],
+        "savedToSent": saved,
+    }
+
+
+def discard_draft(draft_id: str, account: str | None = None, password: str | None = None,
+                  imap_host: str | None = None) -> int:
+    """'작성 취소' 한 메일의 서버 임시저장본(자동 저장 포함)에 지운 표시를 한다. EXPUNGE 안 함."""
+    account = account or SCHOOL_EMAIL
+    password = password or SCHOOL_EMAIL_PASSWORD
+    if not draft_id or not account or not password:
+        return 0
+    client = _imap_for(account, password, imap_host)
+    try:
+        return _drop_old_drafts(client, draft_id)
+    finally:
+        try:
+            client.cmd("LOGOUT")
+        except Exception:
+            pass
+
+
+def save_draft(to_addr: str, subject: str, body: str, cc: str = "", bcc: str = "",
+               html: bool = False, attachments: list | None = None,
+               account: str | None = None, password: str | None = None,
+               imap_host: str | None = None, draft_id: str = "") -> dict:
+    """서버의 '임시 보관함'에 넣는다. 같은 draft_id 로 넣었던 예전 판은 지운 표시."""
+    account = account or SCHOOL_EMAIL
+    password = password or SCHOOL_EMAIL_PASSWORD
+    if not account or not password:
+        raise RuntimeError("설정에서 학교 이메일 계정을 먼저 입력해 주세요.")
+    msg = build_message(
+        account, _split_addrs(to_addr), subject, body, _split_addrs(cc), html,
+        attachments=attachments, extra_headers={DRAFT_HEADER: draft_id} if draft_id else None,
+    )
+    bcc_list = _split_addrs(bcc)
+    if bcc_list:
+        msg["Bcc"] = ", ".join(bcc_list)  # 임시저장에서는 숨은참조도 남겨 둔다
+    client = _imap_for(account, password, imap_host)
+    try:
+        raw = client.find_folder("임시")
+        if not raw:
+            raise RuntimeError("메일 서버에서 임시 보관함을 찾지 못했습니다.")
+        replaced = _drop_old_drafts(client, draft_id) if draft_id else 0
+        ok = client.append(raw, _message_bytes(msg), "(\\Seen \\Draft)")
+        if not ok:
+            raise RuntimeError("메일 서버가 임시저장을 받아 주지 않았습니다.")
+    finally:
+        try:
+            client.cmd("LOGOUT")
+        except Exception:
+            pass
+    return {"ok": True, "replaced": replaced}
 
 
 def refresh_emails() -> dict:

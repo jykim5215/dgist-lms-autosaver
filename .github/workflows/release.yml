@@ -1,0 +1,146 @@
+# 붕어빵 Windows 빌드 + SignPath 코드 서명 + GitHub 릴리스
+#
+# 왜 CI 에서 빌드하나: SignPath Foundation(무료 공인 서명)은 '저장소 소스로 CI 가 만든 파일'만 서명해 준다.
+# 2026-10-02 Defender 가 서명 없는 EXE 를 Bearfoos.A!ml 로 오탐해 지웠다 (CODE_SIGNING.md).
+#
+# 흐름: PyInstaller → 붕어빵.exe 서명(SignPath) → Inno Setup → 설치 파일 서명(SignPath) → (태그면) 릴리스
+#  - 태그 v1.2.3 을 올리면 릴리스까지. 수동 실행(workflow_dispatch)은 서명된 설치 파일을 아티팩트로만 남긴다.
+#  - 서명 요청은 SignPath 에서 승인자가 '승인'을 눌러야 진행된다 (최대 1시간 기다림).
+#
+# 필요한 저장소 설정 (Settings → Secrets and variables → Actions):
+#  secrets.SIGNPATH_API_TOKEN     SignPath CI 사용자 API 토큰
+#  secrets.GOOGLE_CLIENT_JSON     google_client.json 내용 (데스크톱 OAuth 클라이언트. 없으면 빼고 빌드)
+#  vars.SIGNPATH_ORGANIZATION_ID  SignPath 조직 ID
+#  vars.SIGNPATH_PROJECT_SLUG     (기본 dgist-lms-autosaver)
+#  vars.SIGNPATH_POLICY_SLUG      (기본 release-signing)
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 릴리스 만들기
+  actions: read     # SignPath 가 아티팩트를 내려받음
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      PYTHONUTF8: "1"
+      SIGNPATH_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG || 'dgist-lms-autosaver' }}
+      SIGNPATH_POLICY: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: 패키지 설치
+        run: python -m pip install -r requirements-build.txt
+
+      - name: 태그와 VERSION 이 같은지
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "태그 ${{ github.ref_name }} 와 VERSION $v 가 다릅니다" }
+
+      - name: 빌드 준비물 (Google 클라이언트, WebView2 부트스트래퍼, Inno Setup)
+        shell: pwsh
+        env:
+          GOOGLE_CLIENT_JSON: ${{ secrets.GOOGLE_CLIENT_JSON }}
+        run: |
+          if ($env:GOOGLE_CLIENT_JSON) {
+            [IO.File]::WriteAllText("$PWD\google_client.json", $env:GOOGLE_CLIENT_JSON, (New-Object Text.UTF8Encoding $false))
+          } else { "GOOGLE_CLIENT_JSON 없음 — 로그인 준비물 없이 빌드" }
+          # Microsoft 공식 Evergreen 부트스트래퍼 (Microsoft 서명, 다시 서명하지 않는다)
+          Invoke-WebRequest -UseBasicParsing "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile packaging\MicrosoftEdgeWebview2Setup.exe
+          if ((Get-AuthenticodeSignature packaging\MicrosoftEdgeWebview2Setup.exe).Status -ne "Valid") { throw "WebView2 부트스트래퍼 서명 확인 실패" }
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: PyInstaller (dist\붕어빵)
+        shell: powershell   # build_installer.ps1 은 Windows PowerShell 5.1 기준 (UTF-8 BOM)
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\build_installer.ps1 -Stage exe
+
+      - name: 서명할 EXE 올리기
+        id: upload-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exe
+          path: dist/붕어빵/붕어빵.exe
+          if-no-files-found: error
+
+      - name: EXE 서명 (SignPath)
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: app-exe
+          github-artifact-id: ${{ steps.upload-exe.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-exe
+
+      - name: 서명된 EXE 로 바꾸기
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed-exe -Recurse -Filter *.exe | Select-Object -First 1
+          if ((Get-AuthenticodeSignature $signed.FullName).Status -ne "Valid") { throw "서명된 EXE 확인 실패" }
+          Copy-Item $signed.FullName "dist\붕어빵\붕어빵.exe" -Force
+
+      - name: Inno Setup (설치 파일)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\build_installer.ps1 -Stage installer
+
+      - name: 서명할 설치 파일 올리기
+        id: upload-setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: packaging/out/*-setup.exe
+          if-no-files-found: error
+
+      - name: 설치 파일 서명 (SignPath)
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-setup
+
+      - name: 서명 확인
+        shell: pwsh
+        run: |
+          Get-ChildItem signed-setup -Recurse -Filter *.exe | ForEach-Object {
+            $s = Get-AuthenticodeSignature $_.FullName
+            "$($_.Name): $($s.Status) / $($s.SignerCertificate.Subject)"
+            if ($s.Status -ne "Valid") { throw "설치 파일 서명이 유효하지 않습니다" }
+          }
+
+      - name: 서명된 설치 파일 보관
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-setup
+          path: signed-setup/**/*.exe
+
+      - name: GitHub 릴리스
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem signed-setup -Recurse -Filter *-setup.exe | Select-Object -First 1
+          # 앱의 업데이트 확인(updater.py)이 이 이름(bungeoppang-<버전>-win-x64-setup.exe)을 찾는다
+          gh release create "${{ github.ref_name }}" $setup.FullName --title "붕어빵 ${{ github.ref_name }}" --generate-notes

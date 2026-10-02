@@ -569,6 +569,81 @@ async def fetch_deadlines(page, courses):
     return payload
 
 
+# LMS 코스 사용자 역할 → 화면 이름. 학생은 받지 않는다(개인 정보이고 쓸 일도 없다).
+STAFF_ROLES = {
+    "Instructor": "교수",
+    "TeachingAssistant": "조교",
+    "CourseBuilder": "조교",
+    "Grader": "채점 조교",
+}
+
+
+def _lms_person_name(user):
+    """Blackboard 이름: 이 학교는 given 에 전체 이름을 넣고 family 는 '.' 로 둔다(실측)."""
+    name = (user or {}).get("name") or {}
+    given = str(name.get("given") or "").strip()
+    family = str(name.get("family") or "").strip()
+    if family in ("", ".", "-"):
+        return given
+    if given in ("", ".", "-"):
+        return family
+    # 한글 이름이면 성+이름, 아니면 이름 성
+    if any("\uac00" <= ch <= "\ud7a3" for ch in family + given):
+        return f"{family}{given}"
+    return f"{given} {family}"
+
+
+async def fetch_course_staff(page, courses):
+    """과목마다 교수·조교 이름과 역할을 받아 course_staff.json 에 둔다.
+
+    이메일은 LMS 가 주지 않는다(이름·학번만 온다). 이메일은 화면에 넘길 때 조직도에서 찾는다.
+    지난 학기 과목은 LMS 가 403 을 주므로 예전에 받아 둔 것을 그대로 둔다.
+    """
+    from runtime_config import COURSE_STAFF_PATH
+
+    try:
+        with open(COURSE_STAFF_PATH, "r", encoding="utf-8-sig") as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    if not isinstance(saved, dict):
+        saved = {}
+    got = 0
+    for course in courses:
+        cid = course.get("id")
+        if not cid:
+            continue
+        try:
+            resp = await page.request.get(
+                f"{LMS_URL}/learn/api/public/v1/courses/{cid}/users"
+                "?limit=200&fields=courseRoleId,user.name,user.userName"
+            )
+            if resp.status != 200:
+                continue
+            rows = (await resp.json()).get("results", [])
+        except Exception:
+            continue
+        staff = []
+        for row in rows:
+            role = STAFF_ROLES.get(str(row.get("courseRoleId") or ""))
+            if not role:
+                continue
+            user = row.get("user") or {}
+            name = _lms_person_name(user)
+            if name:
+                staff.append({"role": role, "name": name, "lmsId": str(user.get("userName") or "")})
+        saved[cid] = {
+            "course": course.get("text", ""),
+            "label": extract_course_label(course.get("text", "")),
+            "staff": staff,
+            "fetchedAt": datetime.now().isoformat(timespec="seconds"),
+        }
+        got += 1
+    atomic_write_json(COURSE_STAFF_PATH, saved, ensure_ascii=False, indent=2)
+    print(f"과목 교수·조교 {got}과목 확인")
+    return saved
+
+
 async def crawl_deadlines_only():
     """파일 다운로드 없이 마감일/캘린더만 갱신."""
     from browser_setup import ensure_browser
@@ -585,6 +660,10 @@ async def crawl_deadlines_only():
         print(f"과목 {len(courses)}개 발견")
         diagnose_course_changes(courses)
         payload = await fetch_deadlines(page, courses)
+        try:
+            await fetch_course_staff(page, courses)
+        except Exception as exc:
+            print(f"교수·조교 목록을 받지 못했습니다: {exc}")
         await browser.close()
         return payload
 
@@ -627,6 +706,7 @@ async def crawl_course(page, course, downloaded_files, new_files, file_metadata,
                 page, course_id, course_name,
                 downloaded_files, new_files, file_metadata
             )
+            await probe_messages(page, course_id, course_name)
 
             save_downloaded_files(downloaded_files)
             save_file_metadata(file_metadata)
@@ -665,6 +745,8 @@ async def crawl_lms(fast=None):
     new_files = []
     global _course_failures
     _course_failures = 0
+    _announcements.clear()
+    _message_probe.clear()
 
     from browser_setup import ensure_browser
 
@@ -702,6 +784,14 @@ async def crawl_lms(fast=None):
 
         save_downloaded_files(downloaded_files)
         save_file_metadata(file_metadata)
+        try:
+            save_announcements()
+        except Exception as e:
+            print(f"[공지] 저장 실패: {e}")
+        if _message_probe:
+            print("[메시지 API 확인] " + ", ".join(
+                f"{k} → {sorted(set(v))}" for k, v in _message_probe.items()
+            ))
 
         try:
             await fetch_deadlines(page, unique_courses)
@@ -724,6 +814,61 @@ async def crawl_lms(fast=None):
     print(f"\n총 {len(new_files)}개 새 파일 발견!")
     return new_files
 
+# 과목 공지 글. 예전에는 공지의 첨부 파일만 받고 글은 버려서, 앱의 '강의' 화면에서 공지를 볼 수 없었다.
+# 이번 수집에서 읽은 과목만 새로 쓰고(지난 학기처럼 403 인 과목은 예전 것 유지) course_announcements.json 에 둔다.
+_announcements = {}
+# LMS '메시지' 는 공개 API 에 없어 어떤 주소가 되는지 과목마다 상태 코드만 모아 본다 (글은 저장하지 않음)
+_message_probe = {}
+
+
+def _announcement_record(course_id, course_name, ann):
+    from email_reader import clean_html_to_text
+
+    body = ann.get('body') or ''
+    return {
+        'id': str(ann.get('id', '')),
+        'courseId': course_id,
+        'title': str(ann.get('title') or '공지사항').strip(),
+        'text': clean_html_to_text(body, 6000) if body else '',
+        'created': ann.get('created') or '',
+        'modified': ann.get('modified') or '',
+    }
+
+
+def save_announcements():
+    """이번에 읽은 과목의 공지만 바꿔 끼운다."""
+    if not _announcements:
+        return
+    path = os.path.join(os.path.dirname(LAST_SYNC_PATH), 'course_announcements.json')
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    courses = data.get('courses') if isinstance(data, dict) else None
+    courses = courses if isinstance(courses, dict) else {}
+    for course_name, items in _announcements.items():
+        items.sort(key=lambda a: a.get('created') or '', reverse=True)
+        courses[course_name] = items[:60]
+    atomic_write_json(path, {
+        'updatedAt': datetime.now().astimezone().isoformat(timespec='seconds'),
+        'courses': courses,
+    }, ensure_ascii=False, indent=1)
+    print(f"[공지] 과목 {len(_announcements)}개의 공지 {sum(len(v) for v in _announcements.values())}건 저장")
+
+
+async def probe_messages(page, course_id, course_name):
+    for url in (
+        f"{LMS_URL}/learn/api/public/v1/courses/{course_id}/messages",
+        f"{LMS_URL}/learn/api/v1/courses/{course_id}/messages",
+    ):
+        try:
+            resp = await page.request.get(url)
+            _message_probe.setdefault(url.split(course_id)[0] + '{id}' + url.split(course_id)[1], []).append(resp.status)
+        except Exception:
+            pass
+
+
 async def crawl_announcements(page, course_id, course_name, downloaded_files, new_files, file_metadata):
     announces, announce_status = await fetch_all_results(
         page,
@@ -732,6 +877,11 @@ async def crawl_announcements(page, course_id, course_name, downloaded_files, ne
     if announce_status != 200:
         return
 
+    _announcements[course_name] = [
+        _announcement_record(course_id, course_name, ann)
+        for ann in (announces or [])
+        if not ann.get('draft')
+    ]
     if not announces:
         return
 

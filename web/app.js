@@ -610,6 +610,7 @@ function applyView(view) {
       return;
     }
     openCompose();
+    restoreDraftIfAny();
   }
   document.querySelectorAll(".nav-item").forEach((item) => {
     // 메일 쓰기는 메일함 셸을 쓰므로 메일함 메뉴를 켠 채로 둔다
@@ -623,6 +624,7 @@ function applyView(view) {
   // 이 화면에 필요한 것만 그린다 (안 보이는 화면은 그리지 않으므로,
   // 화면을 바꿀 때 여기서 채워 줘야 한다)
   renderCurrentView();
+  navPush();
 }
 
 /* ===== 마감일 헬퍼 ===== */
@@ -892,9 +894,9 @@ function renderDeadlines() {
     });
   });
 
-  $("#clearDoneDeadlines")?.addEventListener("click", () => {
+  $("#clearDoneDeadlines")?.addEventListener("click", async () => {
     if (!done.length) return;
-    if (!window.confirm(`완료한 과제 ${done.length}건을 목록에서 지울까요?\n('새로고침'을 하면 다시 나타납니다.)`)) return;
+    if (!(await uiConfirm(`완료한 과제 ${done.length}건을 목록에서 뺄까요?\n새로고침하면 다시 나타납니다.`, { title: "완료한 과제 정리", ok: "빼기" }))) return;
     state.selection.hiddenDeadlines = [
       ...new Set([...(state.selection.hiddenDeadlines || []), ...done.map(deadlineKey)]),
     ];
@@ -1210,9 +1212,9 @@ async function deleteEmail(mail) {
      휴지통에서 지우면 영영 사라지므로 반드시 한 번 더 묻는다. */
   const inTrash = mail.folder === "trash";
   if (inTrash) {
-    const ok = window.confirm(
-      `'${shortText(mail.subject || "(제목 없음)", 40)}'\n\n` +
-        "휴지통에서 지우면 되살릴 수 없습니다. 정말 지울까요?",
+    const ok = await uiConfirm(
+      `'${shortText(mail.subject || "(제목 없음)", 40)}'\n\n휴지통에서 지우면 되살릴 수 없어요.`,
+      { title: "영구 삭제", danger: true, ok: "영구 삭제" },
     );
     if (!ok) return;
   }
@@ -1286,6 +1288,7 @@ function openCompose({ to = "", cc = "", bcc = "", subject = "", body = "", inRe
   form.elements.body.value = body;
   form.dataset.inReplyTo = inReplyTo;
   form.dataset.references = references;
+  form.dataset.draftId = "";
   // 참조 줄은 늘 보이고, 숨은참조만 접었다 편다
   const bccField = $("#bccField");
   if (bccField) bccField.hidden = !bcc;
@@ -1302,14 +1305,40 @@ function openCompose({ to = "", cc = "", bcc = "", subject = "", body = "", inRe
   if (separately) separately.checked = false;
   state.attachments = [];
   renderAttachments();
-  renderComposeFiles();
   const account = state.config?.schoolEmail || "";
   $("#composeFrom").textContent = account ? `보내는 사람: ${account}` : "설정에서 학교 이메일을 먼저 입력해 주세요.";
   showMailPane("compose");
   form.elements[to ? "subject" : "to"].focus();
 }
 
+/** '←' 목록으로: 쓰던 내용은 바로 저장해 두고 닫는다 */
 function closeCompose() {
+  // 손댄 게 있을 때만 (답장 창을 열기만 하고 닫으면 저장하지 않는다)
+  if (state.mailPane === "compose" && autosave.dirty && composeHasContent()) {
+    window.clearTimeout(autosave.server);
+    saveDraftToServer({ auto: true });
+  }
+  state.attachments = [];
+  showMailPane("list");
+}
+
+/** 휴지통(작성 취소): 쓰던 내용과 자동 저장본을 함께 버린다 */
+async function discardCompose() {
+  const form = $("#composeForm");
+  if (composeHasContent()) {
+    const ok = await uiConfirm("쓰던 메일을 버릴까요? 자동 저장한 것도 함께 지워요.", {
+      title: "작성 취소",
+      danger: true,
+      ok: "버리기",
+    });
+    if (!ok) return;
+  }
+  const id = form?.dataset.draftId;
+  clearAutosave();
+  if (id) {
+    api("/api/mail/discard-draft", { method: "POST", body: JSON.stringify({ draftId: id }) }).catch(() => {});
+    form.dataset.draftId = "";
+  }
   state.attachments = [];
   showMailPane("list");
 }
@@ -1328,6 +1357,7 @@ function composeHasContent() {
 const ATTACH_LIMIT = 10 * 1024 * 1024; // 학교 메일 기준 10MB
 
 function renderAttachments() {
+  if (typeof scheduleAutosave === "function") scheduleAutosave();
   const wrap = $("#composeAttachments");
   const atts = state.attachments || [];
   wrap.innerHTML = atts
@@ -1373,109 +1403,13 @@ function fileToBase64(file) {
   });
 }
 
-async function importFromDrive() {
-  try {
-    const data = await api("/api/drive/list");
-    if (!data.files || !data.files.length) {
-      showToast("Drive에 가져올 파일이 없습니다. 먼저 구글 계정을 연결하세요.");
-      return;
-    }
-    const options = data.files
-      .slice(0, 20)
-      .map((f, i) => `${i + 1}. ${f.name}`)
-      .join("\n");
-    const pick = window.prompt(`Google Drive에서 첨부할 파일 번호를 입력하세요:\n\n${options}`);
-    const idx = Number(pick) - 1;
-    if (Number.isNaN(idx) || idx < 0 || idx >= data.files.length) return;
-    const file = data.files[idx];
-    showToast(`${file.name} 가져오는 중…`);
-    const got = await api(`/api/drive/get?id=${encodeURIComponent(file.id)}`);
-    state.attachments.push({ filename: got.filename, size: got.size, content: got.content });
-    renderAttachments();
-    showToast(`${got.filename} 첨부됨`);
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-/* ===== 작성창: 내 자료 패널 + 끌어다 첨부 ===== */
-function renderComposeFiles() {
-  const list = $("#composeFilesList");
-  if (!list) return;
-  const q = ($("#composeFileSearch")?.value || "").trim().toLowerCase();
-  // 로컬에 실제로 있는 파일만 첨부할 수 있다
-  const rows = (state.files || [])
-    .filter((f) => f.status === "local")
-    .filter((f) => !q || f.name.toLowerCase().includes(q) || (f.courseLabel || "").toLowerCase().includes(q))
-    .slice(0, 60);
-
-  list.innerHTML = rows.length
-    ? rows
-        .map(
-          (f) => `
-      <div class="compose-file-item" draggable="true" data-localname="${escapeHtml(f.localName)}" title="${escapeHtml(f.name)}">
-        <span class="file-type-icon"><span class="icon" data-icon="file"></span></span>
-        <span class="compose-file-main">
-          <strong>${escapeHtml(shortText(f.name, 30))}</strong>
-          <span>${escapeHtml(shortText(f.courseLabel || f.course || "", 24))}</span>
-        </span>
-        <button type="button" class="compose-file-add" data-add="${escapeHtml(f.localName)}" title="첨부에 추가">＋</button>
-      </div>`,
-        )
-        .join("")
-    : `<p class="compose-files-empty">${
-        q ? "검색 결과가 없습니다." : "첨부할 수 있는 자료가 없습니다. 먼저 동기화해 주세요."
-      }</p>`;
-  installIcons(list);
-}
-
-async function attachLocalFile(localName) {
-  if (!localName) return;
-  if ((state.attachments || []).some((a) => a.localName === localName)) {
-    showToast("이미 첨부된 파일입니다.");
-    return;
-  }
-  try {
-    showToast("첨부하는 중…");
-    // /api/file 은 파일 원본을 그대로 내려주므로 blob으로 받아 base64로 바꾼다
-    const resp = await fetch(`/api/file?name=${encodeURIComponent(localName)}`);
-    if (!resp.ok) throw new Error("파일을 읽을 수 없습니다. 먼저 동기화해 주세요.");
-    const blob = await resp.blob();
-    const meta = (state.files || []).find((f) => f.localName === localName);
-    const filename = meta?.name || localName;
-    const content = await fileToBase64(new File([blob], filename));
-    state.attachments.push({ filename, size: blob.size, content, localName });
-    renderAttachments();
-    showToast(`${filename} 첨부됨`);
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
+/* ===== 작성창: 첨부칸에 끌어다 놓기 =====
+   '내 자료'(강의자료 목록) 패널은 없앴다. 사용자가 Drive 창으로 고르는 쪽을 원했다.
+   강의자료는 모두 Drive 에도 있으니 Drive 창에서 찾으면 된다. */
 function bindComposeFiles() {
-  const panel = $("#composeFiles");
   const zone = $("#composeDropzone");
-  if (!panel || !zone) return;
-
-  $("#composeFileSearch")?.addEventListener("input", renderComposeFiles);
-
-  // 목록: 드래그 시작 + ＋ 버튼
-  panel.addEventListener("click", (event) => {
-    const add = event.target.closest("[data-add]");
-    if (add) attachLocalFile(add.dataset.add);
-  });
-  panel.addEventListener("dragstart", (event) => {
-    const item = event.target.closest(".compose-file-item");
-    if (!item) return;
-    event.dataTransfer.setData("text/x-autosaver-file", item.dataset.localname);
-    event.dataTransfer.effectAllowed = "copy";
-    item.classList.add("dragging");
-  });
-  panel.addEventListener("dragend", (event) => {
-    event.target.closest(".compose-file-item")?.classList.remove("dragging");
-  });
-
-  // 첨부칸: 내 자료 + 컴퓨터 파일 모두 받기
+  if (!zone) return;
+  // 운영체제(탐색기)에서 끌어온 파일을 받는다
   const over = (event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
@@ -1489,13 +1423,6 @@ function bindComposeFiles() {
   zone.addEventListener("drop", async (event) => {
     event.preventDefault();
     zone.classList.remove("drag-over");
-
-    const localName = event.dataTransfer.getData("text/x-autosaver-file");
-    if (localName) {
-      await attachLocalFile(localName);
-      return;
-    }
-    // 운영체제에서 끌어온 파일
     const files = [...(event.dataTransfer.files || [])];
     for (const file of files) {
       const content = await fileToBase64(file);
@@ -1553,13 +1480,16 @@ function directoryOrg(p) {
 /** 주고받은 메일의 보낸이·받는이 전부에서 연락처를 모은다 (보낸편지함만 보던 것보다 넓게) */
 function mailContacts() {
   const emails = state.emails.emails || [];
-  const key = `${state.emails.updatedAt}|${emails.length}|${(state.emails.contacts || []).length}`;
+  const key = `${state.emails.updatedAt}|${emails.length}|${(state.emails.contacts || []).length}|${state.courseStaffSig || ""}`;
   if (mailContacts.key === key) return mailContacts.list;
   const byEmail = new Map();
   const put = (display, addr, count = 1) => {
     const email = String(addr || "").trim().toLowerCase();
     if (!email.includes("@")) return;
-    const { name, org } = splitAffiliation(display);
+    let { name, org } = splitAffiliation(display);
+    // 웹메일이 이름 자리에 주소를 적어 보낸 메일이 있다('dgun_189@dgist.ac.kr/기초학부 (학생)').
+    // 그걸 이름으로 쓰면 자동완성이 '주소/소속 <주소>' 로 나온다. 이름이 아닌 것으로 친다.
+    if (String(name || "").includes("@")) name = "";
     const had = byEmail.get(email);
     if (!had) {
       byEmail.set(email, { email, name: name || "", org, count });
@@ -1570,6 +1500,12 @@ function mailContacts() {
     if (!had.org && org) had.org = org; // 소속이 적힌 이름을 한 번이라도 보면 그걸 쓴다
   };
   (state.emails.contacts || []).forEach((c) => put(c.name, c.email, c.count || 1));
+  // LMS 교수·조교: 메일을 주고받은 적 없어도 찾히게 넣고, '일반물리Ⅱ 조교' 꼬리표를 단다
+  staffContacts().forEach((s) => {
+    put(s.name, s.email, 0);
+    const had = byEmail.get(s.email.toLowerCase());
+    if (had) had.tag = had.tag ? `${had.tag}, ${s.tag}` : s.tag;
+  });
   emails.forEach((m) => {
     put(m.fromName, m.fromEmail, 0);
     put(m.toName, m.toEmail, 0);
@@ -1583,7 +1519,15 @@ function contactMatches(term) {
   const q = term.trim();
   if (!q) return [];
   const hits = mailContacts()
-    .map((c) => ({ c, s: matchScore(q, c.name, c.email.split("@")[0], c.org, c.email) }))
+    .map((c) => {
+      // '물리 조교' 처럼 띄어 쓴 여러 낱말은 낱말마다 어딘가에 맞아야 한다
+      const words = q.split(/\s+/).filter(Boolean);
+      const fields = [c.name, c.email.split("@")[0], c.org, c.email, c.tag];
+      const s = words.length > 1
+        ? Math.min(...words.map((w) => matchScore(w, ...fields)))
+        : matchScore(q, ...fields);
+      return { c, s };
+    })
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s || (b.c.count || 0) - (a.c.count || 0))
     .map((x) => x.c);
@@ -1597,17 +1541,184 @@ function contactMatches(term) {
   return hits.slice(0, 6);
 }
 
-function setupAutocomplete() {
-  document.querySelectorAll('#composeForm input[data-ac="1"]').forEach((input) => {
-    const menu = document.getElementById(`ac-${input.name}`);
-    if (!menu) return;
-    let active = -1;
+/* ===== 받는 사람 칩 =====
+   웹메일처럼 한 사람씩 '"이름/소속" <주소>' 칩으로 보인다. (예전엔 쉼표로 이은 글자 한 줄)
+   서버로 보내는 값은 숨긴 원래 입력칸(name=to/cc/bcc)에 '"이름" <주소>, …' 로 둔다.
+   코드 여러 곳(답장·주소찾기·임시저장 불러오기)이 그 칸의 value 를 직접 넣으므로,
+   value 를 넣는 순간 칩을 다시 그리도록 그 칸의 value 를 가로챈다. */
+const RCPT = { to: [], cc: [], bcc: [] };
+const RCPT_EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 
-    const currentToken = () => {
-      const val = input.value;
-      const start = Math.max(val.lastIndexOf(","), val.lastIndexOf(";")) + 1;
-      return { start, text: val.slice(start).trim() };
+/** '"이름" <a@b>, c@d; 이름2 <e@f>' → [{name, email}] (따옴표·꺾쇠 안의 쉼표는 자르지 않는다) */
+function parseRecipients(text) {
+  const parts = [];
+  let cur = "";
+  let quote = false;
+  let angle = false;
+  for (const ch of String(text || "")) {
+    if (ch === '"') quote = !quote;
+    else if (ch === "<") angle = true;
+    else if (ch === ">") angle = false;
+    if ((ch === "," || ch === ";") && !quote && !angle) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  parts.push(cur);
+  const out = [];
+  for (const raw of parts) {
+    const s = raw.trim();
+    if (!s) continue;
+    const m = s.match(/^"?([^"<]*?)"?\s*<([^>]+)>$/);
+    const email = (m ? m[2] : s).trim();
+    const name = (m ? m[1] : "").trim();
+    if (email.includes("@")) out.push({ name, email });
+  }
+  return out;
+}
+
+function formatRecipient(r) {
+  const name = String(r.name || "").replace(/"/g, "'");
+  return name ? `"${name}" <${r.email}>` : r.email;
+}
+
+function setupRecipientChips() {
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  document.querySelectorAll('#composeForm input[data-ac="1"]').forEach((input) => {
+    const field = input.name;
+    const body = input.closest(".cfield-body");
+    if (!body || input.dataset.chips) return;
+    input.dataset.chips = "1";
+    const placeholder = input.placeholder;
+    input.type = "hidden";
+    input.removeAttribute("required");
+
+    const box = document.createElement("div");
+    box.className = "rcpt-box";
+    box.innerHTML = `<span class="rcpt-chips"></span><input class="rcpt-entry" type="text" autocomplete="off"
+      data-field="${field}" aria-label="${escapeHtml(placeholder)}" placeholder="${escapeHtml(placeholder.replace("여러 명은 쉼표로", "이름 또는 주소"))}" />`;
+    body.insertBefore(box, body.firstChild);
+    const chips = box.querySelector(".rcpt-chips");
+    const entry = box.querySelector(".rcpt-entry");
+
+    let syncing = false;
+    const write = () => {
+      syncing = true;
+      desc.set.call(input, RCPT[field].map(formatRecipient).join(", "));
+      syncing = false;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     };
+    const paint = () => {
+      chips.innerHTML = RCPT[field]
+        .map(
+          (r, i) => `<span class="rcpt-chip${RCPT_EMAIL.test(r.email) ? "" : " bad"}" data-i="${i}" title="${escapeHtml(r.email)}">
+            ${r.name ? `<b>${escapeHtml(r.name)}</b>` : ""}<span class="rcpt-mail">${escapeHtml(r.name ? `<${r.email}>` : r.email)}</span>
+            <button type="button" class="rcpt-x" data-x="${i}" aria-label="${escapeHtml(r.email)} 빼기">${iconHtml("x")}</button>
+          </span>`,
+        )
+        .join("");
+      entry.placeholder = RCPT[field].length ? "" : placeholder.replace("여러 명은 쉼표로", "이름 또는 주소");
+    };
+    // 코드에서 value 를 넣으면 칩을 다시 만든다
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get() {
+        return desc.get.call(input);
+      },
+      set(v) {
+        desc.set.call(input, v);
+        if (syncing) return;
+        RCPT[field] = parseRecipients(v);
+        paint();
+      },
+    });
+
+    const add = (list) => {
+      const have = new Set(RCPT[field].map((r) => r.email.toLowerCase()));
+      list.forEach((r) => {
+        if (String(r.name || "").includes("@")) r.name = "";
+        if (!have.has(r.email.toLowerCase())) {
+          RCPT[field].push(r);
+          have.add(r.email.toLowerCase());
+          if (!r.name) fillNameFromDirectory(r);
+        }
+      });
+      write();
+      paint();
+    };
+    // 주소만 쳐서 만든 칩도 조직도에 있으면 '이름/소속' 을 붙인다 (자동완성으로 고른 것과 같은 모양)
+    const fillNameFromDirectory = (r) => {
+      lookupDirectory(r.email)
+        .then((people) => {
+          const p = (people || []).find((x) => String(x.email || "").toLowerCase() === r.email.toLowerCase());
+          if (!p?.name || !RCPT[field].includes(r) || r.name) return;
+          const org = directoryOrg(p);
+          r.name = org ? `${p.name}/${org}` : p.name;
+          write();
+          paint();
+        })
+        .catch(() => {});
+    };
+    // 입력칸에 친 글자가 주소 모양이면 칩으로 만든다
+    const commit = () => {
+      const list = parseRecipients(entry.value);
+      if (!list.length) return false;
+      add(list);
+      entry.value = "";
+      return true;
+    };
+    box.rcptAdd = (r) => add([r]);
+
+    box.addEventListener("click", (event) => {
+      const x = event.target.closest("[data-x]");
+      if (x) {
+        RCPT[field].splice(Number(x.dataset.x), 1);
+        write();
+        paint();
+        entry.focus();
+        return;
+      }
+      if (!event.target.closest(".rcpt-chip")) entry.focus();
+    });
+    // 칩을 두 번 누르면 고칠 수 있게 글자로 되돌린다
+    box.addEventListener("dblclick", (event) => {
+      const chip = event.target.closest(".rcpt-chip");
+      if (!chip) return;
+      const [r] = RCPT[field].splice(Number(chip.dataset.i), 1);
+      write();
+      paint();
+      entry.value = formatRecipient(r);
+      entry.focus();
+    });
+    entry.addEventListener("keydown", (event) => {
+      const menuOpen = !document.getElementById(`ac-${field}`)?.hidden;
+      if ((event.key === "," || event.key === ";") && commit()) event.preventDefault();
+      else if ((event.key === "Enter" || event.key === "Tab") && !menuOpen && entry.value.trim()) {
+        if (commit()) event.preventDefault();
+      } else if (event.key === "Backspace" && !entry.value && RCPT[field].length) {
+        RCPT[field].pop();
+        write();
+        paint();
+      }
+    });
+    entry.addEventListener("paste", () => window.setTimeout(() => {
+      if (/[,;]/.test(entry.value) || RCPT_EMAIL.test(entry.value.trim())) commit();
+    }, 0));
+    entry.addEventListener("blur", () => window.setTimeout(() => {
+      if (document.activeElement !== entry) commit();
+    }, 200));
+    paint();
+  });
+}
+
+function setupAutocomplete() {
+  setupRecipientChips();
+  document.querySelectorAll("#composeForm .rcpt-entry").forEach((input) => {
+    const field = input.dataset.field;
+    const menu = document.getElementById(`ac-${field}`);
+    const box = input.closest(".rcpt-box");
+    if (!menu || !box) return;
+    let active = -1;
 
     const closeMenu = () => {
       menu.hidden = true;
@@ -1615,26 +1726,27 @@ function setupAutocomplete() {
       active = -1;
     };
 
-    const applyChoice = (email) => {
-      const { start } = currentToken();
-      const before = input.value.slice(0, start);
-      input.value = `${before}${before && !before.trimEnd().endsWith(",") ? " " : ""}${email}, `;
+    const applyChoice = (item) => {
+      box.rcptAdd({ name: item.dataset.name || "", email: item.dataset.email });
+      input.value = "";
       closeMenu();
       input.focus();
     };
 
     const paint = (matches) => {
       if (!matches.length) return closeMenu();
-      const q = currentToken().text;
+      const q = input.value.trim();
       menu.innerHTML = matches
         .map((c, i) => {
           const org = c.guess ? "" : directoryOrg(c);
+          const label = `${c.name || ""}${org ? `/${org}` : ""}`;
+          const tag = c.tag || staffTagFor(c.email);
           return `
           <button type="button" class="ac-item ${i === active ? "active" : ""}" data-email="${escapeHtml(c.email)}"
-            title="${escapeHtml(`${c.name || ""}${org ? `/${org}` : ""} <${c.email}>`)}">
+            data-name="${escapeHtml(c.name ? label : "")}" title="${escapeHtml(`${label} <${c.email}>${tag ? ` · ${tag}` : ""}`)}">
             <span class="ac-name">${acMark(c.name || c.email, q)}</span>${
               org ? `<span class="ac-org">/${acMark(org, q)}</span>` : ""
-            }<span class="ac-email">&lt;${acMark(c.email, q)}&gt;${c.guess ? " · 추정" : ""}</span>
+            }${tag ? `<span class="ac-tag">${acMark(tag, q)}</span>` : ""}<span class="ac-email">&lt;${acMark(c.email, q)}&gt;${c.guess ? " · 추정" : ""}</span>
           </button>`;
         })
         .join("");
@@ -1642,24 +1754,21 @@ function setupAutocomplete() {
     };
 
     const showMenu = () => {
-      const { text } = currentToken();
-      // 주고받은 연락처를 먼저 그려서 바로 반응하게 하고,
-      // 조직도 결과가 오면 이어 붙인다.
+      const text = input.value.trim();
+      if (!text) return closeMenu();
+      // 주고받은 연락처를 먼저 그려서 바로 반응하게 하고, 조직도 결과가 오면 이어 붙인다.
       paint(contactMatches(text));
       lookupDirectory(text).then((people) => {
-        // 입력이 그새 바뀌었으면 버린다
-        if (currentToken().text !== text) return;
+        if (input.value.trim() !== text) return; // 입력이 그새 바뀌었으면 버린다
         const dirEmails = new Set(people.map((p) => p.email));
-        // 조직도에 실제 이름이 있으면 '추정' 항목은 버린다.
-        // (deniz@dgist.ac.kr 가 'DGIST 메일'로 뜨던 문제)
-        const local = contactMatches(text).filter(
-          (c) => !(c.guess && dirEmails.has(c.email)),
-        );
+        // 조직도에 실제 이름이 있으면 '추정' 항목은 버린다
+        const local = contactMatches(text).filter((c) => !(c.guess && dirEmails.has(c.email)));
         const dirByEmail = new Map(people.map((p) => [p.email, p]));
-        // 메일에서 본 사람이 조직도에도 있으면 조직도의 이름·소속을 붙인다
+        // 조직도에 있는 사람이면 이름·소속은 늘 조직도 것을 쓴다.
+        // (이름으로 찾든 주소로 찾든 '김유준/기초학부(학생)' 처럼 같은 모양으로 나오게)
         local.forEach((c) => {
           const p = dirByEmail.get(c.email);
-          if (p && !c.org) Object.assign(c, { name: p.name || c.name, org: directoryOrg(p) });
+          if (p) Object.assign(c, { name: p.name || c.name, org: directoryOrg(p), guess: false });
         });
         const seen = new Set(local.map((c) => c.email));
         paint([...local, ...people.filter((p) => !seen.has(p.email))].slice(0, 8));
@@ -1679,9 +1788,10 @@ function setupAutocomplete() {
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         active = (active - 1 + items.length) % items.length;
-      } else if (event.key === "Enter" && active >= 0) {
+      } else if ((event.key === "Enter" || event.key === "Tab") && (active >= 0 || items.length === 1)) {
         event.preventDefault();
-        applyChoice(items[active].dataset.email);
+        event.stopImmediatePropagation();
+        applyChoice(items[Math.max(active, 0)]);
         return;
       } else if (event.key === "Escape") {
         closeMenu();
@@ -1695,7 +1805,7 @@ function setupAutocomplete() {
       const item = event.target.closest(".ac-item");
       if (item) {
         event.preventDefault();
-        applyChoice(item.dataset.email);
+        applyChoice(item);
       }
     });
     input.addEventListener("blur", () => setTimeout(closeMenu, 150));
@@ -1741,19 +1851,28 @@ function bindRichToolbar() {
     }
   };
 
-  toolbar.addEventListener("click", (event) => {
+  toolbar.addEventListener("click", async (event) => {
     const btn = event.target.closest("[data-cmd]");
     if (!btn) return;
     event.preventDefault();
     const cmd = btn.dataset.cmd;
-    if (cmd === "createLink") {
-      const url = window.prompt("링크 주소를 넣어 주세요", "https://");
-      if (url) run("createLink", url);
-      return;
-    }
-    if (cmd === "insertImage") {
-      const url = window.prompt("사진 주소(URL)를 넣어 주세요", "https://");
-      if (url) run("insertImage", url);
+    if (cmd === "createLink" || cmd === "insertImage") {
+      // 입력 창이 뜨면 본문에서 고른 글자가 풀린다. 기억했다가 되살린 뒤 적용한다.
+      const sel = window.getSelection();
+      const range = sel && sel.rangeCount && rich.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+      const url = await uiPrompt(
+        cmd === "createLink" ? "연결할 주소를 넣어 주세요." : "넣을 사진의 주소(URL)를 넣어 주세요.",
+        "https://",
+        { title: cmd === "createLink" ? "링크 넣기" : "사진 넣기", icon: cmd === "createLink" ? "forward" : "file", ok: "넣기" },
+      );
+      if (!url || url === "https://") return;
+      rich.focus();
+      if (range) {
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(range);
+      }
+      run(cmd, url);
       return;
     }
     run(cmd, btn.dataset.arg);
@@ -1794,6 +1913,12 @@ function bindRichToolbar() {
 }
 
 /* --- 주소찾기 --- */
+/** 주소찾기에서 고른 사람 → '"이름/소속" <주소>' (웹메일 받는 사람 칩과 같은 모양) */
+function pickerRecipient(p) {
+  const org = p.dept ? shortText(p.dept, 30) : "";
+  return formatRecipient({ name: p.name ? `${p.name}${org ? `/${org}` : ""}` : "", email: p.email });
+}
+
 function openAddressPicker(targetName) {
   const dialog = $("#addressPicker");
   if (!dialog) return;
@@ -1817,7 +1942,7 @@ function bindAddressPicker() {
           .map(
             (p) => `
         <label class="picker-row">
-          <input type="checkbox" value="${escapeHtml(p.email)}" ${chosen.has(p.email) ? "checked" : ""} />
+          <input type="checkbox" value="${escapeHtml(pickerRecipient(p))}" ${chosen.has(pickerRecipient(p)) ? "checked" : ""} />
           <span class="picker-main">
             <strong>${escapeHtml(p.name || p.email)}</strong>
             <span>${escapeHtml(p.email)}${p.dept ? " · " + escapeHtml(shortText(p.dept, 22)) : ""}</span>
@@ -1899,16 +2024,138 @@ function collectDraft() {
   };
 }
 
+/* ===== 메일 자동 저장 =====
+   쓰는 동안 잠깐 멈추면 이 컴퓨터에(1.5초), 조금 더 지나면 서버 '임시 보관함'에(15초) 저장한다.
+   - 서버에는 같은 메일을 번호(draftId)로 묶어 넣어, 예전 판은 서버가 지운 표시로 정리한다.
+   - 내용이 그대로면 서버에 다시 넣지 않는다(서명 비교).
+   - 자동 저장에는 첨부가 3MB 를 넘으면 첨부를 빼고 넣는다(15초마다 수 MB 를 올리지 않게).
+     '임시저장' 단추는 첨부까지 모두 넣는다.
+   - 앱을 껐다 켜면 '메일 쓰기' 를 열 때 이어서 쓸지 묻는다(restoreDraftIfAny). */
+const AUTOSAVE_LOCAL_MS = 1500;
+const AUTOSAVE_SERVER_MS = 15000;
+const AUTOSAVE_ATTACH_MAX = 3 * 1024 * 1024;
+const autosave = { local: 0, server: 0, lastSig: "", busy: false, pending: false, dirty: false };
+
+function ensureDraftId() {
+  const form = $("#composeForm");
+  if (!form.dataset.draftId) {
+    form.dataset.draftId = `bp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  return form.dataset.draftId;
+}
+
+function draftSignature(d) {
+  return JSON.stringify([d.to, d.cc, d.bcc, d.subject, d.body, (state.attachments || []).map((a) => `${a.filename}:${a.size}`)]);
+}
+
+function draftNote(text) {
+  const note = $("#draftNote");
+  if (note) note.textContent = text;
+}
+
+function hhmm(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function saveLocalDraft() {
+  if (!composeHasContent()) return;
+  const d = collectDraft();
+  if (!d) return;
+  d.draftId = ensureDraftId();
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+  } catch (error) {
+    /* 저장소가 막혀 있으면 서버 쪽만 쓴다 */
+  }
+}
+
+async function saveDraftToServer({ auto }) {
+  if (!composeHasContent()) return;
+  const d = collectDraft();
+  if (!d) return;
+  const sig = draftSignature(d);
+  if (auto && sig === autosave.lastSig) return;
+  if (autosave.busy) {
+    autosave.pending = true; // 저장 중에 또 바뀌면 끝난 뒤 한 번 더
+    return;
+  }
+  autosave.busy = true;
+  saveLocalDraft();
+  const atts = state.attachments || [];
+  const attBytes = atts.reduce((n, a) => n + Number(a.size || 0), 0);
+  const withAtts = !auto || attBytes <= AUTOSAVE_ATTACH_MAX;
+  draftNote(auto ? "자동 저장 중…" : "저장하는 중…");
+  try {
+    await api("/api/mail/save-draft", {
+      method: "POST",
+      body: JSON.stringify({
+        ...d,
+        draftId: ensureDraftId(),
+        attachments: withAtts ? atts.map((a) => ({ filename: a.filename, content: a.content })) : [],
+      }),
+    });
+    autosave.lastSig = sig;
+    autosave.dirty = false;
+    draftNote(
+      `${auto ? "자동 저장됨" : "임시 보관함에 저장됨"} ${hhmm()}${withAtts || !atts.length ? "" : " · 첨부 제외"}`,
+    );
+  } catch (error) {
+    // 자동 저장 실패는 조용히 알리고(이 컴퓨터에는 남아 있다), 직접 누른 저장만 알림을 띄운다
+    draftNote(auto ? "서버 자동 저장 실패 · 이 컴퓨터에는 저장됨" : "");
+    if (!auto) showToast(error.message);
+  } finally {
+    autosave.busy = false;
+    if (autosave.pending) {
+      autosave.pending = false;
+      scheduleAutosave();
+    }
+  }
+}
+
+function scheduleAutosave() {
+  if (state.mailPane !== "compose" || !composeHasContent()) return;
+  autosave.dirty = true;
+  window.clearTimeout(autosave.local);
+  window.clearTimeout(autosave.server);
+  autosave.local = window.setTimeout(saveLocalDraft, AUTOSAVE_LOCAL_MS);
+  autosave.server = window.setTimeout(() => saveDraftToServer({ auto: true }), AUTOSAVE_SERVER_MS);
+}
+
+/** 보냈거나 버렸을 때: 예약된 저장을 멈추고 이 컴퓨터 저장본을 지운다 */
+function clearAutosave() {
+  window.clearTimeout(autosave.local);
+  window.clearTimeout(autosave.server);
+  autosave.lastSig = "";
+  autosave.pending = false;
+  autosave.dirty = false;
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch (error) {
+    /* 무시 */
+  }
+  draftNote("");
+}
+
+function bindAutosave() {
+  const form = $("#composeForm");
+  if (!form) return;
+  // 제목·본문·받는 사람 칩(숨은 칸에 input 을 쏜다)·HTML 칸 모두 여기로 올라온다
+  form.addEventListener("input", scheduleAutosave);
+  // 앱을 닫을 때 서버에는 못 넣어도 이 컴퓨터에는 남긴다
+  window.addEventListener("beforeunload", () => {
+    if (state.mailPane === "compose") saveLocalDraft();
+  });
+}
+
 function bindComposeExtras() {
-  $("#saveDraftButton")?.addEventListener("click", () => {
-    const draft = collectDraft();
-    if (!draft) return;
+  // 임시저장 단추: 첨부까지 모두 지금 서버 임시 보관함에 (자동 저장은 아래 scheduleAutosave)
+  $("#saveDraftButton")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-      $("#draftNote").textContent = "임시저장됨";
-      window.setTimeout(() => ($("#draftNote").textContent = ""), 2500);
-    } catch (error) {
-      showToast("임시저장하지 못했습니다.");
+      await saveDraftToServer({ auto: false });
+    } finally {
+      btn.disabled = false;
     }
   });
 
@@ -1934,7 +2181,7 @@ function bindComposeExtras() {
 }
 
 /** 임시저장한 내용이 있으면 물어보고 되살린다 */
-function restoreDraftIfAny() {
+async function restoreDraftIfAny() {
   let draft = null;
   try {
     draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
@@ -1943,11 +2190,14 @@ function restoreDraftIfAny() {
   }
   if (!draft || !(draft.to || draft.subject || draft.body)) return false;
   const when = draft.savedAt ? formatEmailDate(draft.savedAt) : "";
-  if (!window.confirm(`임시저장한 메일이 있습니다${when ? ` (${when})` : ""}. 이어서 쓸까요?`)) {
+  if (!(await uiConfirm(`쓰다 만 메일이 있어요${when ? ` (${when} 자동 저장)` : ""}. 이어서 쓸까요?`, { title: "쓰던 메일", ok: "이어서 쓰기", cancel: "새로 쓰기", icon: "edit" }))) {
+    // 새로 쓰기: 이 컴퓨터 저장본만 지운다. 서버 임시 보관함 것은 그대로 둔다(거기서 열 수 있다).
     localStorage.removeItem(DRAFT_KEY);
     return false;
   }
   const form = $("#composeForm");
+  // 같은 번호로 이어서 저장해야 서버 임시 보관함에 같은 메일이 여러 벌 생기지 않는다
+  if (draft.draftId) form.dataset.draftId = draft.draftId;
   if (form.elements.to) form.elements.to.value = draft.to;
   if (form.elements.cc) form.elements.cc.value = draft.cc;
   if (form.elements.bcc) form.elements.bcc.value = draft.bcc;
@@ -1958,7 +2208,8 @@ function restoreDraftIfAny() {
     toggle.dispatchEvent(new Event("change"));
   }
   setComposeBody(draft.body);
-  localStorage.removeItem(DRAFT_KEY);
+  autosave.lastSig = draftSignature(collectDraft());
+  draftNote(when ? `${when}에 저장한 내용` : "");
   return true;
 }
 
@@ -2051,10 +2302,8 @@ async function runMailMore(action, mail) {
     case "move": {
       const folders = await loadMailFolderChoices();
       if (!folders.length) return showToast("옮길 폴더를 찾지 못했습니다.");
-      const names = folders.map((f, i) => `${i + 1}. ${f.name}`).join("\n");
-      const pick = window.prompt(`어느 폴더로 옮길까요?\n\n${names}`, "1");
-      const idx = Number(pick) - 1;
-      if (!(idx >= 0 && idx < folders.length)) return;
+      const idx = await uiChoose("어느 편지함으로 옮길까요?", folders.map((f) => ({ label: f.name, icon: "folder" })));
+      if (idx === null) return;
       try {
         await api("/api/mail/move", {
           method: "POST",
@@ -2086,8 +2335,18 @@ async function runMailMore(action, mail) {
     }
 
     case "snooze": {
-      const mins = Number(window.prompt("몇 분 뒤에 다시 알려드릴까요?", "60"));
-      if (!(mins > 0)) return;
+      const choice = await uiChoose(
+        "언제 다시 알려 드릴까요?",
+        [
+          { label: "30분 뒤", icon: "clock" },
+          { label: "1시간 뒤", icon: "clock" },
+          { label: "3시간 뒤", icon: "clock" },
+          { label: "내일 이맘때", icon: "clock" },
+        ],
+        { message: "앱이 켜져 있는 동안만 알려 드려요." },
+      );
+      if (choice === null) return;
+      const mins = [30, 60, 180, 1440][choice];
       // 앱이 켜져 있는 동안만 동작한다 (브라우저 타이머)
       showToast(`${mins}분 뒤에 다시 알려드릴게요.`);
       window.setTimeout(() => {
@@ -2782,6 +3041,10 @@ function syllabusLink(course) {
 }
 
 function renderCourses() {
+  if (state.courseAnn === null) loadCourseAnn();
+  else renderCourseAnn();
+  // 공지사항 탭을 보는 중이면 과목 카드는 그리지 않는다 (탭을 바꿀 때 setCourseTab 이 다시 부른다)
+  if (state.courseTab === "ann") return;
   const grid = $("#courseGrid");
   const empty = $("#courseEmpty");
   const query = state.query.trim().toLowerCase();
@@ -2835,6 +3098,7 @@ function renderCourses() {
           </div>
           <div class="course-next">${nextLine}</div>
           ${courseMetaLine(course)}
+          ${courseStaffLine(course)}
           ${syllabusLink(course)}
         </article>
       `;
@@ -2875,8 +3139,9 @@ function renderCourses() {
     btn.addEventListener("click", async (event) => {
       event.stopPropagation();
       const label = btn.dataset.remove;
-      const ok = window.confirm(
-        `'${shortText(label, 30)}' 과목을 목록에서 제거할까요?\n받아둔 자료는 삭제되지 않으며, '숨긴 과목 복원'으로 되돌릴 수 있습니다.`,
+      const ok = await uiConfirm(
+        `'${shortText(label, 30)}' 과목을 목록에서 뺄까요?\n받아 둔 자료는 그대로이고, '숨긴 과목 되돌리기'로 다시 넣을 수 있어요.`,
+        { title: "과목 빼기", ok: "빼기" },
       );
       if (!ok) return;
       state.selection.hidden = [...new Set([...(state.selection.hidden || []), label])];
@@ -3537,7 +3802,7 @@ function bindShelves() {
   if (!view) return;
 
   $("#addShelfButton").addEventListener("click", async () => {
-    const name = window.prompt("새 폴더 이름", "새 폴더");
+    const name = await uiPrompt("새 폴더 이름을 정해 주세요.", "새 폴더", { title: "폴더 만들기", icon: "folder", ok: "만들기" });
     if (name === null) return;
     state.shelves = [
       ...(state.shelves || []),
@@ -3561,7 +3826,7 @@ function bindShelves() {
       showToast("학기 정보를 가진 자료가 없습니다.");
       return;
     }
-    if (!window.confirm(`학기 ${groups.size}개로 폴더를 만듭니다. 기존 폴더는 그대로 둡니다.`)) return;
+    if (!(await uiConfirm(`학기 ${groups.size}개로 폴더를 만듭니다. 기존 폴더는 그대로 둡니다.`, { title: "학기별 폴더 만들기", icon: "folder", ok: "만들기" }))) return;
     const existing = new Set((state.shelves || []).map((s) => s.name));
     const added = [...groups.entries()]
       .filter(([name]) => !existing.has(name))
@@ -3597,7 +3862,7 @@ function bindShelves() {
     if (del) {
       const shelf = state.shelves.find((s) => s.id === del.dataset.delShelf);
       if (!shelf) return;
-      if (!window.confirm(`'${shelf.name}' 폴더를 지울까요?\n(자료 파일 자체는 지워지지 않습니다.)`)) return;
+      if (!(await uiConfirm(`'${shelf.name}' 폴더를 지울까요?\n안에 담은 자료 파일은 지워지지 않아요.`, { title: "폴더 지우기", danger: true, ok: "지우기" }))) return;
       state.shelves = state.shelves.filter((s) => s.id !== del.dataset.delShelf);
       await persistShelves();
       renderShelves();
@@ -4640,7 +4905,7 @@ function renderCalendarDayList(byDay) {
 async function refreshAll() {
   refreshAll.full = Date.now();
   try {
-    const [status, files, task, deadlines, selection, emails, config, myEvents, timetable, courseState, health] = await Promise.all([
+    const [status, files, task, deadlines, selection, emails, config, myEvents, timetable, courseState, health, courseStaff] = await Promise.all([
       api("/api/status"),
       api("/api/files"),
       api("/api/task"),
@@ -4654,6 +4919,8 @@ async function refreshAll() {
       api("/api/course-state").catch(() => ({ current: [] })),
       // 마지막 동기화 시각 (자동 가져오기가 기본이라, 언제 했는지 보여 준다)
       api("/api/health").catch(() => null),
+      // 과목별 교수·조교 (LMS 코스 사용자 + 조직도 이메일)
+      api("/api/course-staff").catch(() => ({ courses: {} })),
     ]);
     if (health) {
       state.health = health;
@@ -4664,6 +4931,7 @@ async function refreshAll() {
     renderMailRefreshAgo();
     state.myEvents = myEvents.events || [];
     state.courseState = courseState || { current: [] };
+    setCourseStaff(courseStaff?.courses || {});
     // 학사일정은 하루 한 번만 받아오면 되므로 첫 로드 때만 요청한다
     loadAcademic();
     state.timetable = timetable.entries || [];
@@ -4689,6 +4957,7 @@ async function refreshAll() {
     if (newMailNote) newMailNote.textContent = unreadInbox ? "안 읽은 메일" : "모두 읽었습니다";
     renderTask(task);
     state._taskRunning = Boolean(task.running);
+    if (state.courseAnn !== null) loadCourseAnn();
   } catch (error) {
     // 앱 서버가 잠깐 없을 때(재설치·재시작) 12초마다 같은 오류를 띄우지 않는다.
     // 화면의 자료는 그대로 두고 연결이 돌아오면 다시 받는다.
@@ -4889,10 +5158,13 @@ function mailTwoPane() {
 
 function showMailPane(pane) {
   state.mailPane = pane;
+  // 메일을 쓸 때는 폴더·목록이 필요 없다. 그 자리를 작성 칸에 준다 (목록으로 돌아오면 원래대로)
+  $("#mailApp")?.classList.toggle("composing", pane === "compose");
   $("#mailListPane").hidden = mailTwoPane() ? false : pane !== "list";
   $("#mailReadPane").hidden = pane !== "read";
   $("#mailComposePane").hidden = pane !== "compose";
   syncReadingRow();
+  navPush();
 }
 
 /** 지금 읽고 있는 메일을 목록에서도 짚어 준다 */
@@ -5094,7 +5366,7 @@ function bindEvents() {
   $("#eventDeleteButton").addEventListener("click", async () => {
     const id = $("#eventForm").elements.id.value;
     if (!id) return;
-    if (!window.confirm("이 일정을 삭제할까요?")) return;
+    if (!(await uiConfirm("이 일정을 지울까요?", { title: "일정 지우기", danger: true, ok: "지우기" }))) return;
     try {
       await api("/api/my-events/delete", { method: "POST", body: JSON.stringify({ id }) });
       showToast("일정을 삭제했습니다.");
@@ -5137,7 +5409,12 @@ function bindEvents() {
     $("#mailRailToggle")?.setAttribute("aria-expanded", String(open));
   };
   $("#mailRailToggle")?.addEventListener("click", () => {
-    setRail(!$("#mailApp")?.classList.contains("rail-open"));
+    const app = $("#mailApp");
+    if (app?.classList.contains("rail-folded") && !mailRailIsStrip()) {
+      setMailRailFolded(false, true);
+      return;
+    }
+    setRail(!app?.classList.contains("rail-open"));
   });
   $("#mailScrim")?.addEventListener("click", () => setRail(false));
   document.addEventListener("keydown", (event) => {
@@ -5154,7 +5431,7 @@ function bindEvents() {
   });
 
   // 폴더 네비게이션
-  $("#mailFolders").addEventListener("click", (event) => {
+  $("#mailFolders").addEventListener("click", async (event) => {
     // 받은 편지함 앞의 꺾쇠 = 분류 접기/펴기. 폴더를 옮기지는 않는다.
     if (event.target.closest("[data-cats-toggle]")) {
       state.mailCatsOpen = state.mailCatsOpen === false;
@@ -5184,7 +5461,7 @@ function bindEvents() {
     if (
       state.mailPane === "compose" &&
       composeHasContent() &&
-      !window.confirm("작성 중인 메일이 있습니다. 저장하지 않고 이동할까요?")
+      !(await uiConfirm("쓰던 메일이 있어요. 저장하지 않고 이동할까요?", { title: "쓰던 메일", ok: "이동", icon: "edit" }))
     ) {
       return;
     }
@@ -5368,7 +5645,7 @@ function bindEvents() {
       return;
     }
     if (kind === "delete") {
-      if (!window.confirm(`선택한 ${mails.length}통을 삭제할까요?`)) return;
+      if (!(await uiConfirm(`고른 메일 ${mails.length}통을 지울까요?`, { title: "메일 지우기", danger: true, ok: "지우기" }))) return;
     }
     // 이미 있는 한 통짜리 처리를 그대로 쓴다 (엔드포인트를 새로 만들지 않는다)
     try {
@@ -5439,9 +5716,9 @@ function bindEvents() {
       showMailPane("list");
     }
   });
-  $("#readDeleteButton").addEventListener("click", () => {
+  $("#readDeleteButton").addEventListener("click", async () => {
     const mail = state.replyContext;
-    if (mail && window.confirm("이 메일을 삭제할까요?")) {
+    if (mail && (await uiConfirm("이 메일을 지울까요?", { title: "메일 지우기", danger: true, ok: "지우기" }))) {
       deleteEmail(mail);
       showMailPane("list");
     }
@@ -5496,7 +5773,7 @@ function bindEvents() {
   // 메일 쓰기 / 발송
   $("#composeButton").addEventListener("click", () => switchView("compose"));
   $("#closeComposeDialog").addEventListener("click", closeCompose);
-  $("#cancelComposeButton").addEventListener("click", closeCompose);
+  $("#cancelComposeButton").addEventListener("click", discardCompose);
   // 참조 줄은 늘 보이므로, ＋는 숨은참조만 여닫는다
   $("#toggleCcBcc").addEventListener("click", () => {
     const bcc = $("#bccField");
@@ -5532,6 +5809,7 @@ function bindEvents() {
   $("#driveImportButton").addEventListener("click", importFromDrive);
 
   setupAutocomplete();
+  bindAutosave();
   $("#composeForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -5552,6 +5830,7 @@ function bindEvents() {
       inReplyTo: form.dataset.inReplyTo || "",
       references: form.dataset.references || "",
       attachments: (state.attachments || []).map((a) => ({ filename: a.filename, content: a.content })),
+      draftId: form.dataset.draftId || "",
     };
     if (!payload.to) {
       showToast("받는 사람 주소를 입력해 주세요.");
@@ -5560,32 +5839,36 @@ function bindEvents() {
 
     // '개별' — 한 명씩 따로 보내 서로의 주소가 안 보이게 한다
     const separately = Boolean($("#sendSeparately")?.checked);
-    const targets = separately
-      ? payload.to.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
-      : [payload.to];
+    const targets = separately ? parseRecipients(payload.to).map(formatRecipient) : [payload.to];
     if (separately && targets.length > 1) {
-      if (!window.confirm(`${targets.length}명에게 한 통씩 따로 보냅니다. 계속할까요?`)) return;
+      if (!(await uiConfirm(`${targets.length}명에게 한 통씩 따로 보냅니다.`, { title: "따로 보내기", icon: "send", ok: "보내기" }))) return;
     }
 
     const sendBtn = $("#sendMailButton");
     sendBtn.disabled = true;
     try {
       let sent = 0;
+      const warnings = [];
       for (const one of targets) {
         // 개별 발송에서는 참조·숨은참조를 첫 통에만 넣는다
         const body = separately
           ? { ...payload, to: one, cc: sent === 0 ? payload.cc : "", bcc: sent === 0 ? payload.bcc : "" }
           : payload;
-        await api("/api/send-email", { method: "POST", body: JSON.stringify(body) });
+        const res = await api("/api/send-email", { method: "POST", body: JSON.stringify(body) });
+        if (res.refused?.length) warnings.push(`거절된 주소: ${res.refused.join(", ")}`);
+        if (res.savedToSent === false) warnings.push("보낸 편지함에 사본을 못 남겼어요");
         sent += 1;
       }
-      showToast(sent > 1 ? `${sent}명에게 각각 보냈습니다.` : "메일을 보냈습니다.");
-      try {
-        localStorage.removeItem(DRAFT_KEY);
-      } catch (error) {
-        /* 무시 */
-      }
-      closeCompose();
+      showToast(
+        (sent > 1 ? `${sent}명에게 각각 보냈습니다.` : "메일을 보냈습니다.") +
+          (warnings.length ? ` (${[...new Set(warnings)].join(" · ")})` : ""),
+      );
+      // 보낸 편지함에 방금 보낸 메일이 보이게 바로 받아 온다
+      window.setTimeout(() => refreshMailNow?.(), 800);
+      clearAutosave();
+      form.dataset.draftId = ""; // 서버 임시저장본은 보내면서 서버가 정리했다
+      state.attachments = [];
+      showMailPane("list");
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -5603,8 +5886,8 @@ function bindEvents() {
       showToast(error.message);
     }
   });
-  $("#courseChangeSyncButton").addEventListener("click", () => {
-    const confirmed = window.confirm("전체 동기화를 시작할까요? 바뀐 과목의 자료를 처음부터 다시 검사합니다.");
+  $("#courseChangeSyncButton").addEventListener("click", async () => {
+    const confirmed = await uiConfirm("바뀐 과목의 자료를 처음부터 다시 확인합니다.", { title: "전체 동기화", icon: "sync", ok: "시작" });
     if (confirmed) startRun("/api/run", "전체 동기화", { confirm: true, mode: "full" });
   });
 
@@ -5694,17 +5977,19 @@ function bindEvents() {
 
   $("#bulkDriveButton")?.addEventListener("click", () => runBulkFileAction("drive", "Drive에 올리는 중"));
   $("#bulkNotesButton")?.addEventListener("click", () => runBulkFileAction("notes", "삼성 노트로 보내는 중"));
-  $("#bulkHideButton")?.addEventListener("click", () => {
+  $("#bulkHideButton")?.addEventListener("click", async () => {
     const count = state.selectedFiles.size;
     if (!count) return;
-    if (!window.confirm(`고른 자료 ${count}개를 목록에서 뺄까요?\n\n파일과 Drive 사본은 그대로 남습니다.`)) return;
+    if (!(await uiConfirm(`고른 자료 ${count}개를 목록에서 뺄까요?\n파일과 Drive 사본은 그대로 남아요.`, { title: "목록에서 빼기", ok: "빼기" }))) return;
     runBulkFileAction("hide", "목록에서 빼는 중");
   });
 
-  $("#fullSyncButton")?.addEventListener("click", () => {
-    const confirmed = window.confirm(
-      "전체 동기화를 시작할까요? 모든 과목의 자료를 처음부터 다시 검사하므로 수 분 정도 걸립니다.",
-    );
+  $("#fullSyncButton")?.addEventListener("click", async () => {
+    const confirmed = await uiConfirm("모든 과목의 자료를 처음부터 다시 확인합니다. 몇 분 걸려요.", {
+      title: "전체 다시 확인",
+      icon: "sync",
+      ok: "시작",
+    });
     if (confirmed) {
       startRun("/api/run", "전체 동기화", { confirm: true, mode: "full" });
     }
@@ -5759,8 +6044,12 @@ function bindEvents() {
       .catch((error) => showToast(error.message));
   });
 
-  $("#disconnectGoogleButton").addEventListener("click", () => {
-    const confirmed = window.confirm("이 컴퓨터에 저장된 구글 로그인 정보를 제거할까요?");
+  $("#disconnectGoogleButton").addEventListener("click", async () => {
+    const confirmed = await uiConfirm("이 컴퓨터에 저장된 구글 로그인을 지웁니다. Drive·캘린더 연동이 멈춰요.", {
+      title: "구글 연결 해제",
+      danger: true,
+      ok: "해제",
+    });
     if (confirmed) {
       startRun("/api/google/disconnect", "구글 로그인 해제");
     }
@@ -5772,7 +6061,7 @@ function bindEvents() {
   });
 
   $("#clearGeminiKey")?.addEventListener("click", async () => {
-    const confirmed = window.confirm("저장된 Gemini API 키를 삭제할까요? AI 요약 기능이 중지됩니다.");
+    const confirmed = await uiConfirm("저장된 Gemini 키를 지웁니다. 메일 요약·번역이 멈춰요.", { title: "Gemini 키 지우기", danger: true, ok: "지우기" });
     if (!confirmed) return;
     try {
       await api("/api/config", {
@@ -6428,10 +6717,11 @@ async function renderStorage() {
       const names = [...semesters, ...courses];
       if (!names.length) return;
       if (
-        !window.confirm(
-          `다음 항목의 강의자료를 지웁니다.\n\n${names.join(", ")}\n\n` +
-            "직접 넣어 둔 파일과 드라이브·내 컴퓨터 사본은 지워지지 않습니다.\n지난 학기 자료는 LMS에서 다시 받지 못할 수 있습니다. 계속할까요?",
-        )
+        !(await uiConfirm(
+          `다음 강의자료를 앱 보관함에서 지웁니다.\n${names.join(", ")}\n\n` +
+            "직접 넣은 파일과 드라이브·내 컴퓨터 사본은 그대로예요. 지난 학기 자료는 LMS에서 다시 받지 못할 수 있어요.",
+          { title: "강의자료 정리", danger: true, ok: "지우기" },
+        ))
       )
         return;
       try {
@@ -6479,10 +6769,11 @@ function bindBackup() {
     const withSecrets = $("#backupSecrets")?.checked;
     if (
       withSecrets &&
-      !window.confirm(
-        "비밀번호가 평문으로 담긴 파일이 만들어집니다.\n" +
-          "다른 사람에게 전달되지 않도록 주의해 주세요. 계속할까요?",
-      )
+      !(await uiConfirm("비밀번호가 그대로 담긴 파일이 만들어져요. 다른 사람에게 주지 마세요.", {
+        title: "비밀번호 포함 내보내기",
+        icon: "alert",
+        ok: "내보내기",
+      }))
     )
       return;
     try {
@@ -6506,7 +6797,7 @@ function bindBackup() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!window.confirm("백업 파일의 내용으로 현재 설정을 덮어씁니다. 계속할까요?")) return;
+    if (!(await uiConfirm("백업 파일의 내용으로 지금 설정을 덮어씁니다.", { title: "설정 불러오기", icon: "download", ok: "덮어쓰기" }))) return;
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -6996,7 +7287,7 @@ function bindTimetable() {
 
   $("#ttDeleteButton")?.addEventListener("click", async () => {
     const id = $("#ttForm").elements.id.value;
-    if (!id || !window.confirm("이 수업을 시간표에서 지울까요?")) return;
+    if (!id || !(await uiConfirm("이 수업을 시간표에서 지울까요?", { title: "수업 지우기", danger: true, ok: "지우기" }))) return;
     try {
       const res = await api("/api/timetable/delete", { method: "POST", body: JSON.stringify({ id }) });
       state.timetable = res.entries || [];
@@ -7021,11 +7312,19 @@ function bindTimetable() {
         method: "POST",
         body: JSON.stringify({ image, mime: file.type || "image/png" }),
       });
-      const replace =
-        (state.timetable || []).length > 0 &&
-        window.confirm(
-          `${res.count}개 수업을 찾았습니다.\n\n확인: 기존 시간표를 지우고 새로 넣기\n취소: 기존에 이어서 추가하기`,
+      let replace = false;
+      if ((state.timetable || []).length > 0) {
+        const how = await uiButtons(
+          `${res.count}개 수업을 찾았어요. 지금 시간표를 어떻게 할까요?`,
+          [
+            { label: "이어서 추가", value: "append" },
+            { label: "지우고 새로 넣기", value: "replace", primary: true },
+          ],
+          { title: "시간표 가져오기", icon: "calendar" },
         );
+        if (how === null) return;
+        replace = how === "replace";
+      }
       const saved = await api("/api/timetable/bulk", {
         method: "POST",
         body: JSON.stringify({ entries: res.entries, replace }),
@@ -7928,36 +8227,6 @@ async function readTextSmart(file) {
   }
 }
 
-/* 작성창 오른쪽 '내 자료'도 접을 수 있게.
-   첨부할 게 없을 때는 본문 쓸 자리를 넓히는 게 낫다. */
-function bindComposeFilesFold() {
-  const btn = $("#composeFilesFold");
-  const panel = $("#composeFiles");
-  if (!btn || !panel) return;
-
-  const KEY = "autosaver-compose-files-fold";
-  const apply = (closed) => {
-    panel.classList.toggle("files-folded", closed);
-    btn.setAttribute("aria-expanded", String(!closed));
-  };
-  let closed = false;
-  try {
-    closed = localStorage.getItem(KEY) === "1";
-  } catch (error) {
-    /* 무시 */
-  }
-  apply(closed);
-
-  btn.addEventListener("click", () => {
-    closed = !panel.classList.contains("files-folded");
-    apply(closed);
-    try {
-      localStorage.setItem(KEY, closed ? "1" : "0");
-    } catch (error) {
-      /* 무시 */
-    }
-  });
-}
 
 
 function bindDirectory() {
@@ -8734,7 +9003,6 @@ bindAddressPicker();
 bindComposeExtras();
 bindAcademic();
 bindDirectory();
-bindComposeFilesFold();
 bindDashEditor();
 bindFglp();
 renderNowBar();
@@ -10692,7 +10960,7 @@ function setUpdateStep(stage, { percent = null, failed = false, note = "" } = {}
 async function startAppUpdate() {
   const d = state.update;
   if (!d?.updateAvailable) return;
-  if (!window.confirm(`v${d.latest} 으로 업데이트할까요?\n\n받아서 설치하는 동안 앱이 잠깐 꺼졌다가 다시 켜집니다.`)) return;
+  if (!(await uiConfirm(`v${d.latest}(으)로 업데이트할까요?\n설치하는 동안 앱이 잠깐 꺼졌다가 다시 켜져요.`, { title: "새 버전", icon: "download", ok: "업데이트" }))) return;
   const dialog = $("#updateDialog");
   const apply = $("#applyUpdateButton");
   if (apply) apply.disabled = true;
@@ -10753,7 +11021,7 @@ window.setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000);
     try {
       await api("/api/config", { method: "POST", body: JSON.stringify({ [name]: on }) });
       if (state.config) state.config[name] = on;
-      showToast(`${name === "notifyDeadlines" ? "마감 알림" : "새 자료 알림"}을 ${on ? "켰어요" : "껐어요"}`);
+      showToast(`${name === "notifyDeadlines" ? "마감 알림" : "새 자료·공지 알림"}을 ${on ? "켰어요" : "껐어요"}`);
     } catch (error) {
       event.target.checked = !on;
       showToast(humanError(error));
@@ -10782,3 +11050,948 @@ document.getElementById("langRow")?.addEventListener("change", async (event) => 
   }
   window.location.reload();
 });
+
+/* ===== 강의 › 공지사항 =====
+   '과목 | 공지사항' 탭. 공지사항 탭은 과목마다 카드 한 장(최근 4건, 펼치면 전부)을 한눈에 늘어놓는 게시판이다.
+   처음 만든 것은 과목 카드 아래에 162건을 한 줄로 늘어놓아 '정돈 안 된 나열식' 이라는 말을 들었다.
+   이번 학기 과목만 펼쳐 두고 지난 학기는 접어 둔다. 제목을 누르면 읽기 창(이전·다음 공지로 넘김). */
+state.courseAnn = null;
+state.courseTab = "courses";
+state.annExpanded = new Set();
+
+async function loadCourseAnn() {
+  try {
+    state.courseAnn = await api("/api/course-announcements");
+  } catch (error) {
+    state.courseAnn = state.courseAnn || { courses: [] };
+  }
+  renderCourseAnn();
+}
+
+function annDate(iso, long = false) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  if (long) return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0 && d.getDate() === new Date().getDate()) return "오늘";
+  if (days <= 1) return "어제";
+  if (d.getFullYear() !== new Date().getFullYear()) return `${String(d.getFullYear()).slice(2)}.${d.getMonth() + 1}.${d.getDate()}`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** '일반물리Ⅱ (General PhysicsⅡ )_03[ 2026_2학기 ]' → 20262 (학기 순서값) */
+function courseTermKey(course) {
+  const m = String(course || "").match(/(\d{4})_(\d)학기/);
+  return m ? Number(m[1]) * 10 + Number(m[2]) : 0;
+}
+
+const ANN_FRESH_MS = 3 * 86400000;
+const annFresh = (a) => a.created && Date.now() - new Date(a.created).getTime() < ANN_FRESH_MS;
+
+function annGroups() {
+  const courses = (state.courseAnn?.courses || [])
+    .filter((c) => c.items.length)
+    .map((c) => ({
+      ...c,
+      items: [...c.items].sort((a, b) => String(b.created || "").localeCompare(String(a.created || ""))),
+      term: courseTermKey(c.course),
+    }));
+  const latestTerm = Math.max(0, ...courses.map((c) => c.term));
+  const byLatest = (a, b) => String(b.items[0]?.created || "").localeCompare(String(a.items[0]?.created || ""));
+  return {
+    current: courses.filter((c) => c.term === latestTerm).sort(byLatest),
+    past: courses.filter((c) => c.term !== latestTerm).sort(byLatest),
+  };
+}
+
+function annCardHtml(c) {
+  const expanded = state.annExpanded.has(c.course);
+  const shown = expanded ? c.items : c.items.slice(0, 4);
+  const freshCount = c.items.filter(annFresh).length;
+  const pill = freshCount ? `<i class="ann-new-pill">새 ${freshCount}</i>` : "";
+  const meta = `공지 ${c.items.length} · ${escapeHtml(annDate(c.items[0]?.created))}`;
+  return `
+    <article class="ann-card ${freshCount ? "has-new" : ""}">
+      <header class="ann-card-head">
+        <strong title="${escapeHtml(c.course)}">${escapeHtml(c.label)}</strong>
+        <span>${pill}${meta}</span>
+      </header>
+      <ul class="ann-card-list">
+        ${shown
+          .map(
+            (a) => `<li><button type="button" class="ann-line ${annFresh(a) ? "fresh" : ""}" data-ann-open="${escapeHtml(a.id)}" data-ann-course="${escapeHtml(c.course)}">
+              <span class="ann-line-date">${escapeHtml(annDate(a.created))}</span>
+              <span class="ann-line-title">${escapeHtml(a.title)}</span>
+            </button></li>`,
+          )
+          .join("")}
+      </ul>
+      ${c.items.length > 4
+        ? `<button type="button" class="ann-more" data-ann-more="${escapeHtml(c.course)}">${expanded ? "접기" : `전체 ${c.items.length}개 보기`}</button>`
+        : ""}
+    </article>`;
+}
+
+function renderCourseAnn() {
+  const box = $("#courseAnn");
+  if (!box) return;
+  const { current, past } = annGroups();
+  const all = [...current, ...past];
+  const recent = current
+    .flatMap((c) => c.items.filter((a) => a.created && Date.now() - new Date(a.created).getTime() < 7 * 86400000).map((a) => ({ ...a, c })))
+    .sort((a, b) => String(b.created).localeCompare(String(a.created)));
+
+  // 탭 옆 숫자: 최근 3일 새 공지
+  const freshTotal = current.reduce((n, c) => n + c.items.filter(annFresh).length, 0);
+  const count = $("#annTabCount");
+  if (count) {
+    count.hidden = !freshTotal;
+    count.textContent = freshTotal ? `새 ${freshTotal}` : "";
+  }
+
+  const sig = `${state.courseAnn?.updatedAt}|${all.length}|${[...state.annExpanded].join(",")}|${state.courseTab}`;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+
+  $("#annRecent").innerHTML = recent.length
+    ? `<div class="ann-recent-head"><strong>최근 7일</strong><span>새 공지 ${recent.length}건</span></div>
+       <div class="ann-recent-list">${recent
+         .slice(0, 6)
+         .map(
+           (a) => `<button type="button" class="ann-recent-item" data-ann-open="${escapeHtml(a.id)}" data-ann-course="${escapeHtml(a.c.course)}">
+             <span class="ann-recent-course">${escapeHtml(shortText(a.c.label, 16))}</span>
+             <span class="ann-recent-title">${escapeHtml(a.title)}</span>
+             <span class="ann-recent-date">${escapeHtml(annDate(a.created))}</span>
+           </button>`,
+         )
+         .join("")}</div>`
+    : `<div class="ann-recent-head"><strong>최근 7일</strong><span>새 공지 없음</span></div>`;
+  $("#annBoard").innerHTML = current.length
+    ? current.map(annCardHtml).join("")
+    : '<p class="ann-empty">이번 학기 공지가 아직 없어요.</p>';
+  const pastWrap = $("#annPastWrap");
+  pastWrap.hidden = !past.length;
+  if (past.length) {
+    $("#annPastSummary").textContent = `지난 학기 공지 · ${past.length}과목 ${past.reduce((n, c) => n + c.items.length, 0)}건`;
+    $("#annPastBoard").innerHTML = past.map(annCardHtml).join("");
+  }
+  installIcons(box);
+}
+
+function setCourseTab(tab) {
+  state.courseTab = tab === "ann" ? "ann" : "courses";
+  navPush();
+  const ann = state.courseTab === "ann";
+  document.querySelectorAll(".course-tab").forEach((b) => b.classList.toggle("on", b.dataset.ctab === state.courseTab));
+  $("#courseAnn").hidden = !ann;
+  $("#courseGrid").hidden = ann;
+  if (ann) $("#courseEmpty").hidden = true;
+  const actions = document.querySelector(".course-hero-actions");
+  if (actions) actions.hidden = ann; // 편집·복원은 과목 탭에서만
+  if (ann) renderCourseAnn();
+  else renderCourses();
+}
+
+/* 읽기 창 */
+let annReading = null; // { course, index }
+function openAnn(course, id) {
+  const c = (state.courseAnn?.courses || []).find((x) => x.course === course);
+  if (!c) return;
+  const items = [...c.items].sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
+  const index = Math.max(0, items.findIndex((a) => a.id === id));
+  annReading = { course, items, label: c.label, index };
+  paintAnnDialog();
+  const dlg = $("#annDialog");
+  if (!dlg.open) dlg.showModal();
+}
+function paintAnnDialog() {
+  if (!annReading) return;
+  const a = annReading.items[annReading.index];
+  $("#annDialogCourse").textContent = annReading.label;
+  $("#annDialogTitle").textContent = a.title;
+  $("#annDialogDate").textContent = annDate(a.created, true);
+  $("#annDialogBody").innerHTML = a.text ? `<div class="ann-text">${linkifyText(a.text)}</div>` : '<p class="ann-empty">본문이 없는 공지예요.</p>';
+  $("#annDialogBody").scrollTop = 0;
+  $("#annDialogPos").textContent = `${annReading.index + 1} / ${annReading.items.length}`;
+  // 목록이 최신순이라 '이전 공지' 는 더 오래된 것(아래쪽)
+  $("#annPrev").disabled = annReading.index >= annReading.items.length - 1;
+  $("#annNext").disabled = annReading.index <= 0;
+}
+
+document.querySelector(".course-tabs")?.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-ctab]");
+  if (tab) setCourseTab(tab.dataset.ctab);
+});
+$("#courseAnn")?.addEventListener("click", (event) => {
+  const open = event.target.closest("[data-ann-open]");
+  if (open) {
+    openAnn(open.dataset.annCourse, open.dataset.annOpen);
+    return;
+  }
+  const more = event.target.closest("[data-ann-more]");
+  if (more) {
+    const key = more.dataset.annMore;
+    if (state.annExpanded.has(key)) state.annExpanded.delete(key);
+    else state.annExpanded.add(key);
+    renderCourseAnn();
+  }
+});
+$("#annDialogClose")?.addEventListener("click", () => $("#annDialog").close());
+$("#annDialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close(); // 바깥을 누르면 닫기
+  const link = event.target.closest("[data-open-link]");
+  if (link) {
+    event.preventDefault();
+    api("/api/mail/open-link", { method: "POST", body: JSON.stringify({ url: link.dataset.openLink }) })
+      .then((res) => showToast(res.opened ? `브라우저에서 열었어요 · ${res.host}` : "링크를 열지 못했어요."))
+      .catch((error) => showToast(humanError(error)));
+  }
+});
+$("#annPrev")?.addEventListener("click", () => {
+  if (annReading && annReading.index < annReading.items.length - 1) {
+    annReading.index += 1;
+    paintAnnDialog();
+  }
+});
+$("#annNext")?.addEventListener("click", () => {
+  if (annReading && annReading.index > 0) {
+    annReading.index -= 1;
+    paintAnnDialog();
+  }
+});
+
+/* ===== 뒤로·앞으로 (크롬처럼) =====
+   '누른 화면으로 돌아가는 기능이 없다' 는 말을 듣고 넣었다. 브라우저의 기록(History API)에 화면·연 메일·강의 탭을
+   적어 두어, 위쪽 ←/→ 단추뿐 아니라 마우스 옆 버튼과 Alt+←/→ 로도 오간다. 돌아갈 때는 그 상태를 그대로 다시 연다. */
+// var: 시작할 때 applyView 가 이 줄보다 먼저 불려도 오류 없이 넘어가게 (const 면 선언 전 접근 오류)
+var nav = { idx: 0, max: 0, restoring: false };
+
+function navSnapshot() {
+  return {
+    view: state.view,
+    mail: state.view === "emails" && state.mailPane === "read" ? String(state.replyContext?.id || "") : "",
+    ctab: state.view === "courses" ? state.courseTab || "courses" : "",
+  };
+}
+const navKey = (s) => `${s?.view}|${s?.mail}|${s?.ctab}`;
+
+function paintNavButtons() {
+  if (!nav) return;
+  // 위쪽 막대와 메일함 머리에 같은 단추가 두 벌 있다
+  document.querySelectorAll('[data-nav="back"]').forEach((b) => (b.disabled = nav.idx <= 0));
+  document.querySelectorAll('[data-nav="forward"]').forEach((b) => (b.disabled = nav.idx >= nav.max));
+}
+
+function navPush() {
+  if (!nav || nav.restoring || !state.view) return;
+  try {
+    if (tour.active) return; // 첫 실행 소개가 화면을 바꾸는 것은 기록하지 않는다
+  } catch (error) {
+    /* 아직 준비 전 */
+  }
+  const snap = navSnapshot();
+  if (navKey(history.state?.nav) === navKey(snap)) return;
+  nav.idx += 1;
+  nav.max = nav.idx; // 새 곳으로 가면 '앞으로' 기록은 버린다 (크롬과 같다)
+  history.pushState({ nav: snap, idx: nav.idx }, "");
+  paintNavButtons();
+}
+
+function navRestore(snap) {
+  nav.restoring = true;
+  try {
+    if (state.view !== snap.view) applyView(snap.view);
+    if (snap.view === "courses" && snap.ctab && state.courseTab !== snap.ctab) setCourseTab(snap.ctab);
+    if (snap.view === "emails") {
+      const mail = snap.mail && (state.emails.emails || []).find((m) => String(m.id) === snap.mail);
+      if (mail) openEmailDetail(mail);
+      else showMailPane("list");
+    }
+  } finally {
+    nav.restoring = false;
+  }
+}
+
+window.addEventListener("popstate", (event) => {
+  const snap = event.state?.nav;
+  if (!snap) return;
+  nav.idx = Number(event.state.idx) || 0;
+  navRestore(snap);
+  paintNavButtons();
+});
+
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-nav]");
+  if (!btn || btn.disabled) return;
+  if (btn.dataset.nav === "back" && nav.idx > 0) history.back();
+  if (btn.dataset.nav === "forward" && nav.idx < nav.max) history.forward();
+});
+// Alt+←/→ (글 쓰는 중에는 커서 이동이므로 건드리지 않는다)
+document.addEventListener("keydown", (event) => {
+  if (!event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  if (event.key === "ArrowLeft" && nav.idx > 0) history.back();
+  if (event.key === "ArrowRight" && nav.idx < nav.max) history.forward();
+});
+// 마우스 옆 버튼 (뒤로 = 3, 앞으로 = 4)
+document.addEventListener("mouseup", (event) => {
+  if (event.button !== 3 && event.button !== 4) return;
+  event.preventDefault();
+  if (event.button === 3 && nav.idx > 0) history.back();
+  if (event.button === 4 && nav.idx < nav.max) history.forward();
+});
+
+// 첫 화면을 기록의 시작으로
+history.replaceState({ nav: navSnapshot(), idx: 0 }, "");
+paintNavButtons();
+
+
+/* ===== 앱 안 확인·입력 창 =====
+   예전에는 window.confirm / prompt 를 썼는데, WebView 가 '127.0.0.1:8765의 메시지' 라는
+   회색 시스템 창을 띄워 앱 디자인과 전혀 맞지 않았다. 모두 이 창으로 바꿨다.
+   - uiConfirm(메시지, {title, ok, cancel, danger}) → true / false
+   - uiPrompt(메시지, 기본값, {title, placeholder, type}) → 문자열 / null
+   - uiChoose(제목, [{label, sub}]) → 고른 번호 / null
+   - uiButtons(메시지, [{label, value, primary, danger}], {title}) → value / null (Esc·바깥 = null) */
+function appDialog({
+  title = "",
+  message = "",
+  ok = "확인",
+  cancel = "취소",
+  danger = false,
+  input = null,
+  choices = null,
+  buttons = null,
+  icon = "",
+} = {}) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.className = "app-dialog";
+    let result = null;
+    const head = title
+      ? `<div class="app-dialog-head">
+           ${icon ? `<span class="app-dialog-icon${danger ? " danger" : ""}">${iconHtml(icon)}</span>` : ""}
+           <h2>${escapeHtml(title)}</h2>
+         </div>`
+      : "";
+    const msg = message ? `<p class="app-dialog-msg">${escapeHtml(message)}</p>` : "";
+    const field = input
+      ? `<input class="app-dialog-input" type="${escapeHtml(input.type || "text")}"
+           value="${escapeHtml(input.value ?? "")}" placeholder="${escapeHtml(input.placeholder || "")}" />`
+      : "";
+    const list = choices
+      ? `<div class="app-dialog-choices">${choices
+          .map(
+            (c, i) => `<button type="button" class="app-dialog-choice" data-choice="${i}">
+               ${c.icon ? iconHtml(c.icon) : ""}
+               <span><b>${escapeHtml(c.label)}</b>${c.sub ? `<small>${escapeHtml(c.sub)}</small>` : ""}</span>
+             </button>`,
+          )
+          .join("")}</div>`
+      : "";
+    const actionButtons = buttons
+      ? buttons
+          .map(
+            (b, i) =>
+              `<button type="button" class="button${b.primary ? " primary" : ""}${b.danger ? " danger" : ""}" data-btn="${i}">${escapeHtml(b.label)}</button>`,
+          )
+          .join("")
+      : `${cancel ? `<button type="button" class="button ghost" data-act="cancel">${escapeHtml(cancel)}</button>` : ""}
+         ${choices ? "" : `<button type="button" class="button ${danger ? "danger" : "primary"}" data-act="ok">${escapeHtml(ok)}</button>`}`;
+    dlg.innerHTML = `${head}${msg}${field}${list}<div class="app-dialog-actions">${actionButtons}</div>`;
+
+    // 'close' 이벤트만 기다리면 창이 화면에 안 그려지는 동안(가려진 창 등) 결과가 늦게/안 온다.
+    // 버튼을 누르는 즉시 결과를 넘기고 창을 치운다. Esc 는 cancel 이벤트로 받는다.
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      result = value;
+      if (dlg.open) dlg.close();
+      dlg.remove();
+      resolve(result);
+    };
+    dlg.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(null);
+    });
+    dlg.addEventListener("click", (event) => {
+      if (clickedBackdrop(dlg, event)) return finish(null); // 바깥(어두운 막)을 누르면 취소
+      const choice = event.target.closest("[data-choice]");
+      if (choice) return finish(Number(choice.dataset.choice));
+      const b = event.target.closest("[data-btn]");
+      if (b) return finish(buttons[Number(b.dataset.btn)].value);
+      const act = event.target.closest("[data-act]")?.dataset.act;
+      if (act === "cancel") return finish(null);
+      if (act === "ok") return finish(input ? dlg.querySelector(".app-dialog-input").value : true);
+    });
+    dlg.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && input && !event.isComposing) {
+        event.preventDefault();
+        finish(dlg.querySelector(".app-dialog-input").value);
+      }
+    });
+    dlg.addEventListener("close", () => finish(result));
+    document.body.append(dlg);
+    dlg.showModal();
+    const focus = dlg.querySelector(".app-dialog-input") || dlg.querySelector("[data-act=ok], .button.primary, [data-choice]");
+    focus?.focus();
+    if (focus?.select && input) focus.select();
+  });
+}
+
+/* 창 안쪽 여백을 눌러도 event.target 이 dialog 자신이라, 좌표로 '정말 바깥' 인지 본다 */
+function clickedBackdrop(dlg, event) {
+  if (event.target !== dlg) return false;
+  const r = dlg.getBoundingClientRect();
+  return event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom;
+}
+
+async function uiConfirm(message, opts = {}) {
+  const res = await appDialog({
+    title: opts.title || "확인",
+    icon: opts.icon || (opts.danger ? "trash" : "help"),
+    message,
+    ok: opts.ok || "확인",
+    cancel: opts.cancel ?? "취소",
+    danger: Boolean(opts.danger),
+  });
+  return res === true;
+}
+
+async function uiPrompt(message, value = "", opts = {}) {
+  const res = await appDialog({
+    title: opts.title || "",
+    icon: opts.icon || "edit",
+    message,
+    ok: opts.ok || "확인",
+    input: { value, placeholder: opts.placeholder || "", type: opts.type || "text" },
+  });
+  return res === null ? null : String(res);
+}
+
+function uiChoose(title, items, opts = {}) {
+  return appDialog({ title, icon: opts.icon || "folder", message: opts.message || "", choices: items, cancel: "취소" });
+}
+
+function uiButtons(message, buttons, opts = {}) {
+  return appDialog({ title: opts.title || "", icon: opts.icon || "help", message, buttons });
+}
+
+
+/* ===== 메일 첨부: Drive 창 =====
+   예전에는 파일 20개를 번호로 늘어놓고 번호를 적게 했다(시스템 입력창).
+   이제 Drive 처럼 폴더를 열어 들어가고, 검색하고, 여러 개를 골라 한 번에 붙인다.
+   앱 권한(drive.file) 때문에 이 앱이 올린 파일만 보인다 — 강의자료는 전부 여기 있다. */
+const DRIVE_FOLDER = "application/vnd.google-apps.folder";
+const DRIVE_ATTACH_MAX = 20 * 1024 * 1024; // 서버(/api/drive/get)와 같은 한도
+
+function driveFileIcon(mime) {
+  if (mime === DRIVE_FOLDER) return "folder";
+  return "file";
+}
+
+function driveKind(mime, name) {
+  const ext = String(name || "").split(".").pop().toLowerCase();
+  if (String(mime).startsWith("application/vnd.google-apps.")) return "구글 문서 → PDF";
+  return ext && ext.length <= 5 ? ext.toUpperCase() : "파일";
+}
+
+async function openDrivePicker() {
+  const dlg = document.createElement("dialog");
+  dlg.className = "app-dialog drive-picker";
+  dlg.innerHTML = `
+    <div class="app-dialog-head">
+      <span class="app-dialog-icon drive">
+        <svg viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+      </span>
+      <h2>Drive에서 첨부</h2>
+      <button type="button" class="whats-new-close" data-act="cancel" aria-label="닫기">${iconHtml("x")}</button>
+    </div>
+    <div class="drive-picker-tools">
+      <nav class="drive-crumbs" aria-label="폴더 위치"></nav>
+      <label class="drive-search">${iconHtml("search")}<input type="search" placeholder="Drive에서 파일 이름 찾기" /></label>
+    </div>
+    <div class="drive-list" role="listbox" aria-multiselectable="true"></div>
+    <div class="app-dialog-actions">
+      <span class="drive-picked"></span>
+      <button type="button" class="button ghost" data-act="cancel">취소</button>
+      <button type="button" class="button primary" data-act="ok" disabled>첨부하기</button>
+    </div>`;
+  document.body.append(dlg);
+
+  const list = dlg.querySelector(".drive-list");
+  const crumbs = dlg.querySelector(".drive-crumbs");
+  const search = dlg.querySelector(".drive-search input");
+  const okBtn = dlg.querySelector("[data-act=ok]");
+  const pickedText = dlg.querySelector(".drive-picked");
+  const trail = [{ id: "root", name: "내 드라이브" }];
+  const picked = new Map(); // id → {id, name, size, mimeType}
+  let seq = 0;
+
+  const syncPicked = () => {
+    okBtn.disabled = picked.size === 0;
+    okBtn.textContent = picked.size ? `${picked.size}개 첨부하기` : "첨부하기";
+    const total = [...picked.values()].reduce((n, f) => n + Number(f.size || 0), 0);
+    pickedText.textContent = picked.size ? `고른 파일 ${picked.size}개 · ${formatBytes(total)}` : "";
+  };
+
+  const rowHtml = (f) => {
+    const folder = f.mimeType === DRIVE_FOLDER;
+    const on = picked.has(f.id);
+    // 메일 한 통에 붙일 수 있는 크기를 넘는 파일은 처음부터 못 고르게 한다
+    const tooBig = !folder && Number(f.size || 0) > DRIVE_ATTACH_MAX;
+    return `
+      <div class="drive-row${folder ? " folder" : ""}${on ? " on" : ""}${tooBig ? " too-big" : ""}" role="option" aria-selected="${on}"
+           aria-disabled="${tooBig}" title="${tooBig ? "20MB가 넘어 메일에 붙일 수 없어요" : ""}"
+           data-id="${escapeHtml(f.id)}" tabindex="0">
+        ${folder ? "" : `<span class="drive-check">${on ? iconHtml("check") : ""}</span>`}
+        <span class="drive-row-icon">${iconHtml(driveFileIcon(f.mimeType))}</span>
+        <span class="drive-row-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+        <span class="drive-row-meta">${
+          folder
+            ? iconHtml("chevronDown")
+            : `${escapeHtml(driveKind(f.mimeType, f.name))}${f.size ? ` · ${formatBytes(Number(f.size))}` : ""}${tooBig ? " · 너무 큼" : ""}`
+        }</span>
+      </div>`;
+  };
+
+  let current = { folders: [], files: [] };
+  const load = async () => {
+    const my = ++seq;
+    const q = search.value.trim();
+    crumbs.innerHTML = q
+      ? `<span class="drive-crumb here">‘${escapeHtml(q)}’ 검색 결과</span>`
+      : trail
+          .map((c, i) =>
+            i === trail.length - 1
+              ? `<span class="drive-crumb here">${escapeHtml(c.name)}</span>`
+              : `<button type="button" class="drive-crumb" data-crumb="${i}">${escapeHtml(c.name)}</button><span class="drive-crumb-sep">›</span>`,
+          )
+          .join("");
+    list.innerHTML = `<p class="drive-empty">불러오는 중…</p>`;
+    try {
+      const params = new URLSearchParams(q ? { q } : { parent: trail[trail.length - 1].id });
+      const data = await api(`/api/drive/list?${params}`);
+      if (my !== seq) return; // 그새 다른 폴더를 열었다
+      current = data;
+      const rows = [...(data.folders || []), ...(data.files || [])];
+      list.innerHTML = rows.length
+        ? rows.map(rowHtml).join("")
+        : `<p class="drive-empty">${q ? "찾는 파일이 없어요." : "빈 폴더예요."}</p>`;
+    } catch (error) {
+      if (my !== seq) return;
+      list.innerHTML = `<p class="drive-empty">${escapeHtml(
+        humanError ? humanError(error.message) : error.message,
+      )}<br /><small>설정에서 구글 계정을 연결했는지 확인해 주세요.</small></p>`;
+    }
+  };
+
+  const toggle = (row) => {
+    const id = row.dataset.id;
+    const f = [...(current.folders || []), ...(current.files || [])].find((x) => x.id === id);
+    if (!f) return;
+    if (f.mimeType === DRIVE_FOLDER) {
+      search.value = "";
+      trail.push({ id: f.id, name: f.name });
+      load();
+      return;
+    }
+    if (Number(f.size || 0) > DRIVE_ATTACH_MAX) {
+      showToast("20MB가 넘는 파일은 메일에 붙일 수 없어요. Drive 링크로 보내 주세요.");
+      return;
+    }
+    if (picked.has(id)) picked.delete(id);
+    else picked.set(id, f);
+    row.outerHTML = rowHtml(f);
+    syncPicked();
+  };
+
+  list.addEventListener("click", (event) => {
+    const row = event.target.closest(".drive-row");
+    if (row) toggle(row);
+  });
+  list.addEventListener("keydown", (event) => {
+    const row = event.target.closest(".drive-row");
+    if (row && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      toggle(row);
+    }
+  });
+  crumbs.addEventListener("click", (event) => {
+    const i = event.target.closest("[data-crumb]")?.dataset.crumb;
+    if (i === undefined) return;
+    trail.splice(Number(i) + 1);
+    load();
+  });
+  let timer = 0;
+  search.addEventListener("input", () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(load, 250);
+  });
+
+  const chosen = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (dlg.open) dlg.close();
+      dlg.remove();
+      resolve(value);
+    };
+    dlg.addEventListener("click", (event) => {
+      if (clickedBackdrop(dlg, event)) return finish(null);
+      const act = event.target.closest("[data-act]")?.dataset.act;
+      if (act === "cancel") finish(null);
+      if (act === "ok" && picked.size) finish([...picked.values()]);
+    });
+    dlg.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(null);
+    });
+    dlg.addEventListener("close", () => finish(null));
+    dlg.showModal();
+    search.focus();
+    load();
+  });
+  return chosen;
+}
+
+async function importFromDrive() {
+  const files = await openDrivePicker();
+  if (!files?.length) return;
+  showTopProgress?.(`Drive에서 ${files.length}개 가져오는 중`, 30);
+  let done = 0;
+  const failed = [];
+  for (const file of files) {
+    try {
+      const got = await api(`/api/drive/get?id=${encodeURIComponent(file.id)}`);
+      state.attachments.push({ filename: got.filename, size: got.size, content: got.content });
+      done += 1;
+    } catch (error) {
+      failed.push(file.name);
+    }
+  }
+  renderAttachments();
+  finishTopProgress?.(done ? "Drive 첨부 완료" : "Drive 첨부 실패");
+  showToast(
+    failed.length
+      ? `${done}개 첨부, ${failed.length}개 실패 (${shortText(failed.join(", "), 40)})`
+      : `${done}개 파일을 첨부했습니다.`,
+  );
+}
+
+
+/* ===== 문의 · 오류 제보 · 아이디어 =====
+   만든 사람(FEEDBACK_TO)에게 붕어빵 메일 쓰기로 바로 보낸다.
+   종류를 고르면 받는 사람·제목·본문 서식이 채워지고, 앱 정보(버전·Windows·화면)를 아래에 붙인다.
+   오류 제보에는 최근 앱 오류 기록(server_errors.log 마지막 한 건)도 붙인다.
+   메일 주소·비밀번호·파일 경로 같은 개인 정보는 붙이지 않는다 — 보내기 전에 사용자가 다 볼 수 있다. */
+const FEEDBACK_TO = "tutleblue12@gmail.com";
+const FEEDBACK_KINDS = [
+  {
+    label: "문의",
+    sub: "쓰는 방법이 궁금해요",
+    icon: "help",
+    tag: "문의",
+    body: ["■ 궁금한 점", "", "", "■ 어느 화면에서", "(예: 메일함 / 자료 / 시간표 / 설정)", ""],
+  },
+  {
+    label: "오류 제보",
+    sub: "잘 안 되거나 이상한 게 있어요",
+    icon: "alert",
+    tag: "오류 제보",
+    body: [
+      "■ 무슨 일이 있었나요",
+      "",
+      "",
+      "■ 어떻게 하면 다시 생기나요 (누른 순서대로)",
+      "1. ",
+      "2. ",
+      "3. ",
+      "",
+      "■ 원래는 어떻게 되길 바랐나요",
+      "",
+      "",
+      "■ 화면을 찍은 사진이 있으면 '내 PC'로 첨부해 주세요",
+      "",
+    ],
+  },
+  {
+    label: "아이디어",
+    sub: "이런 기능이 있으면 좋겠어요",
+    icon: "sparkle",
+    tag: "아이디어",
+    body: ["■ 있었으면 하는 기능", "", "", "■ 어떤 때 쓰고 싶나요", "", "", "■ 참고할 만한 앱이나 화면 (있으면)", ""],
+  },
+];
+
+async function openFeedback() {
+  const pick = await uiChoose(
+    "무엇을 보낼까요?",
+    FEEDBACK_KINDS.map((k) => ({ label: k.label, sub: k.sub, icon: k.icon })),
+    { icon: "mail", message: `만든 사람(${FEEDBACK_TO})에게 메일로 보내요.` },
+  );
+  if (pick === null) return;
+  const kind = FEEDBACK_KINDS[pick];
+  if (!state.config?.schoolEmail) {
+    showToast("설정 → 학교 계정에서 메일 계정을 먼저 넣어 주세요.");
+    openSettings();
+    return;
+  }
+
+  let info = {};
+  try {
+    info = await api("/api/diagnostics");
+  } catch (error) {
+    info = {};
+  }
+  const now = new Date();
+  let themeKey = "";
+  try {
+    themeKey = localStorage.getItem("autosaver-theme-v2") || "";
+  } catch (error) {
+    /* 무시 */
+  }
+  const theme = THEMES.find((t) => t.key === themeKey)?.label;
+  const lines = [
+    "안녕하세요, 붕어빵을 쓰고 있는 사용자입니다.",
+    "",
+    ...kind.body,
+    "",
+    "──────────────",
+    "앱 정보 (자동으로 붙었어요. 빼도 괜찮아요)",
+    `- 버전: ${info.version || "?"}${info.installed === false ? " (개발판)" : ""}`,
+    `- Windows: ${info.os || navigator.userAgent}`,
+    `- 화면: ${window.screen.width}×${window.screen.height}, 창 ${window.innerWidth}×${window.innerHeight}${theme ? `, 테마 ${theme}` : ""}`,
+    `- 보낸 때: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${hhmm(now)}`,
+  ];
+  if (kind.tag === "오류 제보") {
+    if (info.lastFailure) lines.push(`- 마지막으로 실패한 작업: ${info.lastFailure}`);
+    if (info.lastError) lines.push("", "최근 앱 오류 기록:", info.lastError);
+  }
+
+  if (state.view !== "emails") {
+    switchView("emails");
+    // 화면 전환은 늦게(최대 0.15초 뒤) 적용되며 메일함을 '목록' 으로 되돌린다. 그 뒤에 쓰기를 연다.
+    for (let i = 0; i < 20 && state.view !== "emails"; i += 1) await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  openCompose({ to: FEEDBACK_TO, subject: `[붕어빵 ${kind.tag}] `, body: lines.join("\n") });
+  // 제목 뒤에 바로 이어 쓰게
+  const subject = $("#composeForm [name=subject]");
+  if (subject) {
+    subject.focus();
+    subject.setSelectionRange(subject.value.length, subject.value.length);
+  }
+}
+
+$("#feedbackButton")?.addEventListener("click", openFeedback);
+$("#settingsFeedbackButton")?.addEventListener("click", openFeedback);
+
+
+/* ===== 과목별 교수·조교 =====
+   LMS 코스 사용자에서 학생을 뺀 사람들(lms_crawler.fetch_course_staff, 1시간마다 마감 확인 때).
+   LMS 는 이름만 주므로 이메일은 서버가 조직도에서 찾아 붙인다. 동명이인이라 못 고른 사람은 후보(candidates)를 준다. */
+function staffKey(label) {
+  return String(label || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function setCourseStaff(courses) {
+  const map = new Map();
+  Object.entries(courses || {}).forEach(([label, rows]) => map.set(staffKey(label), { label, rows: rows || [] }));
+  state.courseStaff = map;
+  state.courseStaffSig = String(Object.keys(courses || {}).length) + ":" + JSON.stringify(courses || {}).length;
+  renderedViews?.delete?.("courses");
+}
+
+/** 강의 카드 이름 → 그 과목의 교수·조교 */
+function staffForCourse(label) {
+  return state.courseStaff?.get(staffKey(label))?.rows || [];
+}
+
+/** 메일 자동완성에 넣을 교수·조교 (이메일을 아는 사람만) */
+function staffContacts() {
+  const out = [];
+  (state.courseStaff || new Map()).forEach(({ label, rows }) => {
+    const course = courseShortName(label);
+    rows.forEach((s) => {
+      if (s.email) out.push({ name: s.name, email: s.email, tag: `${course} ${s.role}` });
+    });
+  });
+  return out;
+}
+
+function staffTagFor(email) {
+  const e = String(email || "").toLowerCase();
+  return staffContacts()
+    .filter((s) => s.email.toLowerCase() === e)
+    .map((s) => s.tag)
+    .join(", ");
+}
+
+/** 'General PhysicsⅡ' → '일반물리Ⅱ' (수강 과목의 한글 이름이 있으면 그걸로) */
+function courseShortName(label) {
+  const hit = (state.courseState?.current || []).find((c) => staffKey(extractCourseLabelJs(c.name)) === staffKey(label));
+  const korean = hit && hit.name.includes("(") ? hit.name.split("(", 1)[0].trim() : "";
+  return korean || label;
+}
+
+function courseStaffLine(course) {
+  const rows = staffForCourse(course.label);
+  if (!rows.length) return "";
+  const person = (s, i) => {
+    const can = s.email || (s.candidates || []).length;
+    return `<button type="button" class="course-staff-person${s.email ? "" : " unsure"}" data-staff="${escapeHtml(course.label)}"
+        data-i="${i}" ${can ? "" : "disabled"}
+        title="${escapeHtml(s.email ? `${s.name} <${s.email}> 에게 메일 쓰기` : (s.candidates || []).length ? `동명이인 ${s.candidates.length}명 — 눌러서 고르기` : "조직도에서 이메일을 못 찾았어요")}">
+        <em>${escapeHtml(s.role)}</em>${escapeHtml(s.name)}${can ? iconHtml("mail") : ""}</button>`;
+  };
+  return `<div class="course-staff">${rows.map(person).join("")}</div>`;
+}
+
+/** 강의 카드에서 교수·조교 이름을 누르면 그 사람에게 메일 쓰기 */
+async function mailCourseStaff(label, index) {
+  const s = staffForCourse(label)[index];
+  if (!s) return;
+  let email = s.email;
+  let dept = s.dept;
+  if (!email) {
+    const pick = await uiChoose(
+      `${s.name} ${s.role}님이 누구일까요?`,
+      (s.candidates || []).map((c) => ({ label: s.name, sub: `${c.dept || ""} · ${c.email}`, icon: "user" })),
+      { icon: "user", message: "조직도에 이름이 같은 사람이 여럿이라 직접 골라 주세요." },
+    );
+    if (pick === null) return;
+    email = s.candidates[pick].email;
+    dept = s.candidates[pick].dept;
+  }
+  const course = courseShortName(label);
+  if (state.view !== "emails") {
+    switchView("emails");
+    for (let i = 0; i < 20 && state.view !== "emails"; i += 1) await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  openCompose({
+    to: formatRecipient({ name: `${s.name}/${course} ${s.role}`, email }),
+    subject: `[${course}] `,
+  });
+  const subject = $("#composeForm [name=subject]");
+  if (subject) {
+    subject.focus();
+    subject.setSelectionRange(subject.value.length, subject.value.length);
+  }
+  void dept;
+}
+
+$("#courseGrid")?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-staff]");
+  if (!btn) return;
+  event.stopPropagation();
+  mailCourseStaff(btn.dataset.staff, Number(btn.dataset.i));
+});
+
+/* ===== 메일함 칸 나누기: 끌어서 너비 조절 · 폴더 칸 접기 =====
+   '세 칸이 정보량이 너무 많다' 는 말을 듣고 넣었다. 칸 사이 손잡이를 끌어 너비를 바꾸고,
+   폴더 칸은 접어 둘 수 있다. 메일을 쓰는 동안은 폴더·목록 칸을 잠시 접는다(showMailPane).
+   너비·접힘은 앱 창 저장소가 끌 때마다 지워지므로 ui_prefs.json 에 둔다. */
+const MAIL_LAYOUT_DEFAULT = { railW: 232, listW: 380, railFolded: false };
+state.mailLayout = { ...MAIL_LAYOUT_DEFAULT };
+
+/** 좁은 메일 영역에서는 폴더 칸이 위쪽 가로 띠로 눕는다 (그때는 너비·접기가 뜻이 없다) */
+function mailRailIsStrip() {
+  const el = $("#view-emails");
+  return !!el && el.clientWidth <= 860;
+}
+
+function applyMailLayout() {
+  const app = $("#mailApp");
+  if (!app) return;
+  app.style.setProperty("--mail-rail-w", `${state.mailLayout.railW}px`);
+  app.style.setProperty("--mail-list-w", `${state.mailLayout.listW}px`);
+  app.classList.toggle("rail-folded", Boolean(state.mailLayout.railFolded));
+}
+
+let mailLayoutTimer = 0;
+function saveMailLayout() {
+  window.clearTimeout(mailLayoutTimer);
+  mailLayoutTimer = window.setTimeout(() => {
+    api("/api/ui-prefs", { method: "POST", body: JSON.stringify({ mailLayout: state.mailLayout }) }).catch(() => {});
+  }, 400);
+}
+
+function setMailRailFolded(folded, save) {
+  state.mailLayout.railFolded = folded;
+  applyMailLayout();
+  if (save) saveMailLayout();
+}
+
+// 처음 켤 때 저장된 너비를 가져온다
+api("/api/ui-prefs")
+  .then((prefs) => {
+    const l = prefs?.mailLayout || {};
+    state.mailLayout = {
+      railW: Number(l.railW) || MAIL_LAYOUT_DEFAULT.railW,
+      listW: Number(l.listW) || MAIL_LAYOUT_DEFAULT.listW,
+      railFolded: Boolean(l.railFolded),
+    };
+    applyMailLayout();
+  })
+  .catch(() => applyMailLayout());
+applyMailLayout();
+
+$("#mailRailFold")?.addEventListener("click", () => setMailRailFolded(true, true));
+
+// 손잡이 끌기
+(function bindMailSplitters() {
+  let drag = null;
+  document.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".mail-split");
+    if (!handle || event.button !== 0) return;
+    event.preventDefault();
+    const which = handle.dataset.split;
+    const pane = which === "rail" ? $("#mailRail") : $("#mailListPane");
+    drag = { which, left: pane.getBoundingClientRect().left, handle };
+    handle.setPointerCapture?.(event.pointerId);
+    document.body.classList.add("mail-resizing");
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const width = Math.round(event.clientX - drag.left);
+    if (drag.which === "rail") {
+      // 맨 왼쪽(120px 아래)까지 끌면 접는다
+      if (width < 120) {
+        if (!state.mailLayout.railFolded) setMailRailFolded(true, false);
+        return;
+      }
+      state.mailLayout.railFolded = false;
+      state.mailLayout.railW = Math.max(160, Math.min(360, width));
+    } else {
+      const max = Math.max(300, ($("#view-emails")?.clientWidth || 1200) - state.mailLayout.railW - 420);
+      state.mailLayout.listW = Math.max(280, Math.min(Math.min(720, max), width));
+    }
+    applyMailLayout();
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    document.body.classList.remove("mail-resizing");
+    saveMailLayout();
+  };
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+  // 두 번 누르면 원래 너비로
+  document.addEventListener("dblclick", (event) => {
+    const handle = event.target.closest(".mail-split");
+    if (!handle) return;
+    if (handle.dataset.split === "rail") {
+      state.mailLayout.railW = MAIL_LAYOUT_DEFAULT.railW;
+      state.mailLayout.railFolded = false;
+    } else {
+      state.mailLayout.listW = MAIL_LAYOUT_DEFAULT.listW;
+    }
+    applyMailLayout();
+    saveMailLayout();
+  });
+})();

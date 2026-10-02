@@ -249,6 +249,32 @@ def check_new_file_alerts(workspace, config: dict) -> None:
     notify(title, text)
 
 
+def check_announcement_alerts(workspace, config: dict) -> None:
+    """과목 공지가 새로 올라오면 알린다 ('새 자료 알림' 스위치를 함께 쓴다). 처음에는 기억만."""
+    data_ann = web_ui.get_course_announcements(workspace)
+    items = [(c["label"], i) for c in data_ann.get("courses", []) for i in c.get("items", []) if i.get("id")]
+    if not items:
+        return
+    data = _load_alerts(workspace)
+    seen = data.get("ann")
+    ids = [i["id"] for _, i in items]
+    if not isinstance(seen, list):
+        data["ann"] = ids
+        _save_alerts(workspace, data)
+        return
+    fresh = [(label, i) for label, i in items if i["id"] not in set(seen)]
+    if not fresh:
+        return
+    data["ann"] = list(dict.fromkeys(seen + ids))[-2000:]
+    _save_alerts(workspace, data)
+    if not _alert_on(config, "NOTIFY_NEW_FILES"):
+        return
+    lines = [f"{label} · {i.get('title', '공지')}" for label, i in fresh[:4]]
+    if len(fresh) > 4:
+        lines.append(f"… 외 {len(fresh) - 4}건")
+    notify(f"새 공지 {len(fresh)}건", "\n".join(lines))
+
+
 def upcoming_deadline_summary(workspace, hours: int = 48) -> str:
     """N시간 내 미제출 마감 요약 문자열 (없으면 빈 문자열)."""
     deadlines = web_ui.get_deadlines(workspace)
@@ -348,6 +374,7 @@ def scheduler_loop() -> None:
             try:
                 check_deadline_alerts(workspace, config)
                 check_new_file_alerts(workspace, config)
+                check_announcement_alerts(workspace, config)
             except Exception:
                 pass
 

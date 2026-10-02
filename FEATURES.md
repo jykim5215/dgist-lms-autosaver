@@ -556,3 +556,64 @@ GitHub raw에서 `UPDATE_FILES`를 모두 받은 뒤에만 덮어씁니다.
 - 알림·확인창(`confirm`/`alert`)과 토스트도 같은 표를 쓴다. 속성은 placeholder·title·aria-label·data-hint·alt.
 - 언어는 `ui_prefs.json` 의 `lang`(ko/en), 없으면 윈도우 언어(한국어가 아니면 영어). 바꾸면 화면을 다시 불러온다. 번역하지 않을 곳은 `data-no-i18n`.
 - **새 화면 문구를 넣으면** `python scripts/i18n_extract.py` 로 빠진 문구를 찾아 `en.json` 에 채운다. 업데이트 내용(changelog)은 한국어로만 쓴다.
+
+## 강의 › 공지사항 (2026-09-28)
+- `lms_crawler.crawl_announcements` 가 공지 글(제목·본문 평문·작성/수정 시각)을 모아 `save_announcements` 로 `course_announcements.json` 에 둔다. 이번에 읽은 과목만 바꿔 끼우고(403 과목은 예전 것 유지), 과목마다 60건까지.
+- API `GET /api/course-announcements` (`web_ui.get_course_announcements`). 화면: 강의 view 의 '과목 | 공지사항' 탭(`setCourseTab`). 공지 탭은 최근 7일 줄(`#annRecent`) + 이번 학기 과목 카드 게시판(`annCardHtml`, 최근 4건, '전체 N개 보기') + 지난 학기 접기(`#annPastWrap`, 학기는 과목명의 `YYYY_N학기`). 제목 → 읽기 창 `#annDialog`(이전·다음). 처음의 한 줄 나열식은 '정돈 안 됨' 이라는 말을 듣고 바꿨다.
+- 새 공지 알림 `app.check_announcement_alerts` (스위치 `NOTIFY_NEW_FILES` 를 함께 씀, `alerts.json` 의 `ann`, 처음엔 기억만).
+- LMS '메시지'는 못 가져온다: 2026-09-28 실측 `/learn/api/public/v1/courses/{id}/messages` → 400, `/learn/api/v1/courses/{id}/messages` → 404. 확인용 `probe_messages` 는 상태 코드만 로그에 남긴다.
+- 첫 수집: 과목 15개, 공지 162건.
+
+## 뒤로·앞으로 (2026-09-30)
+- History API. `applyView`·`showMailPane`·`setCourseTab` 끝에서 `navPush()` 가 {view, mail(읽는 메일 id), ctab} 를 `history.pushState` 로 적는다(같은 상태면 건너뜀, 첫 실행 소개 중에는 안 적음). `popstate` → `navRestore` 가 그 상태를 다시 연다.
+- 단추 `#navBack`/`#navForward`(상단 막대 맨 왼쪽), Alt+←/→, 마우스 옆 버튼(button 3/4). `nav` 는 `var` 로 선언 — 시작할 때 applyView 가 선언 줄보다 먼저 불리기 때문(const 면 TDZ 오류).
+- 메일함은 상단 막대가 숨으므로 메일함 머리(`.mail-nav`)에도 같은 단추를 둔다. 단추는 `data-nav="back|forward"` 로 두 벌을 함께 켜고 끈다.
+
+
+### 앱 안 확인·입력 창 (`app.js` appDialog)
+
+- `window.confirm/prompt/alert` 는 쓰지 않는다. WebView 가 '127.0.0.1:8765의 메시지' 시스템 창을 띄워 디자인이 깨진다.
+- `uiConfirm(메시지, {title, ok, cancel, danger, icon})` → true/false, `uiPrompt(메시지, 기본값, opts)` → 문자열/null,
+  `uiChoose(제목, [{label, sub, icon}])` → 번호/null, `uiButtons(메시지, [{label, value, primary, danger}])` → value/null.
+- 모두 Promise 라 부르는 곳을 async 로 두고 `await` 한다. 결과는 버튼을 누르는 즉시 넘긴다('close' 이벤트는 가려진 창에서 늦게 온다).
+
+### 메일 첨부: Drive 창 (`openDrivePicker`)
+
+- `/api/drive/list?parent=<id>` (폴더 안) / `?q=<이름>` (검색) → folders·files. 권한이 `drive.file` 이라 앱이 올린 파일만 보인다.
+- `/api/drive/get?id=` 로 받아 붙인다. 구글 문서·시트·슬라이드는 PDF 로 내보내 붙인다. 20MB 넘는 파일은 고를 수 없게 흐리게 표시.
+- 작성창의 '내 자료'(강의자료 목록) 칸은 없앴다. 강의자료는 Drive 창의 AutoSaver 폴더에 있다.
+
+
+### 메일 보내기·임시저장 (`email_reader.send_email`, `save_draft`)
+
+- SMTP 로 보낸 뒤 IMAP `APPEND` 로 '보낸 편지함'에 사본을 넣는다. 예전엔 안 넣어서 앱·웹메일 어디에도 보낸 기록이 없었다.
+- 임시저장은 '임시 보관함'에 `(\Seen \Draft)` 로 넣고 `X-Bungeoppang-Draft: <draftId>` 헤더를 붙인다. 다시 저장하거나 보내면 같은 번호의 예전 판에 `\Deleted` 표시만 한다(EXPUNGE 금지).
+- 이 서버는 `SEARCH HEADER` 를 받아도 빈 결과를 준다(실측). 그래서 `search_header` 는 최근 60일 메일의 그 헤더만 FETCH 해서 직접 비교한다.
+- 보내기 결과에 `refused`(서버가 거절한 주소)·`savedToSent` 를 돌려주고 화면 토스트에 붙인다.
+- 받는 사람·참조·숨은참조는 칩(`setupRecipientChips`). 서버로 보내는 값은 숨긴 원래 칸에 `이름 <주소>, …`. 그 칸의 `value` 를 가로채서 코드가 값을 넣으면 칩을 다시 그린다. 주소 나누기는 따옴표·꺾쇠 안 쉼표를 자르지 않는다(`parseRecipients`, 서버는 `email.utils.getaddresses`).
+- 요청 처리 중 잡히지 않은 오류는 `DashboardHandler._guarded` 가 `C:\lms-autosaver\server_errors.log` 에 남기고 화면에 오류 문구를 돌려준다. 창 없는 EXE 에서는 예전에 연결만 끊겨 원인을 알 수 없었다.
+- 시험할 때 주의: Git Bash 의 curl 에 한글 JSON 을 그대로 넣으면 UTF-8 이 아닌 코드페이지로 나가 `read_body_json` 에서 깨진다. 본문은 UTF-8 파일로 만들어 `--data-binary @파일` 로 보낸다.
+
+- 자동 저장(`scheduleAutosave`): 쓰다 멈추면 1.5초 뒤 이 컴퓨터(`localStorage` autosaver-mail-draft), 15초 뒤 서버 임시 보관함. 내용 서명이 같으면 다시 안 넣는다. 자동 저장은 첨부 3MB 넘으면 첨부를 뺀다('임시저장' 단추는 다 넣음). '←' 는 손댄 게 있으면 저장하고 닫기, 휴지통은 확인 뒤 `/api/mail/discard-draft` 로 서버 저장본까지 버린다. 메일 쓰기를 새로 열면 `restoreDraftIfAny` 가 이어 쓸지 묻고 같은 draftId 로 이어 저장한다.
+
+### 문의 · 오류 제보 · 아이디어 (`app.js` openFeedback)
+
+- 사이드바 '문의 · 제보'(#feedbackButton)·설정 › 앱 '보내기'. 종류를 고르면 메일 쓰기가 받는 사람 `FEEDBACK_TO`(tutleblue12@gmail.com)·제목 `[붕어빵 종류] `·본문 서식으로 열린다.
+- 본문 아래 앱 정보(`/api/diagnostics`: 버전·Windows·파이썬·설치판 여부, 화면 크기·테마는 화면에서). 오류 제보에는 사흘 안의 `server_errors.log` 마지막 한 건과 마지막 실패 작업을 붙인다. 메일 주소·비밀번호는 넣지 않는다.
+
+### 과목별 교수·조교 (`lms_crawler.fetch_course_staff`, `web_ui.get_course_staff`)
+
+- 마감 확인 작업(1시간마다)에서 `GET /learn/api/public/v1/courses/{id}/users?fields=courseRoleId,user.name,user.userName` 로 학생을 뺀 사람(Instructor→교수, TeachingAssistant·CourseBuilder→조교, Grader→채점 조교)을 받아 `course_staff.json` 에 둔다. 지난 학기 일부 과목은 403(전에 받은 것 유지).
+- LMS 는 이메일을 주지 않는다(이름·학번만). 이 학교는 이름 전체를 `name.given` 에 넣고 `family` 는 '.' 이다.
+- `/api/course-staff`: 조직도에서 이름으로 이메일을 붙인다. 동명이인이면 교수는 교원, 조교는 대학원생 → 그래도 여럿이면 주고받은 메일에 나온 사람. 그래도 모르면 `email` 을 비우고 `candidates` 를 준다(화면에서 골라 씀). 실측 44명 중 35명 자동, 7명 후보, 2명 조직도에 없음.
+- 화면: 강의 카드 `courseStaffLine` (누르면 `mailCourseStaff` → 받는 사람 '이름/과목 조교', 제목 '[과목] '). 받는 사람 자동완성은 `staffContacts` 를 연락처에 더하고 '일반물리Ⅱ 조교' 꼬리표(`.ac-tag`)를 붙인다. 여러 낱말 검색은 낱말마다 맞아야 한다.
+
+## 메일 미리보기 CSS (2026-10-02)
+- Blackboard 알림(email@blackboard.com '일일 통지'·'제출물 수신함')은 평문 파트 맨 앞에 HTML 의 CSS 가 그대로 들어 있어 미리보기(앞 300자)가 CSS 뿐이었다(78통 중 16통).
+- `email_reader.strip_css_text`: CSS 흔적(@import·@media·`{ 속성: }`)이 있을 때만 주석·@import·속성 블록을 걷고, 줄을 넘긴 선택자 조각(`table,`)과 HTML 글자 표기(`&nbsp;`)도 정리. 받을 때(`_parse_one_message`) 적용.
+- 이미 받아 둔 메일은 다시 받지 않고 `web_ui.get_emails`(미리보기)·`get_email_body`(본문)가 읽어 줄 때 걷는다.
+
+## 메일함 칸 나누기 (2026-10-02)
+- `.mail-app` 열 너비는 `--mail-rail-w`(폴더, 160~360), 두 칸일 때 `.mail-main` 은 `--mail-list-w`(목록, 280~720). 손잡이 `.mail-split[data-split=rail|list]` 를 끌면 바뀌고, 두 번 누르면 기본(232/380). 폴더 손잡이를 120px 아래로 끌면 접힘(`.rail-folded`), ☰(`#mailRailToggle`)로 다시 펼침.
+- 쓰는 중(`showMailPane('compose')`)에는 `.mail-app.composing` 으로 폴더·목록 칸을 접는다.
+- 너비·접힘은 `ui_prefs.json` 의 `mailLayout`(`/api/ui-prefs`). 메일 영역 860px 이하(폴더가 위쪽 띠)에서는 손잡이·접기를 쓰지 않는다 — 너비 변수 규칙이 파일 뒤쪽에 있어 좁은 화면 규칙에서 다시 한 칸으로 적었다.

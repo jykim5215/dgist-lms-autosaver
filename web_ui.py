@@ -1437,6 +1437,17 @@ def get_emails(workspace: UserWorkspace) -> dict[str, Any]:
         for mail in emails
         if isinstance(mail, dict)
     ]
+    # 예전에 받아 둔 Blackboard 알림 메일은 미리보기가 CSS 로 시작한다. 다시 받지 않고 여기서 걷어 낸다.
+    from email_reader import strip_css_text
+
+    by_id = {str(m.get("id")): m for m in emails if isinstance(m, dict)}
+    for item in listed:
+        snippet = str(item.get("snippet") or "")
+        if snippet.startswith("@") or "{" in snippet[:200]:
+            body = str((by_id.get(str(item.get("id"))) or {}).get("body") or snippet)
+            item["snippet"] = strip_css_text(body)[:300]
+        elif "&" in snippet and re.search(r"&(?:[a-z]+|#\d+);", snippet):
+            item["snippet"] = html.unescape(snippet).replace("\xa0", " ")
     result = {
         "updatedAt": data.get("updatedAt"),
         "briefing": data.get("briefing", ""),
@@ -1540,10 +1551,12 @@ def get_email_body(workspace: UserWorkspace, mail_id: str) -> dict[str, Any]:
     if mail is None:
         return {"ok": False, "id": mail_id, "body": "", "bodyHtml": "", "message": "메일을 찾지 못했습니다."}
     fixed = _repair_quoted_printable(mail)
+    from email_reader import strip_css_text
+
     return {
         "ok": True,
         "id": mail_id,
-        "body": fixed.get("body", ""),
+        "body": strip_css_text(fixed.get("body", "")),
         "bodyHtml": inline_images_into_html(workspace, mail, fixed.get("bodyHtml", "")),
         "attachments": mail.get("attachments") or [],
     }
@@ -2786,6 +2799,23 @@ def get_whats_new(workspace: UserWorkspace) -> dict[str, Any]:
     }
 
 
+def get_course_announcements(workspace: UserWorkspace) -> dict[str, Any]:
+    """과목별 LMS 공지 (동기화 때 lms_crawler 가 course_announcements.json 에 적는다)."""
+    data = read_json(workspace.root / "course_announcements.json", {})
+    courses = data.get("courses") if isinstance(data, dict) else None
+    out = []
+    for course, items in (courses or {}).items():
+        if not isinstance(items, list):
+            continue
+        out.append({
+            "course": course,
+            "label": extract_course_label(course),
+            "items": [i for i in items if isinstance(i, dict)],
+        })
+    out.sort(key=lambda c: max((i.get("created") or "" for i in c["items"]), default=""), reverse=True)
+    return {"updatedAt": (data or {}).get("updatedAt") if isinstance(data, dict) else None, "courses": out}
+
+
 UI_THEMES = ("auto", "claude", "light", "navy", "dark")
 
 
@@ -2795,7 +2825,12 @@ def get_ui_prefs(workspace: UserWorkspace) -> dict[str, Any]:
     data = data if isinstance(data, dict) else {}
     theme = data.get("theme")
     lang = data.get("lang")
-    return {"theme": theme if theme in UI_THEMES else None, "lang": lang if lang in UI_LANGS else None}
+    layout = data.get("mailLayout") if isinstance(data.get("mailLayout"), dict) else {}
+    return {
+        "theme": theme if theme in UI_THEMES else None,
+        "lang": lang if lang in UI_LANGS else None,
+        "mailLayout": layout,
+    }
 
 
 # 화면 언어. None 이면 화면이 윈도우 언어를 보고 고른다 (한국어가 아니면 영어)
@@ -2816,6 +2851,19 @@ def save_ui_prefs(workspace: UserWorkspace, payload: dict[str, Any]) -> dict[str
         if lang not in UI_LANGS:
             raise ValueError("알 수 없는 언어입니다.")
         data["lang"] = lang
+    if isinstance(payload.get("mailLayout"), dict):
+        # 메일함 칸 너비(px)와 폴더 접힘. 값은 화면이 쓰는 범위 안으로만 받는다.
+        incoming = payload["mailLayout"]
+        layout = data.get("mailLayout") if isinstance(data.get("mailLayout"), dict) else {}
+        for key, lo, hi in (("railW", 160, 360), ("listW", 280, 720)):
+            if key in incoming:
+                try:
+                    layout[key] = max(lo, min(hi, int(incoming[key])))
+                except (TypeError, ValueError):
+                    pass
+        if "railFolded" in incoming:
+            layout["railFolded"] = bool(incoming["railFolded"])
+        data["mailLayout"] = layout
     workspace.root.mkdir(parents=True, exist_ok=True)
     atomic_write_text(workspace.root / "ui_prefs.json", json.dumps(data, ensure_ascii=False))
     return {"ok": True, **{k: data.get(k) for k in ("theme", "lang")}}
@@ -2990,6 +3038,86 @@ def search_directory_api(workspace: UserWorkspace, query: str, limit: int = 8) -
     people = _directory_cache["people"]
     hits = directory.search_directory(people, query, limit=max(1, min(int(limit or 8), 50)))
     return {"ok": True, "total": len(people), "results": hits}
+
+
+def get_course_staff(workspace: UserWorkspace) -> dict[str, Any]:
+    """과목별 교수·조교 + 조직도에서 찾은 이메일.
+
+    LMS 는 이름·학번만 준다. 조직도에서 이름이 같은 사람을 찾고, 여럿이면
+    조교는 학생·대학원생, 교수는 교원 쪽을 고른다. 그래도 하나로 안 좁혀지면 이메일을 비워 둔다
+    (엉뚱한 사람에게 메일이 가는 것보다 낫다).
+    """
+    import directory
+
+    path = workspace.root / "course_staff.json"
+    raw = read_json(path, {})
+    if not isinstance(raw, dict):
+        raw = {}
+    stamp = (str(workspace.directory_path), _file_stamp(workspace.directory_path))
+    if _directory_cache.get("stamp") != stamp:
+        _directory_cache.update(stamp=stamp, people=directory.load_directory(workspace.directory_path))
+    people = _directory_cache["people"]
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for p in people:
+        key = re.sub(r"\s+", "", str(p.get("name") or "")).lower()
+        if key:
+            by_name.setdefault(key, []).append(p)
+
+    # 주고받은 메일에 나온 주소: 동명이인 중 실제로 메일을 주고받은 사람을 고르는 데 쓴다
+    mail = read_json(workspace.emails_log, {}) if hasattr(workspace, "emails_log") else {}
+    known: set[str] = set()
+    if isinstance(mail, dict):
+        for c in mail.get("contacts") or []:
+            known.add(str(c.get("email", "")).lower())
+        for m in mail.get("emails") or []:
+            known.add(str(m.get("fromEmail", "")).lower())
+            known.add(str(m.get("toEmail", "")).lower())
+
+    def find_email(name: str, role: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        """(확실한 한 사람, 동명이인 후보들)"""
+        cands = by_name.get(re.sub(r"\s+", "", name).lower(), [])
+        if len(cands) > 1:
+            if role == "교수":
+                narrowed = [p for p in cands if "학생" not in str(p.get("dept", "")) + str(p.get("role", ""))]
+            else:
+                # 조교는 대개 대학원생이다 (실측: 학부생·대학원생 동명이인이 섞여 나왔다)
+                narrowed = [p for p in cands if "대학원" in str(p.get("role", ""))] or [
+                    p for p in cands if re.search(r"학생|대학원", str(p.get("dept", "")) + str(p.get("role", "")))
+                ]
+            cands = narrowed or cands
+        if len(cands) > 1:
+            talked = [p for p in cands if str(p.get("email", "")).lower() in known]
+            if len(talked) == 1:
+                cands = talked
+        if len(cands) == 1:
+            return cands[0], []
+        return None, cands[:5]
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for item in raw.values():
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or extract_course_label(str(item.get("course", ""))))
+        rows = []
+        for s in item.get("staff") or []:
+            name = str(s.get("name") or "").strip()
+            role = str(s.get("role") or "")
+            if not name:
+                continue
+            hit, maybe = find_email(name, role)
+            rows.append({
+                "role": role,
+                "name": name,
+                "email": str(hit.get("email", "")) if hit else "",
+                "dept": str(hit.get("dept", "")) if hit else "",
+                # 동명이인이라 못 고른 경우: 화면에서 직접 고르게 후보를 준다
+                "candidates": [{"email": str(p.get("email", "")), "dept": str(p.get("dept", ""))} for p in maybe],
+            })
+        if rows:
+            # 교수 먼저, 그다음 조교
+            rows.sort(key=lambda r: (r["role"] != "교수", r["name"]))
+            out[label] = rows
+    return {"ok": True, "courses": out}
 
 
 def import_directory(workspace: UserWorkspace, people: list[dict[str, Any]]) -> dict[str, Any]:
@@ -3719,6 +3847,40 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
+        self._guarded(self._do_GET)
+
+    def do_POST(self) -> None:
+        self._guarded(self._do_POST)
+
+    def _guarded(self, handler) -> None:
+        """처리 중 잡히지 않은 오류를 기록하고 화면에 알린다.
+
+        설치형(창 없는 EXE)에서는 오류가 어디에도 안 찍히고 연결만 끊겨서,
+        메일 보내기가 '아무 반응 없이' 실패해도 이유를 알 수 없었다.
+        """
+        try:
+            handler()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            raise
+        except BaseException as exc:  # noqa: BLE001 - 무엇이든 남겨야 원인을 안다
+            import traceback
+
+            try:
+                log = AUTOSAVER_ROOT / "server_errors.log"
+                with open(log, "a", encoding="utf-8") as fh:
+                    fh.write(f"\n=== {datetime.now().isoformat(timespec='seconds')} {self.command} {self.path}\n")
+                    fh.write(traceback.format_exc())
+            except Exception:
+                pass
+            try:
+                self.send_json({"ok": False, "message": f"앱 안에서 오류가 났습니다: {type(exc).__name__}: {exc}"},
+                               HTTPStatus.INTERNAL_SERVER_ERROR)
+            except Exception:
+                pass
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+
+    def _do_GET(self) -> None:
         if self.reject_bad_host():
             return
         parsed = urlparse(self.path)
@@ -3861,6 +4023,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/ui-prefs":
             self.send_json(get_ui_prefs(workspace))
             return
+        if route == "/api/course-announcements":
+            self.send_json(get_course_announcements(workspace))
+            return
         if route == "/api/local-autosave/job":
             self.send_json(get_local_save_job())
             return
@@ -3999,6 +4164,46 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if route == "/api/course-state":
             self.send_json(get_course_state(workspace))
             return
+        if route == "/api/course-staff":
+            self.send_json(get_course_staff(workspace))
+            return
+        if route == "/api/diagnostics":
+            # 문의·오류 제보 메일에 붙일 앱 정보. 메일 주소·비밀번호·파일 경로 같은 개인 정보는 넣지 않는다.
+            import platform
+
+            try:
+                import updater
+
+                version = updater.local_version()
+            except Exception:
+                version = "?"
+            last_error = ""
+            try:
+                log = AUTOSAVER_ROOT / "server_errors.log"
+                if log.exists():
+                    text = log.read_text(encoding="utf-8", errors="replace")
+                    entry = text.strip().split("\n=== ")[-1]
+                    # 오래된 오류는 지금 문제와 상관없을 가능성이 커서 사흘 안의 것만 붙인다
+                    stamp = entry.lstrip("= ").split(" ", 1)[0]
+                    try:
+                        recent = (datetime.now() - datetime.fromisoformat(stamp)).days < 3
+                    except ValueError:
+                        recent = False
+                    if recent:
+                        last_error = entry[-1500:]
+            except OSError:
+                pass
+            health = get_health(workspace)
+            failure = health.get("lastFailure") or {}
+            self.send_json({
+                "version": version,
+                "os": f"{platform.system()} {platform.release()} ({platform.version()})",
+                "python": platform.python_version(),
+                "installed": bool(getattr(sys, "frozen", False)),
+                "lastFailure": f"{failure.get('kind', '')} {failure.get('at', '')}".strip() if failure else "",
+                "lastError": last_error,
+            })
+            return
         if route == "/api/update/check":
             try:
                 import updater
@@ -4012,17 +4217,38 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_json(updater.get_update_job())
             return
         if route == "/api/drive/list":
+            # 메일 첨부용 Drive 창. 폴더 안(parent) 또는 검색(q) 결과를 폴더·파일로 나눠 준다.
+            # 앱 권한이 drive.file 이라 이 앱이 올린 파일(강의자료 등)만 보인다.
+            parent = (params.get("parent", [""])[0] or "root").strip()
+            q = (params.get("q", [""])[0] or "").strip()
+            token = (params.get("pageToken", [""])[0] or "").strip() or None
             try:
                 import drive_uploader
                 service = drive_uploader.get_drive_service()
+                if q:
+                    safe = q.replace("\\", "").replace("'", "\\'")
+                    query = f"trashed=false and name contains '{safe}'"
+                else:
+                    safe_parent = parent.replace("'", "")
+                    query = f"trashed=false and '{safe_parent}' in parents"
                 results = service.files().list(
-                    pageSize=25, orderBy="modifiedTime desc",
-                    q="trashed=false and mimeType!='application/vnd.google-apps.folder'",
-                    fields="files(id,name,size,mimeType)",
+                    pageSize=100,
+                    pageToken=token,
+                    q=query,
+                    orderBy="folder,name_natural",
+                    fields="nextPageToken, files(id,name,size,mimeType,modifiedTime)",
                 ).execute()
-                self.send_json({"files": results.get("files", [])})
+                items = results.get("files", [])
+                folders = [f for f in items if f.get("mimeType") == "application/vnd.google-apps.folder"]
+                files = [f for f in items if f.get("mimeType") != "application/vnd.google-apps.folder"]
+                self.send_json({
+                    "ok": True,
+                    "folders": folders,
+                    "files": files,
+                    "nextPageToken": results.get("nextPageToken", ""),
+                })
             except Exception as exc:
-                self.send_json({"ok": False, "files": [], "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+                self.send_json({"ok": False, "folders": [], "files": [], "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if route == "/api/drive/get":
             file_id = params.get("id", [""])[0]
@@ -4031,11 +4257,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 import drive_uploader
                 service = drive_uploader.get_drive_service()
                 meta = service.files().get(fileId=file_id, fields="name,size,mimeType").execute()
-                content = service.files().get_media(fileId=file_id).execute()
+                name = meta.get("name", "file")
+                mime = str(meta.get("mimeType", ""))
+                if mime.startswith("application/vnd.google-apps."):
+                    # 구글 문서·시트·슬라이드는 파일 원본이 없다. PDF 로 바꿔서 붙인다.
+                    content = service.files().export(fileId=file_id, mimeType="application/pdf").execute()
+                    name = f"{name}.pdf"
+                else:
+                    content = service.files().get_media(fileId=file_id).execute()
                 if len(content) > 20 * 1024 * 1024:
-                    raise ValueError("파일이 20MB를 넘습니다.")
+                    raise ValueError("파일이 20MB를 넘어 메일에 붙일 수 없습니다.")
                 self.send_json({
-                    "filename": meta.get("name", "file"),
+                    "filename": name,
                     "size": len(content),
                     "content": _b64.b64encode(content).decode("ascii"),
                 })
@@ -4159,7 +4392,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self) -> None:
+    def _do_POST(self) -> None:
         if self.reject_bad_host():
             return
         if not self.csrf_ok():
@@ -4257,10 +4490,61 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     password=config.get("SCHOOL_EMAIL_PASSWORD"),
                     host=config.get("SCHOOL_SMTP_HOST", "smtp.dgist.ac.kr"),
                     port=int(config.get("SCHOOL_SMTP_PORT", 465) or 465),
+                    imap_host=config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+                    draft_id=str(payload.get("draftId", "")),
                 )
-                self.send_json({"ok": True, "message": f"메일을 보냈습니다: {result['to']}"})
+                message = f"메일을 보냈습니다: {result['to']}"
+                if result.get("refused"):
+                    message += f" (서버가 거절한 주소: {', '.join(result['refused'])})"
+                if not result.get("savedToSent"):
+                    message += " · 보낸 편지함에 사본은 못 남겼어요"
+                self.send_json({"ok": True, "message": message, **result})
             except Exception as exc:
                 self.send_json({"ok": False, "message": f"메일 발송 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/mail/discard-draft":
+            payload = self.read_body_json()
+            config = read_config(workspace)
+            try:
+                import email_reader
+
+                n = email_reader.discard_draft(
+                    str(payload.get("draftId", "")),
+                    account=config.get("SCHOOL_EMAIL"),
+                    password=config.get("SCHOOL_EMAIL_PASSWORD"),
+                    imap_host=config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+                )
+                self.send_json({"ok": True, "dropped": n})
+            except Exception as exc:
+                self.send_json({"ok": False, "message": f"임시저장본을 지우지 못했습니다: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        if route == "/api/mail/save-draft":
+            # 임시저장을 서버의 '임시 보관함'에 넣는다 (웹메일·휴대폰에서도 이어서 쓰게)
+            payload = self.read_body_json()
+            config = read_config(workspace)
+            if not config.get("SCHOOL_EMAIL") or not config.get("SCHOOL_EMAIL_PASSWORD"):
+                self.send_json({"ok": False, "message": "학교 이메일 계정을 먼저 입력해 주세요."}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                import email_reader
+
+                attachments = payload.get("attachments")
+                result = email_reader.save_draft(
+                    to_addr=str(payload.get("to", "")),
+                    subject=str(payload.get("subject", "")),
+                    body=str(payload.get("body", "")),
+                    cc=str(payload.get("cc", "")),
+                    bcc=str(payload.get("bcc", "")),
+                    html=bool(payload.get("html")),
+                    attachments=attachments if isinstance(attachments, list) else [],
+                    account=config.get("SCHOOL_EMAIL"),
+                    password=config.get("SCHOOL_EMAIL_PASSWORD"),
+                    imap_host=config.get("SCHOOL_IMAP_HOST", "mail.dgist.ac.kr"),
+                    draft_id=str(payload.get("draftId", "")),
+                )
+                self.send_json({"ok": True, "message": "임시 보관함에 저장했습니다.", **result})
+            except Exception as exc:
+                self.send_json({"ok": False, "message": f"임시저장 실패: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
         if route in ("/api/mark-read", "/api/mark-all-read", "/api/delete-email", "/api/restore-email"):
             payload = self.read_body_json()

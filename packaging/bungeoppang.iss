@@ -26,6 +26,14 @@ AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription={#AppName} - DGIST LMS AutoSaver
+VersionInfoCompany={#AppPublisher}
+
+; 코드 서명: build_installer.ps1 이 서명 인증서가 있으면 /DSign /Sbpsign=... 으로 넘긴다.
+; 설치 파일과 제거 프로그램(unins000.exe)도 서명한다 (Defender 오탐 대비, packaging\sign_tools.ps1 참고)
+#ifdef Sign
+SignTool=bpsign
+SignedUninstaller=yes
+#endif
 
 ; 관리자 권한 없이 사용자 폴더에 설치 → 공용/제한 PC에서도 UAC 없이 설치됨
 PrivilegesRequired=lowest
@@ -79,7 +87,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Messages]
 ; 앱 말투로 짧게 (기본 문구는 '마법사' 같은 딱딱한 말이 많다)
 korean.WelcomeLabel1=붕어빵을 설치할게요
-korean.WelcomeLabel2=LMS 강의자료, 과제 마감, 학교 메일을 한 화면에 모아 주는 앱이에요.
+; 개인정보 안내: SignPath Foundation 서명 조건(설치 중 개인정보 처리 고지). 자세한 것은 PRIVACY.md
+korean.WelcomeLabel2=LMS 강의자료, 과제 마감, 학교 메일을 한 화면에 모아 주는 앱이에요.%n%n개인정보: 로그인 정보와 받은 자료는 이 PC에만 저장되고, 개발자에게 보내지 않아요. 직접 연결한 Google Drive·Calendar로만 보냅니다.%n자세히: github.com/jykim5215/dgist-lms-autosaver/blob/main/PRIVACY.md
+english.WelcomeLabel2=Collects your LMS materials, deadlines and school mail in one place.%n%nPrivacy: your sign-in details and files stay on this PC and are never sent to the developer — only to the Google Drive/Calendar you connect.%nDetails: github.com/jykim5215/dgist-lms-autosaver/blob/main/PRIVACY.md
 korean.ClickNext=[다음] 을 누르면 바로 설치해요. 1분이면 끝나요.
 korean.FinishedHeadingLabel=설치를 마쳤어요
 korean.FinishedLabel=이제 붕어빵을 쓸 수 있어요.%n처음 켜면 달구가 앱을 짧게 소개해 줄 거예요.

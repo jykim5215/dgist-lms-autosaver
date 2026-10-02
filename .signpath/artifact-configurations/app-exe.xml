@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath 아티팩트 설정 'app-exe' : GitHub 아티팩트(zip) 안의 붕어빵.exe 하나를 서명.
+     SignPath 웹 화면(Project → Artifact Configurations)에 이 내용을 그대로 붙여 넣는다. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="*.exe" max-matches="1" product-name="붕어빵">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

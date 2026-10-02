@@ -91,6 +91,11 @@
           <span class="whats-new-dot" aria-hidden="true"></span>
           <span id="whatsNewLabel">업데이트 내용</span>
         </button>
+        <!-- 문의·오류 제보·아이디어: 고르면 메일 쓰기가 받는 사람·서식까지 채워져 열린다 (app.js openFeedback) -->
+        <button class="whats-new feedback-link" id="feedbackButton" type="button">
+          <span class="icon" data-icon="mail"></span>
+          <span>문의 · 제보</span>
+        </button>
         <!-- 상태판: 무엇이 잘 되고 있는지, 다음에 무엇을 언제 가져오는지. 누르면 고칠 곳으로 간다.
              예전 '설정 필요 / 매일 08:00 실행' 은 쓰지 않는 설정(Gemini·Gmail 알림)까지 요구해 늘 '설정 필요' 였다. -->
         <button class="sidebar-footer status-card" id="statusCard" type="button">
@@ -129,6 +134,26 @@
         <div class="tour-buddy" id="tourBuddy" aria-hidden="true"><img id="tourBuddyImg" src="/img/dalgu/yay.png" alt="" /></div>
       </div>
 
+      <!-- 공지 읽기 창 -->
+      <dialog class="whats-new-dialog ann-dialog" id="annDialog" aria-labelledby="annDialogTitle">
+        <div class="whats-new-head">
+          <div class="ann-dialog-titles">
+            <span class="ann-dialog-course" id="annDialogCourse"></span>
+            <h2 id="annDialogTitle"></h2>
+            <span class="ann-dialog-date" id="annDialogDate"></span>
+          </div>
+          <button type="button" class="whats-new-close" id="annDialogClose" aria-label="닫기">
+            <span class="icon" data-icon="x"></span>
+          </button>
+        </div>
+        <div class="whats-new-body ann-dialog-body" id="annDialogBody"></div>
+        <div class="ann-dialog-foot">
+          <button type="button" class="button compact ghost" id="annPrev">이전 공지</button>
+          <span class="ann-dialog-pos" id="annDialogPos"></span>
+          <button type="button" class="button compact ghost" id="annNext">다음 공지</button>
+        </div>
+      </dialog>
+
       <dialog class="whats-new-dialog" id="whatsNewDialog" aria-labelledby="whatsNewTitle">
         <div class="whats-new-head">
           <h2 id="whatsNewTitle">업데이트 내용</h2>
@@ -159,6 +184,15 @@
 
       <main class="main">
         <header class="topbar">
+          <!-- 뒤로·앞으로 (크롬처럼. 마우스 옆 버튼·Alt+←/→ 도 된다) -->
+          <div class="nav-arrows">
+            <button type="button" class="nav-arrow" id="navBack" data-nav="back" title="뒤로 (Alt+←)" aria-label="뒤로" disabled>
+              <span class="icon" data-icon="arrowLeft"></span>
+            </button>
+            <button type="button" class="nav-arrow fwd" id="navForward" data-nav="forward" title="앞으로 (Alt+→)" aria-label="앞으로" disabled>
+              <span class="icon" data-icon="arrowLeft"></span>
+            </button>
+          </div>
           <div class="search-wrap">
             <span class="icon" data-icon="search"></span>
             <input id="searchInput" type="search" placeholder="과목·자료·과제·메일·일정 찾기" autocomplete="off" />
@@ -690,6 +724,11 @@
                 <!-- 좁은 화면에서 폴더 레일이 서랍으로 바뀔 때 뒤를 덮는 막 -->
                 <div class="mail-scrim" id="mailScrim" hidden></div>
                 <aside class="mail-rail" id="mailRail" aria-label="메일 폴더">
+                  <!-- 폴더 칸 너비 손잡이 (끌어서 넓히고 좁히기, 맨 왼쪽까지 끌면 접힘, 두 번 누르면 원래대로) -->
+                  <div class="mail-split" data-split="rail" title="끌어서 너비 조절 · 두 번 누르면 원래대로" aria-hidden="true"></div>
+                  <button type="button" class="mail-rail-fold" id="mailRailFold" title="폴더 칸 접기" aria-label="폴더 칸 접기">
+                    <span class="icon" data-icon="arrowLeft"></span>
+                  </button>
                   <!-- 네이버처럼 쓰기 버튼 두 개를 나란히 -->
                   <div class="mail-write-row">
                     <button class="button primary mail-compose-btn" id="composeButton" type="button">메일 쓰기</button>
@@ -709,10 +748,20 @@
                 <div class="mail-main">
                   <!-- 목록 pane -->
                   <div class="mail-pane" id="mailListPane">
+                    <div class="mail-split" data-split="list" title="끌어서 너비 조절 · 두 번 누르면 원래대로" aria-hidden="true"></div>
                     <div class="mail-topbar">
                       <button class="mail-rail-toggle" id="mailRailToggle" type="button" aria-label="폴더 목록">
                         <span class="icon" data-icon="menu"></span>
                       </button>
+                      <!-- 메일함은 위쪽 막대가 숨으므로 뒤로·앞으로를 여기에도 둔다 -->
+                      <div class="nav-arrows mail-nav">
+                        <button type="button" class="nav-arrow" data-nav="back" title="뒤로 (Alt+←)" aria-label="뒤로" disabled>
+                          <span class="icon" data-icon="arrowLeft"></span>
+                        </button>
+                        <button type="button" class="nav-arrow fwd" data-nav="forward" title="앞으로 (Alt+→)" aria-label="앞으로" disabled>
+                          <span class="icon" data-icon="arrowLeft"></span>
+                        </button>
+                      </div>
                       <h1 id="mailFolderTitle">받은 편지함 <em id="mailFolderCount"></em></h1>
                       <button class="mail-refresh" id="mailRefreshButton" type="button" title="메일 새로고침">
                         <span class="icon" data-icon="sync"></span>
@@ -857,7 +906,7 @@
                   </div>
 
                   <!-- 작성 pane -->
-                  <div class="mail-pane compose-with-files" id="mailComposePane" hidden>
+                  <div class="mail-pane compose-pane" id="mailComposePane" hidden>
                     <form id="composeForm">
                       <!-- 위쪽 작업 줄 (웹메일과 같은 순서) -->
                       <div class="compose-bar">
@@ -990,21 +1039,6 @@
                       </div>
                     </form>
 
-                    <!-- 내 자료: 여기서 왼쪽 첨부칸으로 끌어다 놓는다 -->
-                    <aside class="compose-files" id="composeFiles" aria-label="내 자료">
-                      <div class="compose-files-head">
-                        <button type="button" class="fold-toggle files-fold" id="composeFilesFold" aria-label="내 자료 접기/펴기" aria-expanded="true">
-                          <span class="icon" data-icon="chevronDown"></span>
-                        </button>
-                        <strong>내 자료</strong>
-                        <span>끌어서 첨부</span>
-                      </div>
-                      <div class="compose-files-search">
-                        <span class="icon" data-icon="search"></span>
-                        <input type="search" id="composeFileSearch" placeholder="파일 검색" autocomplete="off" />
-                      </div>
-                      <div class="compose-files-list" id="composeFilesList"></div>
-                    </aside>
                   </div>
                 </div>
               </div>
@@ -1027,12 +1061,25 @@
                   </button>
                 </div>
               </div>
+              <div class="course-tabs" role="tablist" aria-label="강의 보기">
+                <button type="button" class="course-tab on" data-ctab="courses" role="tab">과목</button>
+                <button type="button" class="course-tab" data-ctab="ann" role="tab">공지사항 <b id="annTabCount" hidden></b></button>
+              </div>
               <div class="course-grid" id="courseGrid"></div>
               <div class="empty-state" id="courseEmpty" hidden>
                 <span class="icon" data-icon="book"></span>
                 <strong>아직 강의 정보가 없습니다.</strong>
                 <span>먼저 동기화나 ‘새로고침’을 실행해 주세요.</span>
               </div>
+              <!-- 공지사항 탭: 과목마다 카드 한 장, 한눈에 보는 게시판. 제목을 누르면 읽기 창. -->
+              <section class="ann-board-wrap" id="courseAnn" hidden>
+                <div class="ann-recent" id="annRecent"></div>
+                <div class="ann-board" id="annBoard"></div>
+                <details class="ann-past" id="annPastWrap">
+                  <summary id="annPastSummary">지난 학기 공지</summary>
+                  <div class="ann-board" id="annPastBoard"></div>
+                </details>
+              </section>
             </section>
 
             <!-- ===== 자료 ===== -->
@@ -1431,8 +1478,8 @@
               </label>
               <label class="st-auto-item">
                 <span class="icon" data-icon="file"></span>
-                <span class="st-auto-label">새 자료 알림
-                  <button type="button" class="hint" data-hint="LMS에 새 강의자료가 올라오거나 고쳐 다시 올라오면 알려 줍니다.">?</button>
+                <span class="st-auto-label">새 자료·공지 알림
+                  <button type="button" class="hint" data-hint="LMS에 새 강의자료·과목 공지가 올라오거나 자료가 고쳐 다시 올라오면 알려 줍니다.">?</button>
                 </span>
                 <span class="toggle"><input type="checkbox" name="notifyNewFiles" id="notifyNewFiles" /><span class="track"></span></span>
               </label>
@@ -1554,6 +1601,13 @@
                   <button class="button compact ghost" id="checkUpdateButton" type="button">다시 확인</button>
                   <button class="button compact primary" id="applyUpdateButton" type="button" hidden>지금 업데이트</button>
                 </div>
+              </div>
+              <div class="st-list-row">
+                <div>
+                  <strong>문의 · 오류 제보 · 아이디어</strong>
+                  <span>만든 사람에게 바로 메일로 보내요. 서식은 자동으로 채워져요.</span>
+                </div>
+                <button class="button compact" id="settingsFeedbackButton" type="button">보내기</button>
               </div>
               <div class="st-list-row">
                 <div>

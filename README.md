@@ -2,7 +2,10 @@
 
 DGIST LMS 강의 자료를 찾아 Google Drive에 정리하고, 새 자료 확인과 업로드 상태를 웹 인터페이스에서 관리하는 앱입니다.
 
-© 2026 DGIST 기초학부 26학번 오정민 · 김유준. All rights reserved.
+© 2026 DGIST 기초학부 26학번 오정민 · 김유준. [Apache License 2.0](LICENSE)으로 공개합니다.
+
+- 개인정보: 개발자에게 아무것도 보내지 않습니다 → [PRIVACY.md](PRIVACY.md)
+- 코드 서명: Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org) → [CODE_SIGNING.md](CODE_SIGNING.md)
 
 ## 주요 기능
 

@@ -90,6 +90,30 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# 실행 파일에 버전 정보(회사·제품 이름)를 넣는다. 2026-10-02 에 Windows Defender 가 버전 정보 없는
+# 1.12.6 EXE 를 'Trojan:Win32/Bearfoos.A!ml'(기계학습 추정 오탐)으로 보고 지웠다. 출처 정보가 없는
+# PyInstaller EXE 가 이런 오탐을 자주 받는다.
+_ver = (PROJECT / "VERSION").read_text(encoding="utf-8").strip()
+_nums = (list(int(x) for x in _ver.split(".") if x.isdigit()) + [0, 0, 0, 0])[:4]
+_version_file = PROJECT / "build" / "version_info.txt"
+_version_file.parent.mkdir(parents=True, exist_ok=True)
+_version_file.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={tuple(_nums)}, prodvers={tuple(_nums)}, mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('041204B0', [
+      StringStruct('CompanyName', 'jykim5215'),
+      StringStruct('FileDescription', '붕어빵 - DGIST LMS AutoSaver'),
+      StringStruct('FileVersion', '{_ver}'),
+      StringStruct('InternalName', 'bungeoppang'),
+      StringStruct('LegalCopyright', 'jykim5215'),
+      StringStruct('OriginalFilename', '붕어빵.exe'),
+      StringStruct('ProductName', '붕어빵'),
+      StringStruct('ProductVersion', '{_ver}')])]),
+    VarFileInfo([VarStruct('Translation', [1042, 1200])])
+  ]
+)
+""", encoding="utf-8")
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -103,6 +127,7 @@ exe = EXE(
     # 창이 뜨는 앱이라 검은 콘솔은 띄우지 않는다
     console=False,
     icon=str(PROJECT / "web" / "app.ico"),
+    version=str(_version_file),
 )
 
 coll = COLLECT(

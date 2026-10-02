@@ -191,6 +191,8 @@ DEADLINES_LOG = str(AUTOSAVER_DATA_ROOT / "deadlines.json")
 UPLOAD_SELECTION_PATH = str(AUTOSAVER_DATA_ROOT / "upload_selection.json")
 LAST_SYNC_PATH = str(AUTOSAVER_DATA_ROOT / "last_sync.json")
 COURSES_STATE_PATH = str(AUTOSAVER_DATA_ROOT / "courses_state.json")
+# 과목별 교수·조교 (LMS 코스 사용자에서 학생을 뺀 것). 메일 받는 사람 찾기와 강의 카드에 쓴다.
+COURSE_STAFF_PATH = str(AUTOSAVER_DATA_ROOT / "course_staff.json")
 
 SYNC_MODE = os.environ.get("AUTOSAVER_SYNC_MODE", "fast").strip().lower()
 
